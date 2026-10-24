@@ -1,2 +1,45 @@
-# zapret-launcher
-Удобный лаунчер для zapret-discord-youtube: запуск одной кнопкой, автоподбор стратегии, сторож, Telegram, автообновление
+# Zapret Launcher
+
+Удобный лаунчер для [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) (Flowseal) — обход блокировок Discord, YouTube и Telegram в Windows одной кнопкой.
+
+## Установка
+
+1. Скачайте **ZapretLauncherSetup.exe** со страницы [Releases](https://github.com/Pont1fe/zapret-launcher/releases/latest).
+2. Запустите и нажмите «Установить». По умолчанию лаунчер ставится в `C:\ZapretLauncher`. При первом запуске он сам скачает последнюю версию zapret.
+3. Нажмите большую кнопку питания или «Подобрать стратегию».
+
+> Windows SmartScreen может предупредить, что приложение не подписано: «Подробнее» → «Выполнить в любом случае». Антивирус может ругаться на драйвер WinDivert, без которого zapret не работает, — добавьте папку лаунчера в исключения.
+
+## Возможности
+
+- **Запуск одной кнопкой**, смена стратегии кликом, работа из трея. winws запускается без консольного окна.
+- **Автоподбор стратегии**: лаунчер по очереди проверяет все стратегии на Discord, YouTube, видео YouTube и Telegram и ставит лучшую.
+- **Индикаторы сайтов** на главном экране показывают, что открывается, а что нет.
+- **Сторож**: если winws упал, перезапускает его; если сайты перестали открываться, а интернет есть, сам подбирает новую стратегию.
+- **Пауза при VPN**: пока включён VPN, обход стоит на паузе и возвращается, когда VPN отключат.
+- **Своя стратегия для каждой сети**: дома, на мобильном интернете и в другом Wi-Fi лаунчер переключается на ту стратегию, что работала в этой сети.
+- **Telegram**: Desktop работает через локальный прокси [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy), Web — через записи в hosts. Всё включается одним переключателем.
+- **Автообновление** zapret, tg-ws-proxy и самого лаунчера. Ваши списки и фильтры при обновлении сохраняются, а прошлую версию zapret можно вернуть одной кнопкой.
+- **Домены, Game Filter и IPSet** настраиваются прямо в окне, без `service.bat`.
+- **Автозапуск с Windows** через Планировщик задач, без запроса UAC.
+- Удаление через «Установленные приложения» Windows или кнопкой «Удалить всё».
+
+## Сборка из исходников
+
+Нужен только Windows 10/11: используется встроенный компилятор C# из .NET Framework 4.8.
+
+```
+powershell -ExecutionPolicy Bypass -File build.ps1
+```
+
+Готовые `ZapretLauncher.exe` и `ZapretLauncherSetup.exe` появятся в папке `dist`.
+
+- `app/` — лаунчер (WPF): `Launcher.cs` — окно и логика, `Zapret.cs` — работа с zapret, `Telegram.cs`, `Network.cs` — проверки сайтов, VPN и сети, `Shell.cs` — значки, ярлыки, самообновление, `ui.xaml` — интерфейс.
+- `installer/` — установщик (WinForms).
+
+## Благодарности
+
+- [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) и [bol-van/zapret](https://github.com/bol-van/zapret) — сам обход.
+- [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — прокси для Telegram Desktop.
+
+Лаунчер — неофициальная оболочка; zapret и tg-ws-proxy скачиваются напрямую из релизов их авторов.
