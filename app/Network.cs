@@ -19,7 +19,8 @@ namespace ZapretLauncher
     {
         public string Name;
         public bool Ok;
-        public int Ms;
+        public int Ms;          // время HTTPS-запроса (DNS + TCP + TLS + ответ) через обход
+        public int TcpMs = -1;  // время TCP-соединения — «пинг» до сервера; -1 — не удалось
     }
 
     static class Sites
@@ -69,6 +70,7 @@ namespace ZapretLauncher
         {
             SiteResult r = new SiteResult();
             r.Name = name;
+            Task<int> tcp = TcpPing(new Uri(url));
             Stopwatch sw = Stopwatch.StartNew();
             try
             {
@@ -77,7 +79,27 @@ namespace ZapretLauncher
                 r.Ms = (int)sw.ElapsedMilliseconds;
             }
             catch { r.Ok = false; }
+            r.TcpMs = await tcp;
             return r;
+        }
+
+        // Время установки TCP-соединения; DPI его обычно не трогает, поэтому это честный «пинг» до сервера
+        static async Task<int> TcpPing(Uri uri)
+        {
+            try
+            {
+                IPAddress[] addrs = await Dns.GetHostAddressesAsync(uri.Host);
+                IPAddress ip = addrs.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork) ?? addrs.FirstOrDefault();
+                if (ip == null) return -1;
+                using (System.Net.Sockets.TcpClient c = new System.Net.Sockets.TcpClient(ip.AddressFamily))
+                {
+                    Stopwatch sw = Stopwatch.StartNew();
+                    Task connect = c.ConnectAsync(ip, uri.Port);
+                    if (await Task.WhenAny(connect, Task.Delay(3000)) != connect || connect.IsFaulted) return -1;
+                    return (int)sw.ElapsedMilliseconds;
+                }
+            }
+            catch { return -1; }
         }
     }
 

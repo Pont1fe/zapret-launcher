@@ -172,12 +172,17 @@ static class Installer
 
 class SetupForm : Form
 {
-    static readonly Color Bg = Color.FromArgb(30, 30, 35);
-    static readonly Color Card = Color.FromArgb(35, 35, 40);
-    static readonly Color Line = Color.FromArgb(58, 58, 68);
-    static readonly Color Text1 = Color.FromArgb(237, 237, 240);
-    static readonly Color Muted = Color.FromArgb(138, 138, 147);
-    static readonly Color Accent = Color.FromArgb(123, 108, 246);
+    static readonly Color Bg = Color.FromArgb(25, 26, 31);
+    static readonly Color Card = Color.FromArgb(30, 32, 37);
+    static readonly Color Line = Color.FromArgb(44, 46, 53);
+    static readonly Color Text1 = Color.FromArgb(236, 238, 242);
+    static readonly Color Muted = Color.FromArgb(139, 142, 152);
+    static readonly Color Accent = Color.FromArgb(31, 184, 154);
+    static readonly Color AccentText = Color.FromArgb(11, 31, 27);
+
+    // Русский для русской Windows, иначе английский
+    static readonly bool En = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName != "ru";
+    static string L(string ru, string en) { return En ? en : ru; }
 
     [DllImport("dwmapi.dll")]
     static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
@@ -192,7 +197,7 @@ class SetupForm : Form
     {
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96, 96);
-        Text = "Установка Zapret Launcher";
+        Text = L("Установка Zapret Launcher", "Zapret Launcher Setup");
         ClientSize = new Size(560, 400);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -210,10 +215,10 @@ class SetupForm : Form
 
         Label title = MakeLabel("Zapret Launcher", 100, 26, 420, 32);
         title.Font = new Font("Segoe UI Semibold", 17f);
-        Label sub = MakeLabel("Версия " + Installer.Version + " · обход блокировок Discord, YouTube и Telegram", 102, 60, 440, 22);
+        Label sub = MakeLabel(L("Версия ", "Version ") + Installer.Version + L(" · обход блокировок Discord, YouTube и Telegram", " · bypass blocking of Discord, YouTube and Telegram"), 102, 60, 440, 22);
         sub.ForeColor = Muted;
 
-        MakeLabel("Папка установки", 28, 110, 300, 22);
+        MakeLabel(L("Папка установки", "Install folder"), 28, 110, 300, 22);
         pathBox = new TextBox();
         pathBox.Text = dir;
         pathBox.BorderStyle = BorderStyle.FixedSingle;
@@ -223,30 +228,30 @@ class SetupForm : Form
         pathBox.TextChanged += delegate { UpdateExisting(); };
         Controls.Add(pathBox);
 
-        btnBrowse = MakeButton("Обзор…", 436, 134, 96, 30, false);
+        btnBrowse = MakeButton(L("Обзор…", "Browse…"), 436, 134, 96, 30, false);
         btnBrowse.Click += delegate
         {
             using (FolderBrowserDialog d = new FolderBrowserDialog())
             {
-                d.Description = "Выберите папку. Внутри неё будет создана папка ZapretLauncher.";
+                d.Description = L("Выберите папку. Внутри неё будет создана папка ZapretLauncher.", "Choose a folder. A ZapretLauncher folder will be created inside it.");
                 if (d.ShowDialog(this) == DialogResult.OK)
                     pathBox.Text = Path.Combine(d.SelectedPath, "ZapretLauncher");
             }
         };
 
         existing = MakeLabel("", 28, 170, 504, 22);
-        existing.ForeColor = Color.FromArgb(156, 144, 255);
+        existing.ForeColor = Color.FromArgb(44, 211, 177);
 
-        chkDesktop = MakeCheck("Ярлык на рабочем столе", 28, 204);
-        chkStart = MakeCheck("Ярлык в меню «Пуск»", 28, 234);
-        chkLaunch = MakeCheck("Запустить лаунчер после установки", 28, 264);
+        chkDesktop = MakeCheck(L("Ярлык на рабочем столе", "Desktop shortcut"), 28, 204);
+        chkStart = MakeCheck(L("Ярлык в меню «Пуск» (нужен для уведомлений)", "Start menu shortcut (needed for notifications)"), 28, 234);
+        chkLaunch = MakeCheck(L("Запустить лаунчер после установки", "Launch after installation"), 28, 264);
 
-        status = MakeLabel("Путь лучше выбирать без русских букв — так zapret работает надёжнее.", 28, 304, 504, 40);
+        status = MakeLabel(L("Путь лучше выбирать без русских букв — так zapret работает надёжнее.", "Prefer a path with Latin characters only — zapret works more reliably."), 28, 304, 504, 40);
         status.ForeColor = Muted;
 
-        btnCancel = MakeButton("Отмена", 324, 350, 100, 34, false);
+        btnCancel = MakeButton(L("Отмена", "Cancel"), 324, 350, 100, 34, false);
         btnCancel.Click += delegate { Close(); };
-        btnInstall = MakeButton("Установить", 432, 350, 100, 34, true);
+        btnInstall = MakeButton(L("Установить", "Install"), 432, 350, 100, 34, true);
         btnInstall.Click += delegate { OnInstall(); };
         AcceptButton = btnInstall;
         UpdateExisting();
@@ -255,8 +260,8 @@ class SetupForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        int on = 1;   // тёмный заголовок окна (Windows 10 2004+ / 11)
-        try { DwmSetWindowAttribute(Handle, 20, ref on, 4); } catch { }
+        int on = 1, round = 2;   // тёмный заголовок (Windows 10 2004+ / 11) и скруглённые углы (Windows 11)
+        try { DwmSetWindowAttribute(Handle, 20, ref on, 4); DwmSetWindowAttribute(Handle, 33, ref round, 4); } catch { }
     }
 
     Label MakeLabel(string text, int x, int y, int w, int h)
@@ -289,7 +294,7 @@ class SetupForm : Form
         b.FlatAppearance.BorderSize = accent ? 0 : 1;
         b.FlatAppearance.BorderColor = Line;
         b.BackColor = accent ? Accent : Card;
-        b.ForeColor = Color.White;
+        b.ForeColor = accent ? AccentText : Text1;
         b.Cursor = Cursors.Hand;
         b.SetBounds(x, y, w, h);
         Controls.Add(b);
@@ -302,9 +307,9 @@ class SetupForm : Form
         try { v = Installer.InstalledVersion(pathBox.Text.Trim()); } catch { }
         bool same = v == Installer.Version;
         existing.Text = v == null ? "" : same
-            ? "Версия " + v + " уже установлена — лаунчер будет переписан, настройки и zapret сохранятся"
-            : "Найдена версия " + v + " — она будет обновлена, настройки и zapret сохранятся";
-        if (!done) btnInstall.Text = v == null ? "Установить" : same ? "Переустановить" : "Обновить";
+            ? L("Версия ", "Version ") + v + L(" уже установлена — лаунчер будет переписан, настройки и zapret сохранятся", " is already installed — the launcher will be rewritten, settings and zapret are kept")
+            : L("Найдена версия ", "Found version ") + v + L(" — она будет обновлена, настройки и zapret сохранятся", " — it will be updated, settings and zapret are kept");
+        if (!done) btnInstall.Text = v == null ? L("Установить", "Install") : same ? L("Переустановить", "Reinstall") : L("Обновить", "Update");
     }
 
     void OnInstall()
@@ -313,17 +318,18 @@ class SetupForm : Form
         string dir = pathBox.Text.Trim();
         if (!Path.IsPathRooted(dir) || Path.GetPathRoot(dir).TrimEnd('\\') == dir.TrimEnd('\\'))
         {
-            MessageBox.Show(this, "Укажите папку, а не корень диска, например C:\\ZapretLauncher.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, L("Укажите папку, а не корень диска, например C:\\ZapretLauncher.", "Choose a folder, not a drive root, e.g. C:\\ZapretLauncher."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         if (dir.Any(ch => ch > 127) &&
-            MessageBox.Show(this, "В пути есть русские буквы или спецсимволы — zapret с ними может работать нестабильно.\n\nВсё равно установить сюда?",
+            MessageBox.Show(this, L("В пути есть русские буквы или спецсимволы — zapret с ними может работать нестабильно.\n\nВсё равно установить сюда?",
+                "The path contains non-Latin or special characters — zapret may be unstable with them.\n\nInstall here anyway?"),
                 Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             return;
 
         btnInstall.Enabled = btnCancel.Enabled = btnBrowse.Enabled = false;
         status.ForeColor = Text1;
-        status.Text = "Устанавливаю…";
+        status.Text = L("Устанавливаю…", "Installing…");
         Refresh();
         try
         {
@@ -331,15 +337,15 @@ class SetupForm : Form
             Installer.Install(dir, chkDesktop.Checked, chkStart.Checked, chkLaunch.Checked || wasRunning);
             done = true;
             status.ForeColor = Color.FromArgb(120, 220, 160);
-            status.Text = "Готово! Zapret Launcher " + Installer.Version + " установлен в " + dir +
-                (chkLaunch.Checked || wasRunning ? " и запущен." : ".");
-            btnInstall.Text = "Закрыть";
+            status.Text = L("Готово! Zapret Launcher ", "Done! Zapret Launcher ") + Installer.Version + L(" установлен в ", " is installed to ") + dir +
+                (chkLaunch.Checked || wasRunning ? L(" и запущен.", " and running.") : ".");
+            btnInstall.Text = L("Закрыть", "Close");
             btnInstall.Enabled = true;
         }
         catch (Exception e)
         {
             status.ForeColor = Color.FromArgb(255, 138, 138);
-            status.Text = "Ошибка: " + e.Message;
+            status.Text = L("Ошибка: ", "Error: ") + e.Message;
             btnInstall.Enabled = btnCancel.Enabled = btnBrowse.Enabled = true;
         }
     }

@@ -1,0 +1,335 @@
+// Перевод интерфейса на английский. Исходный язык — русский: строки в коде и XAML остаются русскими,
+// а T() переводит их при выводе — сначала по точному совпадению, затем по фразам (так переводятся и сообщения,
+// собранные из кусков: "Запущена стратегия: " + название).
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Security;
+using System.Text.RegularExpressions;
+
+namespace ZapretLauncher
+{
+    static class I18n
+    {
+        public static bool English { get; private set; }
+
+        public static void Init(string language)
+        {
+            if (language == "en") English = true;
+            else if (language == "ru") English = false;
+            else English = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName != "ru";
+        }
+
+        public static string T(string s)
+        {
+            if (!English || string.IsNullOrEmpty(s) || !Cyrillic.IsMatch(s)) return s;
+            string exact;
+            if (Map.TryGetValue(s, out exact)) return exact;
+            foreach (KeyValuePair<Regex, string> p in Phrases) s = p.Key.Replace(s, p.Value.Replace("$", "$$"));
+            return s;
+        }
+
+        // Переводит значения Text/Content/ToolTip/Tag в разметке до её загрузки
+        public static string TranslateXaml(string xaml)
+        {
+            if (!English) return xaml;
+            return Regex.Replace(xaml, "(Text|Content|ToolTip|Tag)=\"([^\"]*)\"", m =>
+            {
+                string value = System.Net.WebUtility.HtmlDecode(m.Groups[2].Value);
+                if (!Cyrillic.IsMatch(value)) return m.Value;
+                return m.Groups[1].Value + "=\"" + SecurityElement.Escape(T(value)) + "\"";
+            });
+        }
+
+        static readonly Regex Cyrillic = new Regex("[А-Яа-яЁё]");
+        static readonly Dictionary<string, string> Map = new Dictionary<string, string>();
+        static readonly List<KeyValuePair<Regex, string>> Phrases;
+
+        static I18n()
+        {
+            string[] pairs = {
+                // интерфейс
+                "Обход", "Bypass",
+                "Домены", "Domains",
+                "Настройки", "Settings",
+                "Журнал", "Log",
+                "Папка zapret", "zapret folder",
+                "Страница лаунчера на GitHub", "Launcher page on GitHub",
+                "Стратегии", "Strategies",
+                "Стратегия", "Strategy",
+                "Установить обновление zapret", "Install zapret update",
+                "Проверить обновления", "Check for updates",
+                "Поиск стратегии", "Search strategies",
+                "Подобрать", "Find best",
+                "Подобрать стратегию", "Find best strategy",
+                "Остановить подбор", "Stop search",
+                "Обходить", "Bypass",
+                "Не трогать", "Exclude",
+                "Например: example.com", "For example: example.com",
+                "Добавить", "Add",
+                "Поддомены учитываются автоматически. Изменения применяются сразу.", "Subdomains are included automatically. Changes apply immediately.",
+                "Список пуст", "The list is empty",
+                "Удалить", "Remove",
+                "ЗАПУСК И ОБНОВЛЕНИЯ", "STARTUP AND UPDATES",
+                "Запускать вместе с Windows", "Start with Windows",
+                "Обход включится сам, лаунчер — в трее", "Bypass turns on by itself, the launcher stays in the tray",
+                "Сторож", "Watchdog",
+                "Перезапускает упавший обход и сам меняет стратегию, если сайты перестали открываться", "Restarts a crashed bypass and switches strategy if sites stop opening",
+                "Пауза, пока включён VPN", "Pause while a VPN is on",
+                "С VPN zapret не нужен: обход выключится сам и вернётся, когда VPN отключат", "zapret isn't needed with a VPN: bypass pauses itself and comes back when the VPN is off",
+                "Обновлять автоматически", "Update automatically",
+                "zapret, tg-ws-proxy и лаунчер — при запуске и каждые 6 часов", "zapret, tg-ws-proxy and the launcher — at startup and every 6 hours",
+                "Включать обход при открытии лаунчера", "Turn bypass on when the launcher opens",
+                "Используется последняя выбранная стратегия", "Uses the last selected strategy",
+                "Уведомления Windows", "Windows notifications",
+                "О паузе при VPN, смене стратегии и обновлениях — с кнопками действий", "About VPN pause, strategy changes and updates — with action buttons",
+                "СЕТИ", "NETWORKS",
+                "Своя стратегия для каждой сети", "Separate strategy for each network",
+                "ФИЛЬТРЫ", "FILTERS",
+                "Обход для игр и программ на портах выше 1023", "Bypass for games and apps on ports above 1023",
+                "Выкл", "Off",
+                "Обход по IP-адресам. «Все IP» может сломать часть сайтов", "Bypass by IP address. “All IPs” may break some sites",
+                "Обновить список IP-адресов", "Update the IP list",
+                "По списку", "From list",
+                "Все IP", "All IPs",
+                "Telegram Desktop и Web вместе с обходом", "Telegram Desktop and Web together with bypass",
+                "Desktop — прокси tg-ws-proxy, Web — через hosts", "Desktop — tg-ws-proxy, Web — via hosts",
+                "Desktop — прокси tg-ws-proxy", "Desktop — tg-ws-proxy",
+                ", Web — через hosts", ", Web — via hosts",
+                "Подключить Telegram Desktop", "Connect Telegram Desktop",
+                "Откроет Telegram — нажмите «Подключиться» в окне прокси", "Opens Telegram — click “Connect” in the proxy window",
+                "ИНСТРУМЕНТЫ", "TOOLS",
+                "Ручные тесты и диагностика zapret в консоли", "Manual zapret tests and diagnostics in a console",
+                "Откатить zapret", "Roll back zapret",
+                "Откатить zapret на версию", "Roll back zapret to version",
+                "Вернуть zapret версии", "Restore zapret version",
+                "(отменить откат)", "(undo rollback)",
+                "Если новая версия работает хуже — вернуть прошлую", "If the new version works worse — go back to the previous one",
+                "Удалить службу zapret", "Remove the zapret service",
+                "Служба из service.bat мешает управлять обходом", "The service.bat service prevents the launcher from controlling bypass",
+                "ЛАУНЧЕР", "LAUNCHER",
+                "Язык интерфейса", "Interface language",
+                "Лаунчер перезапустится, обход продолжит работать", "The launcher restarts, bypass keeps running",
+                "Удалить всё", "Uninstall everything",
+                "Остановить обход, убрать автозапуск, драйвер, записи в hosts и ярлыки", "Stop bypass, remove autostart, driver, hosts entries and shortcuts",
+                "СТАТУС ОБХОДА", "BYPASS STATUS",
+                "Нажмите, чтобы включить", "Click to turn on",
+                "Нажмите, чтобы выключить", "Click to turn off",
+                "ДОСТУПНОСТЬ САЙТОВ", "SITE AVAILABILITY",
+                "Проверить сейчас", "Check now",
+                "HTTPS — время открытия сайта через обход, TCP — пинг до сервера", "HTTPS — time to open the site through bypass, TCP — ping to the server",
+                "Автозапуск", "Autostart",
+                "Автообновление", "Auto-update",
+                "Видео", "Video",
+                "Стандартная", "Default",
+                // состояния
+                "Обход работает", "Bypass is on",
+                "Обход выключен", "Bypass is off",
+                "Работает служба zapret", "zapret service is running",
+                "Работает", "Running",
+                "Пауза: включён VPN", "Paused: VPN is on",
+                "Обход вернётся, когда VPN отключат", "Bypass returns when the VPN is off",
+                "zapret не установлен", "zapret is not installed",
+                "Подключение…", "Connecting…",
+                "Отключение…", "Disconnecting…",
+                "Применяю…", "Applying…",
+                "Подбор…", "Searching…",
+                "Подбор", "Testing",
+                "Пауза…", "Pausing…",
+                "Обновление…", "Updating…",
+                "Проверка…", "Checking…",
+                "Откат…", "Rolling back…",
+                "Удаление…", "Uninstalling…",
+                "проверяю…", "checking…",
+                "не проверялось", "not checked yet",
+                "пауза", "paused",
+                "обход выключен", "bypass is off",
+                "не открывается", "doesn't open",
+                "не запустилась", "failed to start",
+                "мс", "ms",
+                "да", "yes",
+                "нет", "no",
+                "доступна", "available",
+                "последняя версия", "latest version",
+                "проверено", "checked",
+                "автообновление", "auto-update",
+                "проверить обновление", "check for updates",
+                "обновить", "update",
+                "Обновления лаунчера", "Launcher updates",
+                "Сеть не определена", "Network not detected",
+                "сеть не определена", "network not detected",
+                "Сейчас", "Now",
+                "сейчас", "now",
+                "Лаунчер запоминает рабочую стратегию для каждой сети и переключается сам", "The launcher remembers the working strategy for each network and switches automatically",
+                "Забыть сеть", "Forget network",
+                " · шлюз ", " · gateway ",
+                "работает", "running",
+                "остановлен", "stopped",
+                "пауза (VPN)", "paused (VPN)",
+                // меню трея
+                "Открыть", "Open",
+                "Включить обход", "Turn bypass on",
+                "Выключить обход", "Turn bypass off",
+                "Выход (обход продолжит работать)", "Exit (bypass keeps running)",
+                "Лаунчер свёрнут в трей. Выход — через меню значка.", "The launcher is minimized to the tray. Exit from the icon menu.",
+                "Обновить", "Update",
+                "Обновить лаунчер", "Update launcher",
+                "Уведомления включены", "Notifications are on",
+                // диалоги
+                "Работает служба zapret, установленная через service.bat.\nЧтобы управлять обходом из лаунчера, её нужно удалить (автозапуск лаунчер настроит сам).\n\nУдалить службу?",
+                    "A zapret service installed via service.bat is running.\nTo control bypass from the launcher it must be removed (the launcher sets up autostart itself).\n\nRemove the service?",
+                "Интернет идёт через VPN", "Internet traffic goes through a VPN",
+                "Выключите VPN на время подбора, иначе результат будет неверным. Всё равно продолжить?", "Turn the VPN off while searching, otherwise the result will be wrong. Continue anyway?",
+                "Установлена последняя версия лаунчера", "The latest launcher version is installed",
+                "Доступна версия", "Version available:",
+                "Обновить лаунчер сейчас? Обход продолжит работать.", "Update the launcher now? Bypass keeps running.",
+                "Вернуть zapret", "Restore zapret",
+                "вместо", "instead of",
+                "Ваши списки и фильтры сохранятся.", "Your lists and filters are kept.",
+                "Остановить обход и убрать автозапуск, службы WinDivert, записи Telegram в hosts и ярлыки?", "Stop bypass and remove autostart, WinDivert services, Telegram hosts entries and shortcuts?",
+                "Да — удалить и папку", "Yes — also delete the folder",
+                "целиком", "entirely",
+                "Нет — оставить файлы", "No — keep the files",
+                "Отмена — ничего не делать", "Cancel — do nothing",
+                "Не похоже на домен", "Doesn't look like a domain",
+                "Этот домен уже есть в списке", "This domain is already in the list",
+                "Своих доменов пока нет — добавьте сайт, который нужно разблокировать", "No custom domains yet — add a site that needs unblocking",
+                "Исключений нет — сюда добавляют сайты, которые ломаются от обхода", "No exclusions — add sites that break with bypass here",
+                "Лаунчер уже запущен — ищите значок в трее.", "The launcher is already running — look for its tray icon.",
+                "Удаление Zapret Launcher", "Uninstall Zapret Launcher",
+                "Удалить Zapret Launcher?\n\nОбход и Telegram-прокси будут остановлены. Удалятся автозапуск, драйвер WinDivert, записи Telegram в hosts, ярлыки и папка ",
+                    "Uninstall Zapret Launcher?\n\nBypass and the Telegram proxy will be stopped. Autostart, the WinDivert driver, Telegram hosts entries, shortcuts and the folder ",
+                " со всеми файлами.", " with all files will be removed.",
+                "Zapret Launcher удалён.", "Zapret Launcher has been uninstalled.",
+                "Не удалось удалить полностью: ", "Could not uninstall completely: ",
+                "Zapret Launcher — обход блокировок Discord, YouTube и Telegram", "Zapret Launcher — bypass blocking of Discord, YouTube and Telegram",
+                // журнал и уведомления
+                "Лаунчер ", "Launcher ",
+                " запущен", " started",
+                " (автозапуск)", " (autostart)",
+                "Внимание: в пути к лаунчеру есть кириллица или спецсимволы — zapret может работать некорректно. Переместите папку, например, в C:\\ZapretLauncher",
+                    "Warning: the launcher path contains non-Latin or special characters — zapret may not work correctly. Move the folder, e.g. to C:\\ZapretLauncher",
+                "Ярлыки: ", "Shortcuts: ",
+                "zapret ещё не установлен — скачиваю последнюю версию", "zapret is not installed yet — downloading the latest version",
+                "Стратегия перестала работать — подбираю новую", "The strategy stopped working — searching for a new one",
+                "Новая стратегия: ", "New strategy: ",
+                "Сторож: перезапуск не удался — больше не пытаюсь, пока обход не включат вручную", "Watchdog: restart failed — not retrying until bypass is turned on manually",
+                "Сторож: winws.exe не работает — перезапускаю", "Watchdog: winws.exe is not running — restarting",
+                "Сторож: включён VPN — стратегию не меняю", "Watchdog: VPN is on — not changing the strategy",
+                "Сторож: не открывается ", "Watchdog: not opening: ",
+                " (проверка ", " (check ",
+                " из 2)", " of 2)",
+                "Не открывается ", "Not opening: ",
+                "Сторож включён", "Watchdog on",
+                "Сторож выключен", "Watchdog off",
+                "Подбор стратегии: проверяю ", "Strategy search: testing ",
+                " шт. (", " strategies (",
+                "Подбор остановлен", "Search stopped",
+                "Лучшая стратегия: ", "Best strategy: ",
+                "Ни одна стратегия не открыла проверочные сайты — оставляю прежнюю", "No strategy opened the test sites — keeping the current one",
+                "Подбор завершён: ", "Search finished: ",
+                " из ", " of ",
+                " сайтов)", " sites)",
+                " — не запустилась", " — failed to start",
+                "Включён VPN (", "VPN is on (",
+                ") — обход на паузе", ") — bypass paused",
+                ") — обход включится, когда VPN отключат", ") — bypass starts when the VPN is off",
+                "VPN отключён — включаю обход", "VPN is off — turning bypass on",
+                "Сеть: ", "Network: ",
+                ": стратегия ", ": strategy ",
+                "Запущена стратегия: ", "Strategy started: ",
+                "Стратегия ", "Strategy ",
+                " не найдена, использую general.bat", " not found, using general.bat",
+                "Стратегия не найдена: ", "Strategy not found: ",
+                "Telegram Web: ", "Telegram Web: ",
+                "Telegram-прокси не запустился: ", "Telegram proxy failed to start: ",
+                "Telegram-прокси запущен (", "Telegram proxy started (",
+                "Telegram-прокси остановлен", "Telegram proxy stopped",
+                "Telegram заработает вместе с обходом", "Telegram will work together with bypass",
+                "Ошибка: ", "Error: ",
+                "Внимание: ", "Warning: ",
+                "Доступна новая версия zapret: ", "New zapret version available: ",
+                " (установлена: ", " (installed: ",
+                " (пропущена после отката)", " (skipped after rollback)",
+                "zapret обновлён до версии ", "zapret updated to version ",
+                "zapret: установлена последняя версия (", "zapret: the latest version is installed (",
+                "Не удалось обновить адреса Telegram: ", "Could not update Telegram addresses: ",
+                "tg-ws-proxy обновлён до версии ", "tg-ws-proxy updated to version ",
+                "Доступна новая версия tg-ws-proxy: ", "New tg-ws-proxy version available: ",
+                "tg-ws-proxy: установлена последняя версия (", "tg-ws-proxy: the latest version is installed (",
+                "tg-ws-proxy: не удалось проверить обновления: ", "tg-ws-proxy: could not check for updates: ",
+                "Лаунчер: установлена последняя версия (", "Launcher: the latest version is installed (",
+                "Доступна новая версия лаунчера: ", "New launcher version available: ",
+                "Лаунчер: не удалось проверить обновления (", "Launcher: could not check for updates (",
+                "Лаунчер обновлён до версии ", "Launcher updated to version ",
+                "Не удалось проверить обновления: ", "Could not check for updates: ",
+                "Автозапуск с Windows включён", "Start with Windows enabled",
+                "Автозапуск с Windows выключен", "Start with Windows disabled",
+                "Пауза при VPN включена", "VPN pause enabled",
+                "Пауза при VPN выключена", "VPN pause disabled",
+                "Профили сетей включены", "Network profiles enabled",
+                "Профили сетей выключены", "Network profiles disabled",
+                "Уведомления Windows недоступны — нужен ярлык лаунчера в меню «Пуск»; пока будут подсказки в трее",
+                    "Windows notifications are unavailable — a Start menu shortcut is needed; tray tips will be used for now",
+                "Уведомления Windows недоступны: ", "Windows notifications are unavailable: ",
+                "Не удалось показать уведомление Windows: ", "Could not show a Windows notification: ",
+                "Добавлено в «", "Added to “",
+                "»: ", "”: ",
+                "Удалён домен: ", "Domain removed: ",
+                "Сначала включите обход — Telegram-прокси работает вместе с ним", "Turn bypass on first — the Telegram proxy works together with it",
+                "Ссылка на прокси открыта в Telegram — нажмите «Подключиться» (если Telegram не открылся, установите Telegram Desktop)",
+                    "The proxy link was opened in Telegram — click “Connect” (if Telegram didn't open, install Telegram Desktop)",
+                "Адреса Telegram добавлены в hosts", "Telegram addresses added to hosts",
+                "Адреса Telegram убраны из hosts", "Telegram addresses removed from hosts",
+                "Не удалось изменить hosts (антивирус?): ", "Could not modify hosts (antivirus?): ",
+                "Скачиваю tg-ws-proxy ", "Downloading tg-ws-proxy ",
+                "Установлен tg-ws-proxy ", "Installed tg-ws-proxy ",
+                "Скачиваю ", "Downloading ",
+                "Неожиданная структура архива — обновление отменено", "Unexpected archive layout — update cancelled",
+                "Не удалось заменить папку zapret (файлы заняты?): ", "Could not replace the zapret folder (files in use?): ",
+                "Установлена версия zapret ", "Installed zapret version ",
+                "Нет сохранённой прошлой версии zapret", "No saved previous zapret version",
+                "Не удалось откатить: ", "Rollback failed: ",
+                "zapret откатан на версию ", "zapret rolled back to version ",
+                " (автообновление пропустит ", " (auto-update will skip ",
+                "Обход остановлен", "Bypass stopped",
+                "Служба zapret (из service.bat) удалена", "zapret service (from service.bat) removed",
+                "Выгружаю драйвер WinDivert от другой установки zapret", "Unloading the WinDivert driver of another zapret installation",
+                "Незнакомый формат стратегии — запускаю .bat напрямую", "Unknown strategy format — running the .bat directly",
+                "winws.exe не запустился. Возможно, его удалил антивирус — добавьте папку лаунчера в исключения. ",
+                    "winws.exe failed to start. An antivirus may have removed it — add the launcher folder to exclusions. ",
+                "Чтобы увидеть ошибку, запустите «", "To see the error, run “",
+                "» из папки zapret вручную.", "” from the zapret folder manually.",
+                "Список IPSet обновлён (", "IPSet list updated (",
+                " записей)", " entries)",
+                "Скачанный список IPSet подозрительно короткий — не применяю", "The downloaded IPSet list is suspiciously short — not applying",
+                "Интернет идёт через VPN (", "Internet goes through a VPN (",
+                ") — мимо zapret", ") — bypassing zapret",
+                "Запущен ", "Running: ",
+                " — две программы обхода мешают друг другу", " — two bypass tools interfere with each other",
+                "Запущена другая копия zapret: ", "Another zapret copy is running: ",
+                "Драйвер WinDivert загружен из другой папки (", "The WinDivert driver is loaded from another folder (",
+                ") — лаунчер заменит его при следующем включении обхода", ") — the launcher will replace it next time bypass is turned on",
+                "Автозапуск, службы, ярлыки и записи в hosts удалены", "Autostart, services, shortcuts and hosts entries removed",
+                "Не удалось создать задачу автозапуска: ", "Could not create the autostart task: ",
+                "Не удалось прочитать launcher.json: ", "Could not read launcher.json: ",
+                "Не удалось сохранить launcher.json: ", "Could not save launcher.json: ",
+                "Скачанный файл обновления повреждён — обновление отменено", "The downloaded update file is corrupted — update cancelled",
+                "Файл обновления не похож на лаунчер версии ", "The update file doesn't look like launcher version ",
+                " — обновление отменено", " — update cancelled",
+                "В релизе ", "Release ",
+                " нет нужного файла", " has no required file",
+                "Непредвиденная ошибка: ", "Unexpected error: ",
+            };
+            for (int i = 0; i + 1 < pairs.Length; i += 2) Map[pairs[i]] = pairs[i + 1];
+            // фразы: длинные раньше коротких; если фраза начинается или кончается буквой — не посреди слова
+            Phrases = Map.Where(kv => kv.Key.Trim().Length >= 2)
+                .OrderByDescending(kv => kv.Key.Length)
+                .Select(kv => new KeyValuePair<Regex, string>(new Regex(
+                    (char.IsLetter(kv.Key[0]) ? "(?<![А-Яа-яЁё])" : "") + Regex.Escape(kv.Key) +
+                    (char.IsLetter(kv.Key[kv.Key.Length - 1]) ? "(?![А-Яа-яЁё])" : "")), kv.Value))
+                .ToList();
+        }
+    }
+}

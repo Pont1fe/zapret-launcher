@@ -19,7 +19,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "3.0.0";
+        public const string Value = "3.1.0";
     }
 
     static class App
@@ -36,6 +36,7 @@ namespace ZapretLauncher
             bool uninstall = args.Contains("--uninstall");
             bool restarted = args.Contains("--restarted");
             SelfUpdate.CleanupOld();
+            I18n.Init(Config.Load().Language);
 
             if (uninstall) return Uninstaller.Interactive();
 
@@ -50,7 +51,7 @@ namespace ZapretLauncher
             {
                 EventWaitHandle show;
                 if (EventWaitHandle.TryOpenExisting(ShowEventName, out show)) show.Set();
-                else MessageBox.Show("Лаунчер уже запущен — ищите значок в трее.", "Zapret Launcher");
+                else MessageBox.Show(I18n.T("Лаунчер уже запущен — ищите значок в трее."), "Zapret Launcher");
                 return 0;
             }
             owned = true;
@@ -60,7 +61,7 @@ namespace ZapretLauncher
             app.DispatcherUnhandledException += (s, e) =>
             {
                 Log.Write("Непредвиденная ошибка: " + e.Exception);
-                MessageBox.Show(e.Exception.Message, "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(I18n.T(e.Exception.Message), "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
                 e.Handled = true;
             };
             Launcher launcher = new Launcher(autostart);
@@ -90,18 +91,18 @@ namespace ZapretLauncher
         // Вызов из «Установленных приложений» Windows
         public static int Interactive()
         {
-            if (MessageBox.Show("Удалить Zapret Launcher?\n\nОбход и Telegram-прокси будут остановлены. Удалятся автозапуск, драйвер WinDivert, записи Telegram в hosts, ярлыки и папка " +
-                Paths.Root + " со всеми файлами.", "Удаление Zapret Launcher", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return 1;
+            if (MessageBox.Show(I18n.T("Удалить Zapret Launcher?\n\nОбход и Telegram-прокси будут остановлены. Удалятся автозапуск, драйвер WinDivert, записи Telegram в hosts, ярлыки и папка ") +
+                Paths.Root + I18n.T(" со всеми файлами."), I18n.T("Удаление Zapret Launcher"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return 1;
             CloseOtherInstances();
             try
             {
                 Remove(true).GetAwaiter().GetResult();
-                MessageBox.Show("Zapret Launcher удалён.", "Zapret Launcher");
+                MessageBox.Show(I18n.T("Zapret Launcher удалён."), "Zapret Launcher");
                 return 0;
             }
             catch (Exception e)
             {
-                MessageBox.Show("Не удалось удалить полностью: " + e.Message, "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(I18n.T("Не удалось удалить полностью: ") + I18n.T(e.Message), "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
                 return 1;
             }
         }

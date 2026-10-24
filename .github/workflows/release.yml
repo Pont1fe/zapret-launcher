@@ -1,0 +1,41 @@
+# Сборка на каждый push; по тегу vX.Y.Z — релиз с ZapretLauncherSetup.exe и ZapretLauncher.exe
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        shell: powershell
+        run: ./build.ps1
+
+      - name: Check that the version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: powershell
+        run: |
+          $v = (Get-Item dist/ZapretLauncher.exe).VersionInfo.FileVersion -replace '\.0$', ''
+          if ("v$v" -ne '${{ github.ref_name }}') { throw "AppVersion $v does not match tag ${{ github.ref_name }} — update app/App.cs" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZapretLauncher
+          path: dist/*.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create '${{ github.ref_name }}' dist/ZapretLauncherSetup.exe dist/ZapretLauncher.exe --title 'Zapret Launcher ${{ github.ref_name }}' --notes-file RELEASE_NOTES.md --latest

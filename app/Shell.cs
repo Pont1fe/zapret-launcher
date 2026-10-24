@@ -18,7 +18,7 @@ namespace ZapretLauncher
 {
     static class Icons
     {
-        // Кнопка питания в круге: фиолетовая — обход работает, серая — нет
+        // Щит в скруглённом квадрате: бирюзовый — обход работает, серый — нет (тот же рисунок в build.ps1)
         public static Bitmap Draw(int size, bool active)
         {
             Bitmap bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -28,15 +28,24 @@ namespace ZapretLauncher
                 g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
                 float pad = Math.Max(1f, size / 32f);
                 RectangleF rect = new RectangleF(pad, pad, size - 2 * pad, size - 2 * pad);
-                System.Drawing.Color c1 = active ? System.Drawing.Color.FromArgb(142, 129, 255) : System.Drawing.Color.FromArgb(110, 110, 122);
-                System.Drawing.Color c2 = active ? System.Drawing.Color.FromArgb(84, 68, 214) : System.Drawing.Color.FromArgb(58, 58, 68);
-                using (System.Drawing.Drawing2D.LinearGradientBrush brush = new System.Drawing.Drawing2D.LinearGradientBrush(rect, c1, c2, 45f)) g.FillEllipse(brush, rect);
-                using (Font font = new Font("Segoe MDL2 Assets", size * 0.46f, System.Drawing.FontStyle.Regular, GraphicsUnit.Pixel))
+                System.Drawing.Color c1 = active ? System.Drawing.Color.FromArgb(44, 211, 177) : System.Drawing.Color.FromArgb(110, 112, 122);
+                System.Drawing.Color c2 = active ? System.Drawing.Color.FromArgb(18, 140, 117) : System.Drawing.Color.FromArgb(58, 60, 68);
+                float r = rect.Width * 0.28f;
+                using (GraphicsPath path = new GraphicsPath())
+                {
+                    path.AddArc(rect.X, rect.Y, r * 2, r * 2, 180, 90);
+                    path.AddArc(rect.Right - r * 2, rect.Y, r * 2, r * 2, 270, 90);
+                    path.AddArc(rect.Right - r * 2, rect.Bottom - r * 2, r * 2, r * 2, 0, 90);
+                    path.AddArc(rect.X, rect.Bottom - r * 2, r * 2, r * 2, 90, 90);
+                    path.CloseFigure();
+                    using (System.Drawing.Drawing2D.LinearGradientBrush brush = new System.Drawing.Drawing2D.LinearGradientBrush(rect, c1, c2, 45f)) g.FillPath(brush, path);
+                }
+                using (Font font = new Font("Segoe MDL2 Assets", size * 0.5f, System.Drawing.FontStyle.Regular, GraphicsUnit.Pixel))
                 using (StringFormat f = new StringFormat())
                 {
                     f.Alignment = StringAlignment.Center;
                     f.LineAlignment = StringAlignment.Center;
-                    g.DrawString("", font, System.Drawing.Brushes.White, rect, f);
+                    g.DrawString("", font, System.Drawing.Brushes.White, rect, f);
                 }
             }
             return bmp;

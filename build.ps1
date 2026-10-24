@@ -9,18 +9,25 @@ $fw = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $csc = Join-Path $fw 'csc.exe'
 $wpf = Join-Path $fw 'WPF'
 
-# Значок: кнопка питания в круге (тот же рисунок, что в лаунчере — Icons.Draw)
+# Значок: щит в скруглённом квадрате (тот же рисунок, что в лаунчере — Icons.Draw)
 function New-AppBitmap([int]$Size) {
     $bmp = New-Object Drawing.Bitmap $Size, $Size, ([Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = 'AntiAlias'; $g.TextRenderingHint = 'AntiAliasGridFit'
     $pad = [Math]::Max(1, $Size / 32)
     $rect = New-Object Drawing.RectangleF($pad, $pad, ($Size - 2 * $pad), ($Size - 2 * $pad))
-    $brush = New-Object Drawing.Drawing2D.LinearGradientBrush($rect, [Drawing.Color]::FromArgb(142, 129, 255), [Drawing.Color]::FromArgb(84, 68, 214), [single]45)
-    $g.FillEllipse($brush, $rect)
-    $font = New-Object Drawing.Font('Segoe MDL2 Assets', [single]($Size * 0.46), [Drawing.FontStyle]::Regular, [Drawing.GraphicsUnit]::Pixel)
+    $r = $rect.Width * 0.28
+    $path = New-Object Drawing.Drawing2D.GraphicsPath
+    $path.AddArc($rect.X, $rect.Y, $r * 2, $r * 2, 180, 90)
+    $path.AddArc($rect.Right - $r * 2, $rect.Y, $r * 2, $r * 2, 270, 90)
+    $path.AddArc($rect.Right - $r * 2, $rect.Bottom - $r * 2, $r * 2, $r * 2, 0, 90)
+    $path.AddArc($rect.X, $rect.Bottom - $r * 2, $r * 2, $r * 2, 90, 90)
+    $path.CloseFigure()
+    $brush = New-Object Drawing.Drawing2D.LinearGradientBrush($rect, [Drawing.Color]::FromArgb(44, 211, 177), [Drawing.Color]::FromArgb(18, 140, 117), [single]45)
+    $g.FillPath($brush, $path)
+    $font = New-Object Drawing.Font('Segoe MDL2 Assets', [single]($Size * 0.5), [Drawing.FontStyle]::Regular, [Drawing.GraphicsUnit]::Pixel)
     $f = New-Object Drawing.StringFormat; $f.Alignment = 'Center'; $f.LineAlignment = 'Center'
-    $g.DrawString([string][char]0xE7E8, $font, [Drawing.Brushes]::White, $rect, $f)
+    $g.DrawString([string][char]0xEA18, $font, [Drawing.Brushes]::White, $rect, $f)
     $g.Dispose()
     $bmp
 }

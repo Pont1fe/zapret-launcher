@@ -82,13 +82,16 @@ namespace ZapretLauncher
         public bool NetworkProfilesEnabled { get; set; }
         public bool Telegram { get; set; }
         public bool TelegramLinked { get; set; }
+        public bool Toasts { get; set; }
+        public string Language { get; set; }   // auto / ru / en
         public string SkipVersion { get; set; }
         public string LauncherRepo { get; set; }
         public Dictionary<string, NetProfile> NetworkProfiles { get; set; }
 
         public Config()
         {
-            Strategy = "general.bat"; AutoUpdate = true; Watchdog = true; VpnPause = true; NetworkProfilesEnabled = true;
+            Strategy = "general.bat"; AutoUpdate = true; Watchdog = true; VpnPause = true; NetworkProfilesEnabled = true; Toasts = true;
+            Language = "auto";
             SkipVersion = ""; LauncherRepo = Consts.LauncherRepo;
             NetworkProfiles = new Dictionary<string, NetProfile>();
         }
@@ -107,6 +110,7 @@ namespace ZapretLauncher
             if (string.IsNullOrEmpty(c.LauncherRepo)) c.LauncherRepo = Consts.LauncherRepo;
             if (c.SkipVersion == null) c.SkipVersion = "";
             if (string.IsNullOrEmpty(c.Strategy)) c.Strategy = "general.bat";
+            if (string.IsNullOrEmpty(c.Language)) c.Language = "auto";
             return c;
         }
 
@@ -124,7 +128,7 @@ namespace ZapretLauncher
 
         public static void Write(string message)
         {
-            string line = "[" + DateTime.Now.ToString("dd.MM HH:mm:ss") + "] " + message;
+            string line = "[" + DateTime.Now.ToString("dd.MM HH:mm:ss") + "] " + I18n.T(message);
             lock (sync) { try { File.AppendAllText(Paths.Log, line + "\r\n", Encoding.UTF8); } catch { } }
             Action<string> h = Line;
             if (h != null) h(line);
