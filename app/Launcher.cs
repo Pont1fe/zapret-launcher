@@ -118,6 +118,8 @@ namespace ZapretLauncher
             try { Shell.MigrateShortcuts(); Shell.UpdateUninstallEntry(); } catch (Exception e) { Log.Write("Ярлыки: " + e.Message); }
             foreach (string legacy in new[] { "ZapretLauncher.ps1", "Start.bat", "launcher.ico" })
                 try { File.Delete(System.IO.Path.Combine(Paths.Root, legacy)); } catch { }
+            // после самообновления старый exe ещё может быть занят завершающимся процессом — пробуем удалить ещё несколько раз
+            for (int i = 0; i < 10 && File.Exists(Paths.Exe + ".old"); i++) { await Task.Delay(1000); SelfUpdate.CleanupOld(); }
             UpdateConflicts();
             CheckNetwork();
 
@@ -287,7 +289,8 @@ namespace ZapretLauncher
             List<SiteResult> res;
             try { res = await Sites.Test(cfg.Telegram, true); }
             finally { siteChecking = false; }
-            if (!Zapret.Running) { siteResults = null; BuildSitePanel(); return; }
+            // ручную проверку показываем и без обхода (видно, что заблокировано); фоновую — только при работающем обходе
+            if (health && !Zapret.Running) { siteResults = null; BuildSitePanel(); return; }
             SiteResult control = res.FirstOrDefault(r => r.Name == Sites.Control);
             siteResults = res.Where(r => r.Name != Sites.Control).ToList();
             BuildSitePanel();
@@ -312,6 +315,13 @@ namespace ZapretLauncher
                 PickBest best = await AutoPick(true);
                 if (best != null && best.Ok > 0) Notify("Новая стратегия: " + Zapret.Title(best.File));
             }, "Подбор…");
+        }
+
+        // Кнопки «Обновить пинг»: сразу перепроверить сайты и TCP-пинг
+        async Task PingNow()
+        {
+            if (siteChecking || busy) return;
+            await SiteCheck(false);
         }
 
         // ---------- Подбор стратегии ----------
@@ -498,12 +508,13 @@ namespace ZapretLauncher
             UniformGrid panel = E<UniformGrid>("SitePanel");
             panel.Children.Clear();
             bool running = Zapret.Running;
-            foreach (KeyValuePair<string, string> t in Sites.Targets(cfg.Telegram, false))
+            // «Видео» (серверы googlevideo) проверяется при подборе и сторожем, но карточкой не показывается
+            foreach (KeyValuePair<string, string> t in Sites.Targets(cfg.Telegram, false).Where(x => x.Key != "Видео"))
             {
                 SiteResult r = siteResults == null ? null : siteResults.FirstOrDefault(x => x.Name == t.Key);
                 string color, https, tcp;
                 if (siteChecking) { color = "#E0B040"; https = T("проверяю…"); tcp = " "; }
-                else if (!running || r == null) { color = "#4A4D55"; https = running ? T("не проверялось") : pausedByVpn ? T("пауза") : T("обход выключен"); tcp = " "; }
+                else if (r == null) { color = "#4A4D55"; https = running ? T("не проверялось") : pausedByVpn ? T("пауза") : T("обход выключен"); tcp = " "; }
                 else
                 {
                     color = r.Ok ? "#3DD68C" : "#FF6B6B";
@@ -951,7 +962,8 @@ namespace ZapretLauncher
                 else if (Zapret.LocalVersion != null) await StartBypassUi();
                 else await InstallZapretUi();
             };
-            Click("BtnSiteCheck", async () => { if (Zapret.Running && !siteChecking && !busy) await SiteCheck(false); });
+            Click("BtnSiteCheck", PingNow);
+            Click("BtnPing", PingNow);
 
             TextBox search = E<TextBox>("SearchBox");
             search.TextChanged += delegate
@@ -970,7 +982,6 @@ namespace ZapretLauncher
             Click("BtnCheck", () => RunBusy(() => CheckUpdates(false, false), "Проверка…"));
             Click("BtnInstallUpdate", InstallZapretUi);
             Click("BtnMain", StartAutoPickUi);
-            Click("BtnPick", StartAutoPickUi);
             ClickSync("BtnService", () =>
             {
                 ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", "/c \"\"" + Paths.InZapret("service.bat") + "\" admin\"");

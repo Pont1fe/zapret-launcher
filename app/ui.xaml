@@ -438,10 +438,10 @@
               <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" Margin="22,0,0,0"/>
             </Grid>
           </Border>
-          <Button x:Name="BtnPick" Grid.Column="1" Style="{StaticResource GhostButton}" Height="38" Margin="8,0,0,0">
+          <Button x:Name="BtnPing" Grid.Column="1" Style="{StaticResource GhostButton}" Height="38" Margin="8,0,0,0" ToolTip="Заново проверить сайты и пинг">
             <StackPanel Orientation="Horizontal">
-              <TextBlock Text="&#xEC4A;" FontFamily="{StaticResource Icons}" FontSize="14" VerticalAlignment="Center" Margin="0,0,7,0"/>
-              <TextBlock Text="Подобрать" VerticalAlignment="Center"/>
+              <TextBlock Text="&#xE72C;" FontFamily="{StaticResource Icons}" FontSize="13" VerticalAlignment="Center" Margin="0,0,7,0"/>
+              <TextBlock Text="Обновить пинг" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
         </Grid>
@@ -784,7 +784,7 @@
           <Button x:Name="BtnSiteCheck" Style="{StaticResource IconButton}" Width="26" Height="26" FontSize="12" Content="&#xE72C;"
                   HorizontalAlignment="Right" ToolTip="Проверить сейчас"/>
         </Grid>
-        <UniformGrid x:Name="SitePanel" DockPanel.Dock="Top" Columns="2"/>
+        <UniformGrid x:Name="SitePanel" DockPanel.Dock="Top" Rows="1"/>
         <TextBlock DockPanel.Dock="Top" Text="HTTPS — время открытия сайта через обход, TCP — пинг до сервера" FontSize="10"
                    Foreground="#6B6E78" Margin="2,6,0,0" TextWrapping="Wrap"/>
 

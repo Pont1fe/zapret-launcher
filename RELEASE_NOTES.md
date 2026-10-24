@@ -1,12 +1,10 @@
 **Download `ZapretLauncherSetup.exe`** — installs or updates the launcher (settings and zapret are kept). Installed launchers update themselves automatically.
 **Скачайте `ZapretLauncherSetup.exe`** — установит или обновит лаунчер (настройки и zapret сохранятся). Установленные лаунчеры обновятся сами.
 
-### 3.1.0
-- New look: rounded window (Windows 11), teal accent, big on/off card, site cards / Новый интерфейс: скруглённое окно, бирюзовый акцент, большая карточка-переключатель, карточки сайтов
-- Site cards show HTTPS time through bypass and TCP ping to the server / Карточки сайтов показывают HTTPS-время через обход и TCP-пинг до сервера
-- Windows notifications with action buttons / Уведомления Windows с кнопками действий
-- English interface (auto-detected, switchable in Settings) / Английский интерфейс (по языку Windows, переключается в настройках)
-- Builds and releases are made by GitHub Actions from the source in this repository / Сборки и релизы делает GitHub Actions из исходников этого репозитория
+### 3.1.1
+- “Refresh ping” button next to the strategy search; ping can be checked even while bypass is off / Кнопка «Обновить пинг» рядом с поиском стратегий; пинг можно проверить и при выключенном обходе
+- Site cards in one row: Discord, YouTube, Telegram (YouTube video servers are still checked during strategy search) / Карточки сайтов в один ряд: Discord, YouTube, Telegram (серверы видео YouTube по-прежнему проверяются при подборе)
+- The old exe left after a self-update is now removed right away / Старый exe после самообновления теперь удаляется сразу
 
 Windows SmartScreen may warn about an unsigned app: “More info” → “Run anyway”.
 SmartScreen может предупредить о неподписанном приложении: «Подробнее» → «Выполнить в любом случае».
