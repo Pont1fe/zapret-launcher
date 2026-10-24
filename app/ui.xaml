@@ -2,363 +2,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Zapret Launcher" Width="1000" Height="700"
         WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize"
-        Background="#121316" Foreground="#ECEEF2" FontFamily="Segoe UI" FontSize="13"
+        Foreground="{DynamicResource Text}" FontFamily="Segoe UI" FontSize="13"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
-  <WindowChrome.WindowChrome>
-    <WindowChrome CaptionHeight="38" ResizeBorderThickness="0" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
-  </WindowChrome.WindowChrome>
-
-  <Window.Resources>
-    <SolidColorBrush x:Key="Accent" Color="#1FB89A"/>
-    <SolidColorBrush x:Key="AccentHover" Color="#2CD3B1"/>
-    <SolidColorBrush x:Key="AccentSoft" Color="#1A2F2B"/>
-    <SolidColorBrush x:Key="Card" Color="#1E2025"/>
-    <SolidColorBrush x:Key="CardHover" Color="#252830"/>
-    <SolidColorBrush x:Key="Line" Color="#2C2E35"/>
-    <SolidColorBrush x:Key="Muted" Color="#8B8E98"/>
-    <FontFamily x:Key="Icons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
-
-    <Style TargetType="ScrollBar">
-      <Setter Property="Width" Value="6"/>
-      <Setter Property="MinWidth" Value="6"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ScrollBar">
-            <Track x:Name="PART_Track" IsDirectionReversed="True">
-              <Track.Thumb>
-                <Thumb>
-                  <Thumb.Template>
-                    <ControlTemplate TargetType="Thumb">
-                      <Border CornerRadius="3" Background="#3A3D46"/>
-                    </ControlTemplate>
-                  </Thumb.Template>
-                </Thumb>
-              </Track.Thumb>
-            </Track>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style TargetType="ToolTip">
-      <Setter Property="Background" Value="#25272E"/>
-      <Setter Property="Foreground" Value="#ECEEF2"/>
-      <Setter Property="BorderBrush" Value="#34363F"/>
-      <Setter Property="Padding" Value="8,5"/>
-    </Style>
-
-    <Style x:Key="InputBox" TargetType="TextBox">
-      <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Foreground" Value="#ECEEF2"/>
-      <Setter Property="CaretBrush" Value="#ECEEF2"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
-    </Style>
-
-    <!-- Боковое меню: значок и подпись (подпись — в Tag) -->
-    <Style x:Key="NavButton" TargetType="RadioButton">
-      <Setter Property="Width" Value="60"/>
-      <Setter Property="Height" Value="56"/>
-      <Setter Property="Margin" Value="0,3"/>
-      <Setter Property="Foreground" Value="#9A9DA8"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="GroupName" Value="nav"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="RadioButton">
-            <Border x:Name="bg" CornerRadius="12" Background="Transparent">
-              <StackPanel VerticalAlignment="Center">
-                <ContentPresenter HorizontalAlignment="Center" TextElement.FontFamily="{StaticResource Icons}" TextElement.FontSize="18"/>
-                <TextBlock Text="{TemplateBinding Tag}" FontSize="10" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-              </StackPanel>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="#1F2127"/>
-                <Setter Property="Foreground" Value="#ECEEF2"/>
-              </Trigger>
-              <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="{StaticResource AccentSoft}"/>
-                <Setter Property="Foreground" Value="{StaticResource AccentHover}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="IconButton" TargetType="Button">
-      <Setter Property="Width" Value="32"/>
-      <Setter Property="Height" Value="32"/>
-      <Setter Property="Foreground" Value="#A9ACB6"/>
-      <Setter Property="FontFamily" Value="{StaticResource Icons}"/>
-      <Setter Property="FontSize" Value="15"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="bg" CornerRadius="8" Background="Transparent">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="#262830"/>
-                <Setter Property="Foreground" Value="White"/>
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Opacity" Value="0.35"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="ChromeButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
-      <Setter Property="Width" Value="46"/>
-      <Setter Property="Height" Value="38"/>
-      <Setter Property="FontSize" Value="10"/>
-      <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="bg" Background="Transparent">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="#262830"/>
-                <Setter Property="Foreground" Value="White"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="AccentButton" TargetType="Button">
-      <Setter Property="Foreground" Value="#0B1F1B"/>
-      <Setter Property="FontSize" Value="13"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="bg" CornerRadius="10" Background="{StaticResource Accent}" Padding="16,0">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="{StaticResource AccentHover}"/>
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Opacity" Value="0.45"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="GhostButton" TargetType="Button">
-      <Setter Property="Foreground" Value="{StaticResource AccentHover}"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="bg" CornerRadius="9" Background="{StaticResource AccentSoft}" BorderBrush="#24564C" BorderThickness="1" Padding="12,0">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="BorderBrush" Value="{StaticResource Accent}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="Chip" TargetType="ToggleButton">
-      <Setter Property="Foreground" Value="#A9ACB6"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Margin" Value="0,0,6,0"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ToggleButton">
-            <Border x:Name="bg" CornerRadius="14" Background="#1E2025" BorderBrush="#2C2E35" BorderThickness="1" Padding="12,5">
-              <StackPanel Orientation="Horizontal">
-                <Ellipse x:Name="dot" Width="6" Height="6" Fill="#55585F" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                <ContentPresenter VerticalAlignment="Center"/>
-              </StackPanel>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="{StaticResource AccentSoft}"/>
-                <Setter TargetName="bg" Property="BorderBrush" Value="#24564C"/>
-                <Setter TargetName="dot" Property="Fill" Value="{StaticResource AccentHover}"/>
-                <Setter Property="Foreground" Value="#DDF7F1"/>
-              </Trigger>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="BorderBrush" Value="{StaticResource Accent}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="Segment" TargetType="RadioButton">
-      <Setter Property="Foreground" Value="#A9ACB6"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Margin" Value="0,0,4,0"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="RadioButton">
-            <Border x:Name="bg" CornerRadius="8" Background="#25272E" BorderBrush="#2C2E35" BorderThickness="1" Padding="11,4">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="{StaticResource Accent}"/>
-                <Setter TargetName="bg" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                <Setter Property="Foreground" Value="#0B1F1B"/>
-              </Trigger>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="BorderBrush" Value="{StaticResource Accent}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="Switch" TargetType="CheckBox">
-      <Setter Property="Foreground" Value="#ECEEF2"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="CheckBox">
-            <Border x:Name="row" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <ContentPresenter VerticalAlignment="Center"/>
-                <Border x:Name="track" Grid.Column="1" Width="38" Height="22" CornerRadius="11" Background="#33363E" VerticalAlignment="Center" Margin="12,0,0,0">
-                  <Ellipse x:Name="thumb" Width="16" Height="16" Fill="#C9CCD4" HorizontalAlignment="Left" Margin="3,0"/>
-                </Border>
-              </Grid>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="track" Property="Background" Value="{StaticResource Accent}"/>
-                <Setter TargetName="thumb" Property="Fill" Value="White"/>
-                <Setter TargetName="thumb" Property="HorizontalAlignment" Value="Right"/>
-              </Trigger>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="row" Property="Background" Value="#22242A"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="RowButton" TargetType="Button">
-      <Setter Property="Foreground" Value="#ECEEF2"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="HorizontalContentAlignment" Value="Left"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="row" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,11">
-              <DockPanel>
-                <TextBlock DockPanel.Dock="Right" Text="&#xE76C;" FontFamily="{StaticResource Icons}" FontSize="11"
-                           Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
-                <ContentPresenter VerticalAlignment="Center"/>
-              </DockPanel>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="row" Property="Background" Value="#22242A"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="PlainItem" TargetType="ListBoxItem">
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ListBoxItem">
-            <Border x:Name="bg" Background="{StaticResource Card}" CornerRadius="10" Margin="0,0,0,6" Padding="14,6,8,6">
-              <ContentPresenter/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="{StaticResource CardHover}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <!-- Стратегии — отдельными карточками, выбранная подсвечена рамкой -->
-    <Style x:Key="StrategyItemStyle" TargetType="ListBoxItem">
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ListBoxItem">
-            <Border x:Name="bg" Background="{StaticResource Card}" BorderBrush="Transparent" BorderThickness="1.5" CornerRadius="12" Margin="0,0,6,6" Padding="12,9">
-              <ContentPresenter/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="{StaticResource CardHover}"/>
-              </Trigger>
-              <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="bg" Property="Background" Value="{StaticResource AccentSoft}"/>
-                <Setter TargetName="bg" Property="BorderBrush" Value="{StaticResource Accent}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="SettingsCard" TargetType="Border">
-      <Setter Property="CornerRadius" Value="14"/>
-      <Setter Property="Background" Value="{StaticResource Card}"/>
-      <Setter Property="ClipToBounds" Value="True"/>
-    </Style>
-    <Style x:Key="SectionLabel" TargetType="TextBlock">
-      <Setter Property="Foreground" Value="{StaticResource Muted}"/>
-      <Setter Property="FontSize" Value="11"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Margin" Value="4,20,0,8"/>
-    </Style>
-    <Style x:Key="RowTitle" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="14"/>
-    </Style>
-    <Style x:Key="RowSub" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="11"/>
-      <Setter Property="Foreground" Value="{StaticResource Muted}"/>
-      <Setter Property="Margin" Value="0,2,0,0"/>
-      <Setter Property="TextWrapping" Value="Wrap"/>
-    </Style>
-    <Style x:Key="PageTitle" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="24"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-    </Style>
-  </Window.Resources>
 
   <Grid>
     <Grid.RowDefinitions>
@@ -372,34 +17,34 @@
     </Grid.ColumnDefinitions>
 
     <!-- Заголовок окна -->
-    <Grid Grid.ColumnSpan="3" Background="#16171B">
+    <Grid Grid.ColumnSpan="3" Background="{DynamicResource TitleBg}">
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
         <Image x:Name="TitleIcon" Width="18" Height="18" VerticalAlignment="Center"/>
         <TextBlock Text="Zapret Launcher" Margin="10,0,0,0" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
-        <TextBlock x:Name="TitleText" Text="" Margin="10,0,0,0" FontSize="12" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
+        <TextBlock x:Name="TitleText" Text="" Margin="10,0,0,0" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
       </StackPanel>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button x:Name="BtnMinimize" Style="{StaticResource ChromeButton}" Content="&#xE921;"/>
-        <Button x:Name="BtnClose" Style="{StaticResource ChromeButton}" Content="&#xE8BB;"/>
+        <Button x:Name="BtnMinimize" Style="{DynamicResource ChromeButton}" Content="&#xE921;"/>
+        <Button x:Name="BtnClose" Style="{DynamicResource ChromeButton}" Content="&#xE8BB;"/>
       </StackPanel>
     </Grid>
 
     <!-- Боковое меню -->
-    <Grid Grid.Row="1" Background="#16171B">
+    <Grid Grid.Row="1" Background="{DynamicResource SidebarBg}">
       <StackPanel HorizontalAlignment="Center" Margin="0,8,0,0">
-        <RadioButton x:Name="NavStrategies" Style="{StaticResource NavButton}" Content="&#xE774;" Tag="Обход" IsChecked="True"/>
-        <RadioButton x:Name="NavDomains" Style="{StaticResource NavButton}" Content="&#xE71B;" Tag="Домены"/>
-        <RadioButton x:Name="NavSettings" Style="{StaticResource NavButton}" Content="&#xE713;" Tag="Настройки"/>
-        <RadioButton x:Name="NavLog" Style="{StaticResource NavButton}" Content="&#xE8A5;" Tag="Журнал"/>
+        <RadioButton x:Name="NavStrategies" Style="{DynamicResource NavButton}" Content="&#xE774;" Tag="Обход" IsChecked="True"/>
+        <RadioButton x:Name="NavDomains" Style="{DynamicResource NavButton}" Content="&#xE71B;" Tag="Домены"/>
+        <RadioButton x:Name="NavSettings" Style="{DynamicResource NavButton}" Content="&#xE713;" Tag="Настройки"/>
+        <RadioButton x:Name="NavLog" Style="{DynamicResource NavButton}" Content="&#xE8A5;" Tag="Журнал"/>
       </StackPanel>
       <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,12">
-        <Button x:Name="NavFolder" Style="{StaticResource IconButton}" Width="44" Height="40" FontSize="16" Content="&#xE8B7;" ToolTip="Папка zapret"/>
-        <Button x:Name="NavInfo" Style="{StaticResource IconButton}" Width="44" Height="40" FontSize="16" Content="&#xE946;" ToolTip="Страница лаунчера на GitHub"/>
+        <Button x:Name="NavFolder" Style="{DynamicResource IconButton}" Width="44" Height="40" FontSize="16" Content="&#xE8B7;" ToolTip="Папка zapret"/>
+        <Button x:Name="NavInfo" Style="{DynamicResource IconButton}" Width="44" Height="40" FontSize="16" Content="&#xE946;" ToolTip="Страница лаунчера на GitHub"/>
       </StackPanel>
     </Grid>
 
     <!-- Средняя панель -->
-    <Grid Grid.Row="1" Grid.Column="1" Background="#191A1F">
+    <Grid x:Name="MidPanel" Grid.Row="1" Grid.Column="1" Background="{DynamicResource MidBg}">
 
       <!-- Стратегии -->
       <Grid x:Name="PageStrategies" Margin="22,20,16,12">
@@ -410,60 +55,75 @@
           <RowDefinition/>
         </Grid.RowDefinitions>
         <Grid Margin="0,0,6,0">
-          <TextBlock Text="Стратегии" Style="{StaticResource PageTitle}"/>
+          <TextBlock Text="Стратегии" Style="{DynamicResource PageTitle}"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-            <Button x:Name="BtnInstallUpdate" Style="{StaticResource IconButton}" Content="&#xE896;" Foreground="{StaticResource AccentHover}"
+            <Button x:Name="BtnInstallUpdate" Style="{DynamicResource IconButton}" Content="&#xE896;" Foreground="{DynamicResource AccentHover}"
                     ToolTip="Установить обновление zapret" Visibility="Collapsed"/>
-            <Button x:Name="BtnCheck" Style="{StaticResource IconButton}" Content="&#xE72C;" ToolTip="Проверить обновления"/>
-            <Button x:Name="BtnFolder2" Style="{StaticResource IconButton}" Content="&#xE8B7;" ToolTip="Папка zapret"/>
+            <Button x:Name="BtnCheck" Style="{DynamicResource IconButton}" Content="&#xE72C;" ToolTip="Проверить обновления"/>
+            <Button x:Name="BtnFolder2" Style="{DynamicResource IconButton}" Content="&#xE8B7;" ToolTip="Папка zapret"/>
           </StackPanel>
         </Grid>
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,0">
-          <Border CornerRadius="6" Background="#22242A" Padding="8,2" VerticalAlignment="Center">
+          <Border CornerRadius="6" Background="{DynamicResource Card}" Padding="8,2" VerticalAlignment="Center">
             <TextBlock x:Name="VersionPill" Text="" FontSize="11"/>
           </Border>
           <TextBlock x:Name="LatestText" Text="" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center"/>
-          <TextBlock x:Name="CardSubtitle" Text="" FontSize="11" Foreground="{StaticResource Muted}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+          <TextBlock x:Name="CardSubtitle" Text="" FontSize="11" Foreground="{DynamicResource Muted}" Margin="8,0,0,0" VerticalAlignment="Center"/>
         </StackPanel>
 
-        <Grid Grid.Row="2" Margin="0,14,6,12">
+        <Grid Grid.Row="2" Margin="0,14,6,10">
           <Grid.ColumnDefinitions>
             <ColumnDefinition/>
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
-          <Border CornerRadius="10" Background="#1E2025" BorderBrush="#2C2E35" BorderThickness="1" Height="38">
+          <Border CornerRadius="10" Background="{DynamicResource Input}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Height="38">
             <Grid Margin="12,0">
-              <TextBlock Text="&#xE721;" FontFamily="{StaticResource Icons}" FontSize="14" Foreground="{StaticResource Muted}" VerticalAlignment="Center" IsHitTestVisible="False"/>
-              <TextBlock x:Name="SearchHint" Text="Поиск стратегии" Foreground="#6B6E78" VerticalAlignment="Center" Margin="24,0,0,0" IsHitTestVisible="False"/>
-              <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" Margin="22,0,0,0"/>
+              <TextBlock Text="&#xE721;" FontFamily="{DynamicResource Icons}" FontSize="14" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" IsHitTestVisible="False"/>
+              <TextBlock x:Name="SearchHint" Text="Поиск стратегии" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" Margin="24,0,0,0" IsHitTestVisible="False"/>
+              <TextBox x:Name="SearchBox" Style="{DynamicResource InputBox}" Margin="22,0,0,0"/>
             </Grid>
           </Border>
-          <Button x:Name="BtnPing" Grid.Column="1" Style="{StaticResource GhostButton}" Height="38" Margin="8,0,0,0" ToolTip="Заново проверить сайты и пинг">
+          <Button x:Name="BtnPing" Grid.Column="1" Style="{DynamicResource GhostButton}" Height="38" Margin="8,0,0,0" ToolTip="Заново проверить сайты и пинг">
             <StackPanel Orientation="Horizontal">
-              <TextBlock Text="&#xE72C;" FontFamily="{StaticResource Icons}" FontSize="13" VerticalAlignment="Center" Margin="0,0,7,0"/>
+              <TextBlock Text="&#xE72C;" FontFamily="{DynamicResource Icons}" FontSize="13" VerticalAlignment="Center" Margin="0,0,7,0"/>
               <TextBlock Text="Обновить пинг" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
         </Grid>
 
         <ListBox x:Name="StrategyList" Grid.Row="3" Background="Transparent" BorderThickness="0"
-                 ItemContainerStyle="{StaticResource StrategyItemStyle}"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                 ItemContainerStyle="{DynamicResource StrategyItemStyle}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizingWhenGrouping="True">
+          <ListBox.GroupStyle>
+            <GroupStyle>
+              <GroupStyle.HeaderTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding Name}" Style="{DynamicResource Caption}" Margin="4,10,0,6"/>
+                </DataTemplate>
+              </GroupStyle.HeaderTemplate>
+            </GroupStyle>
+          </ListBox.GroupStyle>
           <ListBox.ItemTemplate>
             <DataTemplate>
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Border Width="34" Height="34" CornerRadius="10" Background="{Binding Color}" VerticalAlignment="Center">
                   <TextBlock Text="{Binding Badge}" FontSize="11" FontWeight="Bold" Foreground="White"
                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
                 <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                  <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" Foreground="#ECEEF2"/>
-                  <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="#8B8E98" Margin="0,2,0,0"/>
+                  <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                    <Ellipse Width="6" Height="6" Fill="{Binding MarkColor}" Visibility="{Binding MarkVisibility}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{DynamicResource Muted}"/>
+                  </StackPanel>
                 </StackPanel>
+                <Button Grid.Column="2" Style="{DynamicResource IconButton}" Width="30" Height="30" FontSize="14"
+                        Content="{Binding StarGlyph}" Foreground="{Binding StarColor}" Tag="{Binding File}" ToolTip="{Binding StarTip}"/>
               </Grid>
             </DataTemplate>
           </ListBox.ItemTemplate>
@@ -479,31 +139,33 @@
           <RowDefinition Height="Auto"/>
           <RowDefinition/>
         </Grid.RowDefinitions>
-        <TextBlock Text="Домены" Style="{StaticResource PageTitle}"/>
+        <TextBlock Text="Домены" Style="{DynamicResource PageTitle}"/>
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
-          <RadioButton x:Name="DomGeneral" Style="{StaticResource Segment}" GroupName="dom" Content="Обходить" IsChecked="True"/>
-          <RadioButton x:Name="DomExclude" Style="{StaticResource Segment}" GroupName="dom" Content="Не трогать"/>
+          <RadioButton x:Name="DomGeneral" Style="{DynamicResource Segment}" GroupName="dom" Content="Обходить" IsChecked="True"/>
+          <RadioButton x:Name="DomExclude" Style="{DynamicResource Segment}" GroupName="dom" Content="Не трогать"/>
         </StackPanel>
         <Grid Grid.Row="2" Margin="0,12,0,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition/>
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
-          <Border CornerRadius="10" BorderBrush="#2C2E35" BorderThickness="1" Background="#1E2025" Height="38">
+          <Border CornerRadius="10" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Background="{DynamicResource Input}" Height="38">
             <Grid Margin="12,0">
-              <TextBlock x:Name="DomainHint" Text="Например: example.com" Foreground="#6B6E78" VerticalAlignment="Center" IsHitTestVisible="False"/>
-              <TextBox x:Name="DomainInput" Style="{StaticResource InputBox}" Margin="-2,0,0,0"/>
+              <TextBlock x:Name="DomainHint" Text="Например: example.com" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" IsHitTestVisible="False"/>
+              <TextBox x:Name="DomainInput" Style="{DynamicResource InputBox}" Margin="-2,0,0,0"/>
             </Grid>
           </Border>
-          <Button x:Name="BtnAddDomain" Grid.Column="1" Style="{StaticResource AccentButton}" Height="38" Margin="8,0,0,0" Content="Добавить"/>
+          <Button x:Name="BtnAddDomain" Grid.Column="1" Style="{DynamicResource AccentButton}" Height="38" Margin="8,0,0,0" Content="Добавить"/>
         </Grid>
-        <TextBlock x:Name="DomainInfo" Grid.Row="3" FontSize="11" Foreground="{StaticResource Muted}" Margin="2,8,0,12" TextWrapping="Wrap"
+        <TextBlock x:Name="DomainInfo" Grid.Row="3" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,12" TextWrapping="Wrap"
                    Text="Поддомены учитываются автоматически. Изменения применяются сразу."/>
         <Grid Grid.Row="4">
-          <TextBlock x:Name="DomainEmpty" Text="Список пуст" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
-                     TextWrapping="Wrap" TextAlignment="Center" Margin="20"/>
+          <StackPanel x:Name="DomainEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+            <TextBlock Text="&#xE71B;" FontFamily="{DynamicResource Icons}" FontSize="34" Foreground="{DynamicResource Faint}" HorizontalAlignment="Center"/>
+            <TextBlock x:Name="DomainEmptyText" Text="Список пуст" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="300" Margin="0,12,0,0"/>
+          </StackPanel>
           <ListBox x:Name="DomainList" Background="Transparent" BorderThickness="0"
-                   ItemContainerStyle="{StaticResource PlainItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                   ItemContainerStyle="{DynamicResource PlainItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
               <DataTemplate>
                 <Grid>
@@ -511,8 +173,8 @@
                     <ColumnDefinition/>
                     <ColumnDefinition Width="Auto"/>
                   </Grid.ColumnDefinitions>
-                  <TextBlock Text="{Binding}" FontSize="13" Foreground="#ECEEF2" VerticalAlignment="Center"/>
-                  <Button Grid.Column="1" Style="{StaticResource IconButton}" Width="28" Height="28" FontSize="11"
+                  <TextBlock Text="{Binding}" FontSize="13" VerticalAlignment="Center"/>
+                  <Button Grid.Column="1" Style="{DynamicResource IconButton}" Width="28" Height="28" FontSize="11"
                           Content="&#xE711;" Tag="{Binding}" ToolTip="Удалить"/>
                 </Grid>
               </DataTemplate>
@@ -524,75 +186,113 @@
       <!-- Настройки -->
       <ScrollViewer x:Name="PageSettings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="22,20,18,16">
-          <TextBlock Text="Настройки" Style="{StaticResource PageTitle}"/>
+          <TextBlock Text="Настройки" Style="{DynamicResource PageTitle}"/>
 
-          <TextBlock Text="ЗАПУСК И ОБНОВЛЕНИЯ" Style="{StaticResource SectionLabel}"/>
-          <Border Style="{StaticResource SettingsCard}">
+          <TextBlock Text="ОФОРМЛЕНИЕ" Style="{DynamicResource SectionLabel}"/>
+          <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <CheckBox x:Name="SwAutostart" Style="{StaticResource Switch}">
+              <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
                 <StackPanel>
-                  <TextBlock Text="Запускать вместе с Windows" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="Обход включится сам, лаунчер — в трее" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Тема" Style="{DynamicResource RowTitle}"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <RadioButton x:Name="ThemeDark" Style="{DynamicResource Segment}" GroupName="theme" Content="Тёмная"/>
+                    <RadioButton x:Name="ThemeLight" Style="{DynamicResource Segment}" GroupName="theme" Content="Светлая"/>
+                    <RadioButton x:Name="ThemeSystem" Style="{DynamicResource Segment}" GroupName="theme" Content="Как в Windows"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+              <CheckBox x:Name="SwMica" Style="{DynamicResource Switch}">
+                <StackPanel>
+                  <TextBlock Text="Прозрачный фон (Mica)" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock x:Name="MicaSub" Text="Как у приложений Windows 11: сквозь окно слегка видно цвет обоев" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwWatchdog" Style="{StaticResource Switch}">
+              <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
                 <StackPanel>
-                  <TextBlock Text="Сторож" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="Перезапускает упавший обход и сам меняет стратегию, если сайты перестали открываться" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Язык интерфейса" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Лаунчер перезапустится, обход продолжит работать" Style="{DynamicResource RowSub}"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <RadioButton x:Name="LangRu" Style="{DynamicResource Segment}" GroupName="lang" Content="Русский"/>
+                    <RadioButton x:Name="LangEn" Style="{DynamicResource Segment}" GroupName="lang" Content="English"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+              <Button x:Name="BtnOnboarding" Style="{DynamicResource RowButton}">
+                <StackPanel>
+                  <TextBlock Text="Показать приветствие" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Короткое знакомство с лаунчером из трёх шагов" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </Button>
+            </StackPanel>
+          </Border>
+
+          <TextBlock Text="ЗАПУСК И ОБНОВЛЕНИЯ" Style="{DynamicResource SectionLabel}"/>
+          <Border Style="{DynamicResource SettingsCard}">
+            <StackPanel>
+              <CheckBox x:Name="SwAutostart" Style="{DynamicResource Switch}">
+                <StackPanel>
+                  <TextBlock Text="Запускать вместе с Windows" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Обход включится сам, лаунчер — в трее" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwVpnPause" Style="{StaticResource Switch}">
+              <CheckBox x:Name="SwWatchdog" Style="{DynamicResource Switch}">
                 <StackPanel>
-                  <TextBlock Text="Пауза, пока включён VPN" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="С VPN zapret не нужен: обход выключится сам и вернётся, когда VPN отключат" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Сторож" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Перезапускает упавший обход и сам меняет стратегию, если сайты перестали открываться" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwAutoUpdate" Style="{StaticResource Switch}">
+              <CheckBox x:Name="SwVpnPause" Style="{DynamicResource Switch}">
                 <StackPanel>
-                  <TextBlock Text="Обновлять автоматически" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="zapret, tg-ws-proxy и лаунчер — при запуске и каждые 6 часов" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Пауза, пока включён VPN" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="С VPN zapret не нужен: обход выключится сам и вернётся, когда VPN отключат" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwStartOnOpen" Style="{StaticResource Switch}">
+              <CheckBox x:Name="SwAutoUpdate" Style="{DynamicResource Switch}">
                 <StackPanel>
-                  <TextBlock Text="Включать обход при открытии лаунчера" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="Используется последняя выбранная стратегия" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Обновлять автоматически" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="zapret, tg-ws-proxy и лаунчер — при запуске и каждые 6 часов" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwToasts" Style="{StaticResource Switch}">
+              <CheckBox x:Name="SwStartOnOpen" Style="{DynamicResource Switch}">
                 <StackPanel>
-                  <TextBlock Text="Уведомления Windows" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="О паузе при VPN, смене стратегии и обновлениях — с кнопками действий" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Включать обход при открытии лаунчера" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Используется последняя выбранная стратегия" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </CheckBox>
+              <CheckBox x:Name="SwToasts" Style="{DynamicResource Switch}">
+                <StackPanel>
+                  <TextBlock Text="Уведомления Windows" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="О паузе при VPN, смене стратегии и обновлениях — с кнопками действий" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
             </StackPanel>
           </Border>
 
-          <TextBlock Text="СЕТИ" Style="{StaticResource SectionLabel}"/>
-          <Border Style="{StaticResource SettingsCard}">
+          <TextBlock Text="СЕТИ" Style="{DynamicResource SectionLabel}"/>
+          <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <CheckBox x:Name="SwNetProfiles" Style="{StaticResource Switch}">
+              <CheckBox x:Name="SwNetProfiles" Style="{DynamicResource Switch}">
                 <StackPanel>
-                  <TextBlock Text="Своя стратегия для каждой сети" Style="{StaticResource RowTitle}"/>
-                  <TextBlock x:Name="NetCurrentText" Text="" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Своя стратегия для каждой сети" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock x:Name="NetCurrentText" Text="" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
               <StackPanel x:Name="NetListPanel"/>
             </StackPanel>
           </Border>
 
-          <TextBlock Text="ФИЛЬТРЫ" Style="{StaticResource SectionLabel}"/>
-          <Border Style="{StaticResource SettingsCard}">
+          <TextBlock Text="ФИЛЬТРЫ" Style="{DynamicResource SectionLabel}"/>
+          <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
+              <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
                 <StackPanel>
-                  <TextBlock Text="Game Filter" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="Обход для игр и программ на портах выше 1023" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Game Filter" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Обход для игр и программ на портах выше 1023" Style="{DynamicResource RowSub}"/>
                   <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <RadioButton x:Name="GfOff" Style="{StaticResource Segment}" GroupName="gf" Content="Выкл"/>
-                    <RadioButton x:Name="GfTcp" Style="{StaticResource Segment}" GroupName="gf" Content="TCP"/>
-                    <RadioButton x:Name="GfUdp" Style="{StaticResource Segment}" GroupName="gf" Content="UDP"/>
-                    <RadioButton x:Name="GfAll" Style="{StaticResource Segment}" GroupName="gf" Content="TCP + UDP"/>
+                    <RadioButton x:Name="GfOff" Style="{DynamicResource Segment}" GroupName="gf" Content="Выкл"/>
+                    <RadioButton x:Name="GfTcp" Style="{DynamicResource Segment}" GroupName="gf" Content="TCP"/>
+                    <RadioButton x:Name="GfUdp" Style="{DynamicResource Segment}" GroupName="gf" Content="UDP"/>
+                    <RadioButton x:Name="GfAll" Style="{DynamicResource Segment}" GroupName="gf" Content="TCP + UDP"/>
                   </StackPanel>
                 </StackPanel>
               </Border>
@@ -600,86 +300,76 @@
                 <StackPanel>
                   <Grid>
                     <StackPanel>
-                      <TextBlock Text="IPSet" Style="{StaticResource RowTitle}"/>
-                      <TextBlock Text="Обход по IP-адресам. «Все IP» может сломать часть сайтов" Style="{StaticResource RowSub}"/>
+                      <TextBlock Text="IPSet" Style="{DynamicResource RowTitle}"/>
+                      <TextBlock Text="Обход по IP-адресам. «Все IP» может сломать часть сайтов" Style="{DynamicResource RowSub}"/>
                     </StackPanel>
-                    <Button x:Name="BtnIpsetUpdate" Style="{StaticResource IconButton}" Content="&#xE72C;" HorizontalAlignment="Right" VerticalAlignment="Top" ToolTip="Обновить список IP-адресов"/>
+                    <Button x:Name="BtnIpsetUpdate" Style="{DynamicResource IconButton}" Content="&#xE72C;" HorizontalAlignment="Right" VerticalAlignment="Top" ToolTip="Обновить список IP-адресов"/>
                   </Grid>
                   <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <RadioButton x:Name="IpNone" Style="{StaticResource Segment}" GroupName="ip" Content="Выкл"/>
-                    <RadioButton x:Name="IpLoaded" Style="{StaticResource Segment}" GroupName="ip" Content="По списку"/>
-                    <RadioButton x:Name="IpAny" Style="{StaticResource Segment}" GroupName="ip" Content="Все IP"/>
+                    <RadioButton x:Name="IpNone" Style="{DynamicResource Segment}" GroupName="ip" Content="Выкл"/>
+                    <RadioButton x:Name="IpLoaded" Style="{DynamicResource Segment}" GroupName="ip" Content="По списку"/>
+                    <RadioButton x:Name="IpAny" Style="{DynamicResource Segment}" GroupName="ip" Content="Все IP"/>
                   </StackPanel>
                 </StackPanel>
               </Border>
             </StackPanel>
           </Border>
 
-          <TextBlock Text="TELEGRAM" Style="{StaticResource SectionLabel}"/>
-          <Border Style="{StaticResource SettingsCard}">
+          <TextBlock Text="TELEGRAM" Style="{DynamicResource SectionLabel}"/>
+          <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <CheckBox x:Name="SwTelegram" Style="{StaticResource Switch}">
+              <CheckBox x:Name="SwTelegram" Style="{DynamicResource Switch}">
                 <StackPanel>
-                  <TextBlock Text="Telegram Desktop и Web вместе с обходом" Style="{StaticResource RowTitle}"/>
-                  <TextBlock x:Name="TgSub" Text="Desktop — прокси tg-ws-proxy, Web — через hosts" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Telegram Desktop и Web вместе с обходом" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock x:Name="TgSub" Text="Desktop — прокси tg-ws-proxy, Web — через hosts" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <Button x:Name="BtnTgConnect" Style="{StaticResource RowButton}">
+              <Button x:Name="BtnTgConnect" Style="{DynamicResource RowButton}">
                 <StackPanel>
-                  <TextBlock Text="Подключить Telegram Desktop" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="Откроет Telegram — нажмите «Подключиться» в окне прокси" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Подключить Telegram Desktop" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Откроет Telegram — нажмите «Подключиться» в окне прокси" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
             </StackPanel>
           </Border>
 
-          <TextBlock Text="ИНСТРУМЕНТЫ" Style="{StaticResource SectionLabel}"/>
-          <Border Style="{StaticResource SettingsCard}">
+          <TextBlock Text="ИНСТРУМЕНТЫ" Style="{DynamicResource SectionLabel}"/>
+          <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <Button x:Name="BtnService" Style="{StaticResource RowButton}">
+              <Button x:Name="BtnService" Style="{DynamicResource RowButton}">
                 <StackPanel>
-                  <TextBlock Text="service.bat" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="Ручные тесты и диагностика zapret в консоли" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="service.bat" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Ручные тесты и диагностика zapret в консоли" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnRollback" Style="{StaticResource RowButton}" Visibility="Collapsed">
+              <Button x:Name="BtnRollback" Style="{DynamicResource RowButton}" Visibility="Collapsed">
                 <StackPanel>
-                  <TextBlock x:Name="RollbackTitle" Text="Откатить zapret" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="Если новая версия работает хуже — вернуть прошлую" Style="{StaticResource RowSub}"/>
+                  <TextBlock x:Name="RollbackTitle" Text="Откатить zapret" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Если новая версия работает хуже — вернуть прошлую" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnRemoveService" Style="{StaticResource RowButton}" Visibility="Collapsed">
+              <Button x:Name="BtnRemoveService" Style="{DynamicResource RowButton}" Visibility="Collapsed">
                 <StackPanel>
-                  <TextBlock Text="Удалить службу zapret" Style="{StaticResource RowTitle}" Foreground="#FF8A8A"/>
-                  <TextBlock Text="Служба из service.bat мешает управлять обходом" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Удалить службу zapret" Style="{DynamicResource RowTitle}" Foreground="{DynamicResource Danger}"/>
+                  <TextBlock Text="Служба из service.bat мешает управлять обходом" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
             </StackPanel>
           </Border>
 
-          <TextBlock Text="ЛАУНЧЕР" Style="{StaticResource SectionLabel}"/>
-          <Border Style="{StaticResource SettingsCard}">
+          <TextBlock Text="ЛАУНЧЕР" Style="{DynamicResource SectionLabel}"/>
+          <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
+              <Button x:Name="BtnLauncherUpdate" Style="{DynamicResource RowButton}">
                 <StackPanel>
-                  <TextBlock Text="Язык интерфейса" Style="{StaticResource RowTitle}"/>
-                  <TextBlock Text="Лаунчер перезапустится, обход продолжит работать" Style="{StaticResource RowSub}"/>
-                  <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <RadioButton x:Name="LangRu" Style="{StaticResource Segment}" GroupName="lang" Content="Русский"/>
-                    <RadioButton x:Name="LangEn" Style="{StaticResource Segment}" GroupName="lang" Content="English"/>
-                  </StackPanel>
-                </StackPanel>
-              </Border>
-              <Button x:Name="BtnLauncherUpdate" Style="{StaticResource RowButton}">
-                <StackPanel>
-                  <TextBlock x:Name="LauncherVersionText" Text="Zapret Launcher" Style="{StaticResource RowTitle}"/>
-                  <TextBlock x:Name="LauncherRepoText" Text="" Style="{StaticResource RowSub}"/>
+                  <TextBlock x:Name="LauncherVersionText" Text="Zapret Launcher" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock x:Name="LauncherRepoText" Text="" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnUninstall" Style="{StaticResource RowButton}">
+              <Button x:Name="BtnUninstall" Style="{DynamicResource RowButton}">
                 <StackPanel>
-                  <TextBlock Text="Удалить всё" Style="{StaticResource RowTitle}" Foreground="#FF8A8A"/>
-                  <TextBlock Text="Остановить обход, убрать автозапуск, драйвер, записи в hosts и ярлыки" Style="{StaticResource RowSub}"/>
+                  <TextBlock Text="Удалить всё" Style="{DynamicResource RowTitle}" Foreground="{DynamicResource Danger}"/>
+                  <TextBlock Text="Остановить обход, убрать автозапуск, драйвер, записи в hosts и ярлыки" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
             </StackPanel>
@@ -693,73 +383,89 @@
           <RowDefinition Height="Auto"/>
           <RowDefinition/>
         </Grid.RowDefinitions>
-        <TextBlock Text="Журнал" Style="{StaticResource PageTitle}" Margin="0,0,0,14"/>
-        <Border Grid.Row="1" CornerRadius="14" Background="{StaticResource Card}" Padding="12">
-          <TextBox x:Name="LogBox" IsReadOnly="True" Background="Transparent" BorderThickness="0" Foreground="#C3C6CE"
+        <TextBlock Text="Журнал" Style="{DynamicResource PageTitle}" Margin="0,0,0,14"/>
+        <Border Grid.Row="1" CornerRadius="14" Background="{DynamicResource Card}" Padding="12">
+          <TextBox x:Name="LogBox" IsReadOnly="True" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextSub}"
                    FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
         </Border>
       </Grid>
     </Grid>
 
     <!-- Правая панель: статус -->
-    <Grid Grid.Row="1" Grid.Column="2" ClipToBounds="True" Background="#131418">
-      <Ellipse x:Name="GlowBg" Width="560" Height="420" VerticalAlignment="Top" Margin="0,-170,0,0" Opacity="0.25" IsHitTestVisible="False">
+    <Grid Grid.Row="1" Grid.Column="2" ClipToBounds="True" Background="{DynamicResource RightBg}">
+      <Ellipse x:Name="GlowBg" Width="560" Height="420" VerticalAlignment="Top" Margin="0,-170,0,0" Opacity="0" IsHitTestVisible="False">
         <Ellipse.Fill>
           <RadialGradientBrush>
-            <GradientStop Color="#3355575F" Offset="0"/>
-            <GradientStop Color="#0055575F" Offset="1"/>
+            <GradientStop Color="{DynamicResource GlowColor}" Offset="0"/>
+            <GradientStop Color="Transparent" Offset="1"/>
           </RadialGradientBrush>
         </Ellipse.Fill>
       </Ellipse>
 
       <DockPanel Margin="24,20,24,20" LastChildFill="False">
         <Grid DockPanel.Dock="Top">
-          <TextBlock Text="СТАТУС ОБХОДА" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
-          <Border HorizontalAlignment="Right" CornerRadius="12" Background="#1E2025" Padding="10,4" MaxWidth="300">
+          <TextBlock Text="СТАТУС ОБХОДА" Style="{DynamicResource Caption}" VerticalAlignment="Center"/>
+          <Border HorizontalAlignment="Right" CornerRadius="12" Background="{DynamicResource Card}" Padding="10,4" MaxWidth="300">
             <StackPanel Orientation="Horizontal">
-              <TextBlock x:Name="NetIcon" Text="&#xE839;" FontFamily="{StaticResource Icons}" FontSize="12" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,7,0"/>
-              <TextBlock x:Name="NetStatus" Text=" " FontSize="11" Foreground="#C3C6CE" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+              <TextBlock x:Name="NetIcon" Text="&#xE839;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+              <TextBlock x:Name="NetStatus" Text=" " FontSize="11" Foreground="{DynamicResource TextSub}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
             </StackPanel>
           </Border>
         </Grid>
 
-        <Border x:Name="ConflictBar" DockPanel.Dock="Top" Margin="0,14,0,0" CornerRadius="10" Background="#33261A"
-                BorderBrush="#7A5420" BorderThickness="1" Padding="12,8" Visibility="Collapsed">
+        <Border x:Name="ConflictBar" DockPanel.Dock="Top" Margin="0,14,0,0" CornerRadius="10" Background="{DynamicResource WarnBg}"
+                BorderBrush="{DynamicResource WarnBorder}" BorderThickness="1" Padding="12,8" Visibility="Collapsed">
           <DockPanel>
-            <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="{StaticResource Icons}" FontSize="14" Foreground="#FFC67A" Margin="0,1,10,0"/>
-            <TextBlock x:Name="ConflictText" Foreground="#FFC67A" FontSize="12" TextWrapping="Wrap"/>
+            <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="{DynamicResource Icons}" FontSize="14" Foreground="{DynamicResource WarnText}" Margin="0,1,10,0"/>
+            <TextBlock x:Name="ConflictText" Foreground="{DynamicResource WarnText}" FontSize="12" TextWrapping="Wrap"/>
           </DockPanel>
         </Border>
 
-        <!-- Большая карточка-переключатель -->
-        <Border x:Name="PowerButton" DockPanel.Dock="Top" Margin="0,16,0,0" Height="148" CornerRadius="22" Cursor="Hand"
-                Background="#1C1E23" BorderBrush="#2C2E35" BorderThickness="1" Padding="22,0">
-          <Border.Effect>
-            <DropShadowEffect Color="#1FB89A" BlurRadius="40" ShadowDepth="0" Opacity="0"/>
-          </Border.Effect>
-          <Grid>
+        <!-- Большая карточка-переключатель: подсветка — отдельный слой, его прозрачность анимируется -->
+        <Grid x:Name="PowerButton" DockPanel.Dock="Top" Margin="0,16,0,0" Height="148" Cursor="Hand" Background="Transparent">
+          <Border x:Name="PowerBase" CornerRadius="22" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Line}" BorderThickness="1"/>
+          <Border x:Name="ActiveLayer" CornerRadius="22" BorderBrush="{DynamicResource ActiveBorder}" BorderThickness="1" Opacity="0">
+            <Border.Background>
+              <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="{DynamicResource ActiveFromColor}" Offset="0"/>
+                <GradientStop Color="{DynamicResource ActiveToColor}" Offset="1"/>
+              </LinearGradientBrush>
+            </Border.Background>
+            <Border.Effect>
+              <DropShadowEffect Color="{DynamicResource AccentColor}" BlurRadius="40" ShadowDepth="0" Opacity="0.35"/>
+            </Border.Effect>
+          </Border>
+          <Grid Margin="22,0">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="Auto"/>
               <ColumnDefinition/>
               <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Border x:Name="PowerIconBg" Width="64" Height="64" CornerRadius="20" Background="#26282F" VerticalAlignment="Center">
-              <TextBlock x:Name="PowerIcon" Text="&#xEA18;" FontFamily="{StaticResource Icons}" FontSize="28" Foreground="#8B8E98"
+            <Grid Width="64" Height="64" VerticalAlignment="Center">
+              <Border CornerRadius="20" Background="{DynamicResource IconBg}"/>
+              <Border x:Name="PowerIconOn" CornerRadius="20" Background="{DynamicResource Accent}" Opacity="0"/>
+              <TextBlock x:Name="PowerIcon" Text="&#xEA18;" FontFamily="{DynamicResource Icons}" FontSize="28" Foreground="{DynamicResource Muted}"
                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
+            </Grid>
             <StackPanel Grid.Column="1" Margin="18,0,12,0" VerticalAlignment="Center">
               <TextBlock x:Name="PowerStatus" Text="Обход выключен" FontSize="20" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-              <TextBlock x:Name="PowerTimer" Text=" " FontSize="12" Foreground="#C3C6CE" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
-              <TextBlock x:Name="PowerHint" Text="Нажмите, чтобы включить" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
+              <TextBlock x:Name="PowerTimer" Text=" " FontSize="12" Foreground="{DynamicResource TextSub}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+              <TextBlock x:Name="PowerHint" Text="Нажмите, чтобы включить" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,6,0,0"/>
             </StackPanel>
-            <Border x:Name="ToggleTrack" Grid.Column="2" Width="60" Height="32" CornerRadius="16" Background="#33363E" VerticalAlignment="Center">
-              <Ellipse x:Name="ToggleKnob" Width="24" Height="24" Fill="#C9CCD4" HorizontalAlignment="Left" Margin="4,0"/>
-            </Border>
+            <Grid Grid.Column="2" Width="60" Height="32" VerticalAlignment="Center">
+              <Border CornerRadius="16" Background="{DynamicResource TrackOff}"/>
+              <Border x:Name="ToggleTrackOn" CornerRadius="16" Background="{DynamicResource Accent}" Opacity="0"/>
+              <Ellipse x:Name="ToggleKnob" Width="24" Height="24" Fill="White" HorizontalAlignment="Left" Margin="4,0">
+                <Ellipse.RenderTransform>
+                  <TranslateTransform X="0"/>
+                </Ellipse.RenderTransform>
+              </Ellipse>
+            </Grid>
           </Grid>
-        </Border>
+        </Grid>
 
         <!-- Текущая стратегия -->
-        <Border DockPanel.Dock="Top" Margin="0,12,0,0" CornerRadius="16" Background="#1C1E23" Padding="14,12">
+        <Border DockPanel.Dock="Top" Margin="0,12,0,0" CornerRadius="16" Background="{DynamicResource CardRaised}" Padding="14,12">
           <Grid>
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="Auto"/>
@@ -771,29 +477,54 @@
                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
-              <TextBlock Text="Стратегия" FontSize="11" Foreground="{StaticResource Muted}"/>
+              <TextBlock Text="Стратегия" FontSize="11" Foreground="{DynamicResource Muted}"/>
               <TextBlock x:Name="CurrentName" Text="" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
-            <Button x:Name="BtnMain" Grid.Column="2" Style="{StaticResource GhostButton}" Height="34" Content="Подобрать стратегию"/>
+            <Button x:Name="BtnMain" Grid.Column="2" Style="{DynamicResource GhostButton}" Height="34" Content="Подобрать стратегию"/>
           </Grid>
         </Border>
 
         <!-- Доступность сайтов -->
         <Grid DockPanel.Dock="Top" Margin="2,18,0,8">
-          <TextBlock Text="ДОСТУПНОСТЬ САЙТОВ" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
-          <Button x:Name="BtnSiteCheck" Style="{StaticResource IconButton}" Width="26" Height="26" FontSize="12" Content="&#xE72C;"
+          <TextBlock Text="ДОСТУПНОСТЬ САЙТОВ" Style="{DynamicResource Caption}" VerticalAlignment="Center"/>
+          <Button x:Name="BtnSiteCheck" Style="{DynamicResource IconButton}" Width="26" Height="26" FontSize="12" Content="&#xE72C;"
                   HorizontalAlignment="Right" ToolTip="Проверить сейчас"/>
         </Grid>
         <UniformGrid x:Name="SitePanel" DockPanel.Dock="Top" Rows="1"/>
-        <TextBlock DockPanel.Dock="Top" Text="HTTPS — время открытия сайта через обход, TCP — пинг до сервера" FontSize="10"
-                   Foreground="#6B6E78" Margin="2,6,0,0" TextWrapping="Wrap"/>
+        <TextBlock DockPanel.Dock="Top" Text="HTTPS — время открытия сайта через обход, TCP — пинг до сервера. Линия — последние проверки" FontSize="10"
+                   Foreground="{DynamicResource Faint}" Margin="2,6,0,0" TextWrapping="Wrap"/>
 
         <WrapPanel DockPanel.Dock="Bottom">
-          <ToggleButton x:Name="ChipAutostart" Style="{StaticResource Chip}" Content="Автозапуск"/>
-          <ToggleButton x:Name="ChipAutoUpdate" Style="{StaticResource Chip}" Content="Автообновление"/>
-          <ToggleButton x:Name="ChipTelegram" Style="{StaticResource Chip}" Content="Telegram"/>
+          <ToggleButton x:Name="ChipAutostart" Style="{DynamicResource Chip}" Content="Автозапуск"/>
+          <ToggleButton x:Name="ChipAutoUpdate" Style="{DynamicResource Chip}" Content="Автообновление"/>
+          <ToggleButton x:Name="ChipTelegram" Style="{DynamicResource Chip}" Content="Telegram"/>
         </WrapPanel>
       </DockPanel>
+    </Grid>
+
+    <!-- Экран первого запуска -->
+    <Grid x:Name="Onboarding" Grid.Row="1" Grid.ColumnSpan="3" Background="{DynamicResource Overlay}" Visibility="Collapsed">
+      <Border x:Name="OnbCard" Width="520" CornerRadius="22" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+              Padding="34,30" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Border.Effect>
+          <DropShadowEffect BlurRadius="40" ShadowDepth="8" Opacity="0.4" Color="Black"/>
+        </Border.Effect>
+        <StackPanel>
+          <Border Width="72" Height="72" CornerRadius="22" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left">
+            <TextBlock x:Name="OnbIcon" Text="&#xEA18;" FontFamily="{DynamicResource Icons}" FontSize="32" Foreground="{DynamicResource AccentHover}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <TextBlock x:Name="OnbTitle" Text="" FontSize="22" FontWeight="SemiBold" Margin="0,20,0,0" TextWrapping="Wrap"/>
+          <TextBlock x:Name="OnbText" Text="" FontSize="13" Foreground="{DynamicResource TextSub}" Margin="0,10,0,0" TextWrapping="Wrap" LineHeight="20"/>
+          <Grid Margin="0,26,0,0">
+            <StackPanel x:Name="OnbDots" Orientation="Horizontal" VerticalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+              <Button x:Name="OnbSkip" Style="{DynamicResource GhostButton}" Height="36" MinWidth="110" Content="Пропустить"/>
+              <Button x:Name="OnbNext" Style="{DynamicResource AccentButton}" Height="36" MinWidth="130" Margin="8,0,0,0" Content="Дальше"/>
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+      </Border>
     </Grid>
   </Grid>
 </Window>

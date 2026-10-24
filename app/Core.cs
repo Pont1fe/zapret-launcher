@@ -84,6 +84,11 @@ namespace ZapretLauncher
         public bool TelegramLinked { get; set; }
         public bool Toasts { get; set; }
         public string Language { get; set; }   // auto / ru / en
+        public string Theme { get; set; }      // dark / light / system
+        public bool Transparent { get; set; }  // фон Mica (Windows 11)
+        public bool OnboardingDone { get; set; }
+        public List<string> Favorites { get; set; }
+        public Dictionary<string, string> PickScores { get; set; }   // стратегия -> "открылось/всего/среднее мс" из последнего подбора
         public string SkipVersion { get; set; }
         public string LauncherRepo { get; set; }
         public Dictionary<string, NetProfile> NetworkProfiles { get; set; }
@@ -91,21 +96,32 @@ namespace ZapretLauncher
         public Config()
         {
             Strategy = "general.bat"; AutoUpdate = true; Watchdog = true; VpnPause = true; NetworkProfilesEnabled = true; Toasts = true;
-            Language = "auto";
+            Language = "auto"; Theme = "dark";
             SkipVersion = ""; LauncherRepo = Consts.LauncherRepo;
             NetworkProfiles = new Dictionary<string, NetProfile>();
+            Favorites = new List<string>();
+            PickScores = new Dictionary<string, string>();
         }
 
         public static Config Load()
         {
             Config c = null;
+            string raw = null;
             try
             {
                 if (File.Exists(Paths.Config))
-                    c = new JavaScriptSerializer().Deserialize<Config>(File.ReadAllText(Paths.Config, Encoding.UTF8));
+                {
+                    raw = File.ReadAllText(Paths.Config, Encoding.UTF8);
+                    c = new JavaScriptSerializer().Deserialize<Config>(raw);
+                }
             }
             catch (Exception e) { Log.Write("Не удалось прочитать launcher.json: " + e.Message); }
             if (c == null) c = new Config();
+            // приветствие показываем только новым установкам, не тем, кто уже пользуется лаунчером
+            if (raw != null && !raw.Contains("\"OnboardingDone\"")) c.OnboardingDone = true;
+            if (c.Favorites == null) c.Favorites = new List<string>();
+            if (c.PickScores == null) c.PickScores = new Dictionary<string, string>();
+            if (string.IsNullOrEmpty(c.Theme)) c.Theme = "dark";
             if (c.NetworkProfiles == null) c.NetworkProfiles = new Dictionary<string, NetProfile>();
             if (string.IsNullOrEmpty(c.LauncherRepo)) c.LauncherRepo = Consts.LauncherRepo;
             if (c.SkipVersion == null) c.SkipVersion = "";

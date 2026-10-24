@@ -1,0 +1,66 @@
+<!-- Мини-окно у трея: открывается кликом по значку, как панели Wi-Fi и звука в Windows 11 -->
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Zapret Launcher" Width="356" SizeToContent="Height"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent" ResizeMode="NoResize"
+        ShowInTaskbar="False" Topmost="True" ShowActivated="True"
+        Foreground="{DynamicResource Text}" FontFamily="Segoe UI" FontSize="13" UseLayoutRounding="True">
+  <Border x:Name="FlyCard" Margin="12" CornerRadius="18" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="18,16">
+    <Border.Effect>
+      <DropShadowEffect BlurRadius="28" ShadowDepth="4" Opacity="0.35" Color="Black"/>
+    </Border.Effect>
+    <StackPanel>
+      <Grid>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <Image x:Name="FlyIcon" Width="18" Height="18"/>
+          <TextBlock Text="Zapret Launcher" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+        <Button x:Name="FlyOpen" Style="{DynamicResource IconButton}" Width="28" Height="28" FontSize="12" Content="&#xE8A7;"
+                HorizontalAlignment="Right" ToolTip="Открыть окно лаунчера"/>
+      </Grid>
+
+      <Grid x:Name="FlyToggle" Margin="0,14,0,0" Height="76" Cursor="Hand" Background="Transparent">
+        <Border CornerRadius="16" Background="{DynamicResource Card}" BorderBrush="{DynamicResource Line}" BorderThickness="1"/>
+        <Border x:Name="FlyActive" CornerRadius="16" BorderBrush="{DynamicResource ActiveBorder}" BorderThickness="1" Opacity="0">
+          <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+              <GradientStop Color="{DynamicResource ActiveFromColor}" Offset="0"/>
+              <GradientStop Color="{DynamicResource ActiveToColor}" Offset="1"/>
+            </LinearGradientBrush>
+          </Border.Background>
+        </Border>
+        <Grid Margin="16,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock x:Name="FlyStatus" Text="" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="FlyStrategy" Text="" FontSize="11" Foreground="{DynamicResource TextSub}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+          <Grid Grid.Column="1" Width="50" Height="28" VerticalAlignment="Center">
+            <Border CornerRadius="14" Background="{DynamicResource TrackOff}"/>
+            <Border x:Name="FlyTrackOn" CornerRadius="14" Background="{DynamicResource Accent}" Opacity="0"/>
+            <Ellipse x:Name="FlyKnob" Width="20" Height="20" Fill="White" HorizontalAlignment="Left" Margin="4,0">
+              <Ellipse.RenderTransform>
+                <TranslateTransform X="0"/>
+              </Ellipse.RenderTransform>
+            </Ellipse>
+          </Grid>
+        </Grid>
+      </Grid>
+
+      <UniformGrid x:Name="FlySites" Rows="1" Margin="0,12,0,0"/>
+
+      <Grid Margin="0,14,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition/>
+          <ColumnDefinition Width="8"/>
+          <ColumnDefinition/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="FlyPing" Style="{DynamicResource GhostButton}" Height="34" Content="Обновить пинг"/>
+        <Button x:Name="FlyPick" Grid.Column="2" Style="{DynamicResource GhostButton}" Height="34" Content="Подобрать" ToolTip="Подобрать стратегию"/>
+      </Grid>
+    </StackPanel>
+  </Border>
+</Window>

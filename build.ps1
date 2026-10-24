@@ -63,7 +63,7 @@ Invoke-Csc @(
     '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Management.dll', '/r:System.ServiceProcess.dll',
     '/r:System.Net.Http.dll', '/r:System.IO.Compression.dll', '/r:System.IO.Compression.FileSystem.dll',
     '/r:System.Web.Extensions.dll', '/r:Microsoft.CSharp.dll', '/r:System.Core.dll',
-    "/resource:$(Join-Path $app 'ui.xaml'),ui.xaml",
+    "/resource:$(Join-Path $app 'ui.xaml'),ui.xaml", "/resource:$(Join-Path $app 'styles.xaml'),styles.xaml", "/resource:$(Join-Path $app 'flyout.xaml'),flyout.xaml",
     (Join-Path $app '*.cs')
 )
 

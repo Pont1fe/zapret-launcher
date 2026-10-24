@@ -19,7 +19,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "3.1.1";
+        public const string Value = "3.2.0";
     }
 
     static class App
@@ -36,7 +36,15 @@ namespace ZapretLauncher
             bool uninstall = args.Contains("--uninstall");
             bool restarted = args.Contains("--restarted");
             SelfUpdate.CleanupOld();
-            I18n.Init(Config.Load().Language);
+            Config cfg = Config.Load();
+            I18n.Init(cfg.Language);
+
+            // приложение, общие стили и тема нужны до первого окна и диалога
+            Application app = new Application();
+            app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("styles.xaml"))
+                app.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Load(s));
+            Theme.Apply(cfg.Theme, cfg.Transparent);
 
             if (uninstall) return Uninstaller.Interactive();
 
@@ -51,20 +59,18 @@ namespace ZapretLauncher
             {
                 EventWaitHandle show;
                 if (EventWaitHandle.TryOpenExisting(ShowEventName, out show)) show.Set();
-                else MessageBox.Show(I18n.T("Лаунчер уже запущен — ищите значок в трее."), "Zapret Launcher");
+                else Dialog.Show(null, I18n.T("Лаунчер уже запущен — ищите значок в трее."));
                 return 0;
             }
             owned = true;
 
-            Application app = new Application();
-            app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             app.DispatcherUnhandledException += (s, e) =>
             {
                 Log.Write("Непредвиденная ошибка: " + e.Exception);
-                MessageBox.Show(I18n.T(e.Exception.Message), "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
+                Dialog.Show(null, I18n.T(e.Exception.Message), "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
                 e.Handled = true;
             };
-            Launcher launcher = new Launcher(autostart);
+            Launcher launcher = new Launcher(autostart, cfg);
 
             EventWaitHandle showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
             ThreadPool.RegisterWaitForSingleObject(showEvent, delegate
@@ -91,18 +97,18 @@ namespace ZapretLauncher
         // Вызов из «Установленных приложений» Windows
         public static int Interactive()
         {
-            if (MessageBox.Show(I18n.T("Удалить Zapret Launcher?\n\nОбход и Telegram-прокси будут остановлены. Удалятся автозапуск, драйвер WinDivert, записи Telegram в hosts, ярлыки и папка ") +
+            if (Dialog.Show(null, I18n.T("Удалить Zapret Launcher?\n\nОбход и Telegram-прокси будут остановлены. Удалятся автозапуск, драйвер WinDivert, записи Telegram в hosts, ярлыки и папка ") +
                 Paths.Root + I18n.T(" со всеми файлами."), I18n.T("Удаление Zapret Launcher"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return 1;
             CloseOtherInstances();
             try
             {
                 Remove(true).GetAwaiter().GetResult();
-                MessageBox.Show(I18n.T("Zapret Launcher удалён."), "Zapret Launcher");
+                Dialog.Show(null, I18n.T("Zapret Launcher удалён."));
                 return 0;
             }
             catch (Exception e)
             {
-                MessageBox.Show(I18n.T("Не удалось удалить полностью: ") + I18n.T(e.Message), "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
+                Dialog.Show(null, I18n.T("Не удалось удалить полностью: ") + I18n.T(e.Message), "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
                 return 1;
             }
         }
