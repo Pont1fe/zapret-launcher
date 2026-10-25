@@ -19,7 +19,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "3.3.0";
+        public const string Value = "3.3.1";
     }
 
     static class App
@@ -44,7 +44,7 @@ namespace ZapretLauncher
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("styles.xaml"))
                 app.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Load(s));
-            Theme.Apply(cfg.Theme, cfg.Transparent);
+            Theme.Apply(cfg.Theme, cfg.Transparent, cfg.Accent);
 
             if (uninstall) return Uninstaller.Interactive();
 

@@ -35,6 +35,8 @@ namespace ZapretLauncher
         public string StarTip { get; set; }
         public Brush MarkColor { get; set; }
         public Visibility MarkVisibility { get; set; }
+        public string Tip { get; set; }          // результаты последнего подбора по сайтам (подсказка при наведении)
+        public bool GroupOpen { get; set; }      // группа этой стратегии развёрнута
     }
 
     class Launcher
@@ -45,7 +47,10 @@ namespace ZapretLauncher
         Forms.NotifyIcon tray;
         Forms.ToolStripMenuItem miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miExit;
         Dictionary<string, System.Drawing.Icon> trayIcons;
-        string trayState;
+        Dictionary<string, ImageSource> windowIcons;   // значок окна и панели задач — того же цвета, что в трее
+        string trayState, cardState;
+        DateTime historyMinute;
+        bool animateCards;                              // следующая сборка карточек сайтов — с появлением по очереди
         ImageSource appIcon;
         DispatcherTimer statusTimer, updateTimer;
 
@@ -99,9 +104,15 @@ namespace ZapretLauncher
             try { foreach (string line in File.ReadLines(Paths.Log).Reverse().Take(200).Reverse()) E<TextBox>("LogBox").AppendText(line + "\r\n"); } catch { }
 
             appIcon = Icons.ToImageSource(Icons.Draw(64, true));
-            window.Icon = appIcon;
-            E<Image>("TitleIcon").Source = appIcon;
+            windowIcons = new Dictionary<string, ImageSource>();
+            foreach (string state in new[] { "on", "off", "pause", "error" }) windowIcons[state] = Icons.ToImageSource(Icons.Draw(64, state));
+            window.Icon = windowIcons["off"];
+            E<Image>("TitleIcon").Source = window.Icon;
 
+            if (I18n.English) Text("PingText").Text = "Refresh";   // «Обновить» в остальных местах — это Update
+            StateHistory.Load();
+            RestoreWindowSize();
+            ApplyScale();
             InitSwitches();
             UpdateTitle();
             if (Zapret.Running) wantRunning = true;
@@ -119,8 +130,8 @@ namespace ZapretLauncher
             };
             window.IsVisibleChanged += delegate
             {
-                if (window.IsVisible) { BuildSitePanel(); UpdateUi(); }
-                else trimDue = DateTime.Now.AddSeconds(20);
+                if (window.IsVisible) { BuildSitePanel(); UpdateUi(); RenderHistory(); }
+                else { trimDue = DateTime.Now.AddSeconds(20); SaveWindowSize(); }
             };
             SystemEvents.UserPreferenceChanged += (s, e) =>
             {
@@ -227,6 +238,13 @@ namespace ZapretLauncher
         {
             tick++;
             bool idle = Idle;
+            DateTime now = DateTime.Now, minute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
+            if (minute != historyMinute)   // раз в минуту — отметка в истории за сутки
+            {
+                historyMinute = minute;
+                StateHistory.Record(TrayState(Zapret.Running));
+                RenderHistory();
+            }
             bool changed = netChanged;
             if (changed || tick % (idle ? 10 : 5) == 1) await CheckVpn();
             if (changed || tick % (idle ? 30 : 10) == 2) { netChanged = false; await CheckNetworkAndApply(); }
@@ -433,6 +451,7 @@ namespace ZapretLauncher
             // ручную проверку показываем и без обхода (видно, что заблокировано); фоновую — только при работающем обходе
             if (health && !Zapret.Running) { siteResults = null; BuildSitePanel(); return; }
             SiteResult control = res.FirstOrDefault(r => r.Name == Sites.Control);
+            animateCards = true;   // свежие результаты — карточки появляются по очереди
             siteResults = res.Where(r => r.Name != Sites.Control).ToList();
             foreach (SiteResult r in siteResults)
             {
@@ -497,7 +516,7 @@ namespace ZapretLauncher
                     {
                         // первый запуск — с полной подготовкой системы, дальше — быстрый
                         try { await StartBypass(true, i > 0); }
-                        catch { cfg.PickScores[s] = "0/0/0"; Log.Write("  " + Zapret.Title(s) + " — не запустилась"); ShowPickProgress(i + 1, strategies.Count); continue; }
+                        catch { cfg.PickScores[s] = "0/0/0"; cfg.PickDetails.Remove(s); Log.Write("  " + Zapret.Title(s) + " — не запустилась"); ShowPickProgress(i + 1, strategies.Count); continue; }
                         await Task.Delay(400);
                         res = await Sites.Test(cfg.Telegram, false, 4);
                     }
@@ -505,6 +524,8 @@ namespace ZapretLauncher
                     List<SiteResult> okRes = res.Where(r => r.Ok).ToList();
                     int avg = okRes.Count > 0 ? (int)okRes.Average(r => r.Ms) : 0;
                     cfg.PickScores[s] = okRes.Count + "/" + res.Count + "/" + avg;
+                    cfg.PickDetails[s] = string.Join(";", res.Select(r => r.Name + "=" + (r.Ok ? r.Ms : -1)));
+                    cfg.PickDate = DateTime.Now.ToString("dd.MM HH:mm");
                     Log.Write("  " + Zapret.Title(s) + " — " + string.Join(", ", res.Select(r => r.Name + ": " + (r.Ok ? "да" : "нет"))));
                     int score = okRes.Count * 100000 - avg;
                     if (best == null || score > best.Score)
@@ -709,33 +730,93 @@ namespace ZapretLauncher
             if (!window.IsVisible) { UpdateFlyout(); return; }
             UniformGrid panel = E<UniformGrid>("SitePanel");
             panel.Children.Clear();
+            bool stagger = animateCards && !siteChecking;
+            animateCards = false;
+            int n = 0;
             foreach (string site in VisibleSites())
             {
                 string color, https, tcp;
                 SiteState(site, out color, out https, out tcp);
-                Grid content = new Grid();
-                StackPanel texts = new StackPanel();
-                StackPanel head = new StackPanel { Orientation = Orientation.Horizontal };
-                Ellipse dot = new Ellipse { Width = 8, Height = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                SiteResult r = siteResults == null ? null : siteResults.FirstOrDefault(x => x.Name == site);
+                StackPanel content = new StackPanel();
+
+                // значок сервиса, название и точка состояния
+                Grid head = new Grid();
+                string[] look = SiteLook(site);
+                Border badge = new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(8), Background = B(look[1]), HorizontalAlignment = HorizontalAlignment.Left };
+                TextBlock glyph = new TextBlock { Text = look[0], FontSize = 13, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                glyph.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
+                badge.Child = glyph;
+                head.Children.Add(badge);
+                head.Children.Add(new TextBlock { Text = T(site), FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(34, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+                Ellipse dot = new Ellipse { Width = 8, Height = 8, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
                 dot.SetResourceReference(Shape.FillProperty, color);
                 head.Children.Add(dot);
-                head.Children.Add(new TextBlock { Text = T(site), FontSize = 13, FontWeight = FontWeights.SemiBold });
-                texts.Children.Add(head);
-                TextBlock h = new TextBlock { Text = https, FontSize = 12, Margin = new Thickness(16, 5, 0, 0) };
-                h.SetResourceReference(TextBlock.ForegroundProperty, "TextSub");
-                TextBlock t = new TextBlock { Text = tcp, FontSize = 11, Margin = new Thickness(16, 1, 0, 0) };
+                content.Children.Add(head);
+
+                // крупно — время открытия сайта; если не открылся или ещё не проверен — короткий текст
+                TextBlock big = new TextBlock { Margin = new Thickness(0, 10, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+                if (r != null && r.Ok && !siteChecking)
+                {
+                    big.Inlines.Add(new System.Windows.Documents.Run(r.Ms.ToString()) { FontSize = 24, FontWeight = FontWeights.SemiBold });
+                    System.Windows.Documents.Run unit = new System.Windows.Documents.Run(" " + T("мс")) { FontSize = 12 };
+                    unit.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "Muted");
+                    big.Inlines.Add(unit);
+                }
+                else
+                {
+                    big.Text = r != null && !r.Ok && !siteChecking ? T("недоступен") : https;
+                    big.FontSize = 14;
+                    big.FontWeight = FontWeights.SemiBold;
+                    big.Margin = new Thickness(0, 14, 0, 6);
+                    big.SetResourceReference(TextBlock.ForegroundProperty, color == "Fail" ? "Fail" : "TextSub");
+                }
+                content.Children.Add(big);
+                TextBlock t = new TextBlock { Text = tcp, FontSize = 11, Margin = new Thickness(0, 1, 0, 0) };
                 t.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-                texts.Children.Add(h);
-                texts.Children.Add(t);
-                content.Children.Add(texts);
-                FrameworkElement spark = Sparkline(site, 46, 16);
-                if (spark != null) { spark.HorizontalAlignment = HorizontalAlignment.Right; spark.VerticalAlignment = VerticalAlignment.Bottom; content.Children.Add(spark); }
-                Border card = new Border { Child = content, CornerRadius = new CornerRadius(14), Padding = new Thickness(12, 11, 10, 11), Margin = new Thickness(0, 0, 8, 8) };
+                content.Children.Add(t);
+
+                // график последних проверок — на всю ширину карточки
+                Grid sparkHost = new Grid { Height = 22, Margin = new Thickness(0, 8, 0, 0) };
+                string siteName = site;
+                sparkHost.SizeChanged += (s, e) =>
+                {
+                    sparkHost.Children.Clear();
+                    FrameworkElement spark = Sparkline(siteName, e.NewSize.Width, 22);
+                    if (spark != null) sparkHost.Children.Add(spark);
+                };
+                content.Children.Add(sparkHost);
+
+                Border card = new Border { Child = content, CornerRadius = new CornerRadius(14), Padding = new Thickness(12, 12, 12, 10), Margin = new Thickness(0, 0, 8, 8) };
                 card.SetResourceReference(Border.BackgroundProperty, "CardRaised");
                 if (siteChecking) Shimmer(card);
+                else if (stagger) AppearLater(card, n);
                 panel.Children.Add(card);
+                n++;
             }
             UpdateFlyout();
+        }
+
+        // Значок (Segoe MDL2) и фирменный цвет сервиса для карточки
+        static string[] SiteLook(string site)
+        {
+            if (site == "Discord") return new[] { "", "#5865F2" };
+            if (site == "YouTube") return new[] { "", "#FF2D2D" };
+            if (site == "Telegram") return new[] { "", "#2AABEE" };
+            return new[] { "", "#6B7280" };
+        }
+
+        // Появление карточек по очереди: лёгкое затухание и сдвиг снизу
+        static void AppearLater(FrameworkElement e, int index)
+        {
+            TimeSpan delay = TimeSpan.FromMilliseconds(70 * index);
+            Duration d = new Duration(TimeSpan.FromMilliseconds(260));
+            IEasingFunction ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            TranslateTransform tr = new TranslateTransform(0, 10);
+            e.RenderTransform = tr;
+            e.Opacity = 0;
+            e.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, d) { BeginTime = delay, EasingFunction = ease });
+            tr.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, d) { BeginTime = delay, EasingFunction = ease });
         }
 
         // Мини-график HTTPS-времени последних проверок; провалы — красные точки внизу
@@ -901,14 +982,168 @@ namespace ZapretLauncher
         }
 
         // ---------- Оформление ----------
+        // Смена темы или акцента: снимок старого вида поверх окна плавно растворяется — без мигания
         void ApplyTheme()
         {
-            Theme.Apply(cfg.Theme, cfg.Transparent);
+            Image snapshot = window.IsVisible ? Snapshot() : null;
+            Grid root = E<Grid>("Root");
+            if (snapshot != null) root.Children.Add(snapshot);
+            Theme.Apply(cfg.Theme, cfg.Transparent, cfg.Accent);
             Theme.ApplyWindow(window);
             visualActive = null;
+            cardState = null;
             UpdateStrategyList();
             BuildSitePanel();
             UpdateUi();
+            RenderHistory();
+            if (snapshot == null) return;
+            DoubleAnimation fade = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(320))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
+            fade.Completed += delegate { root.Children.Remove(snapshot); };
+            snapshot.BeginAnimation(UIElement.OpacityProperty, fade);
+        }
+
+        Image Snapshot()
+        {
+            try
+            {
+                FrameworkElement content = E<Grid>("Root");
+                DpiScale dpi = VisualTreeHelper.GetDpi(window);
+                System.Windows.Media.Imaging.RenderTargetBitmap bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    (int)(content.ActualWidth * dpi.DpiScaleX), (int)(content.ActualHeight * dpi.DpiScaleY), 96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, PixelFormats.Pbgra32);
+                DrawingVisual dv = new DrawingVisual();
+                using (DrawingContext dc = dv.RenderOpen())
+                {
+                    Rect rect = new Rect(0, 0, content.ActualWidth, content.ActualHeight);
+                    dc.DrawRectangle(Theme.Brush("WindowBg"), null, rect);
+                    dc.DrawRectangle(new VisualBrush(content), null, rect);
+                }
+                bmp.Render(dv);
+                Image img = new Image { Source = bmp, IsHitTestVisible = false, Stretch = Stretch.Fill };
+                Grid.SetRowSpan(img, 2);
+                Grid.SetColumnSpan(img, 3);
+                return img;
+            }
+            catch { return null; }
+        }
+
+        // ---------- Размер окна и масштаб ----------
+        void RestoreWindowSize()
+        {
+            double k = cfg.Scale / 100.0;
+            double w = cfg.WindowWidth > 0 ? cfg.WindowWidth : 1000 * k, h = cfg.WindowHeight > 0 ? cfg.WindowHeight : 700 * k;
+            Rect area = SystemParameters.WorkArea;
+            window.Width = Math.Min(Math.Max(w, window.MinWidth * k), area.Width);
+            window.Height = Math.Min(Math.Max(h, window.MinHeight * k), area.Height);
+            if (cfg.WindowMaximized) window.WindowState = WindowState.Maximized;
+            window.StateChanged += delegate { OnWindowStateChanged(); };
+            OnWindowStateChanged();
+        }
+
+        // Развёрнутое окно с WindowChrome выходит за край экрана на ширину рамки — компенсируем отступом
+        void OnWindowStateChanged()
+        {
+            bool max = window.WindowState == WindowState.Maximized;
+            Thickness frame = SystemParameters.WindowResizeBorderThickness;
+            window.BorderThickness = max ? new Thickness(frame.Left + 4, frame.Top + 4, frame.Right + 4, frame.Bottom + 4) : new Thickness(0);
+            Button b = E<Button>("BtnMaximize");
+            b.Content = max ? "" : "";
+            b.ToolTip = T(max ? "Восстановить" : "Развернуть");
+        }
+
+        void SaveWindowSize()
+        {
+            cfg.WindowMaximized = window.WindowState == WindowState.Maximized;
+            Rect r = window.RestoreBounds;
+            if (!r.IsEmpty && r.Width > 0) { cfg.WindowWidth = Math.Round(r.Width); cfg.WindowHeight = Math.Round(r.Height); }
+            cfg.Save();
+        }
+
+        void ApplyScale()
+        {
+            double k = cfg.Scale / 100.0;
+            E<Grid>("Root").LayoutTransform = k == 1 ? Transform.Identity : new ScaleTransform(k, k);
+            window.MinWidth = 900 * k;
+            window.MinHeight = 620 * k;
+            if (flyout != null) F<FrameworkElement>("FlyCard").LayoutTransform = k == 1 ? Transform.Identity : new ScaleTransform(k, k);
+        }
+
+        void SetScale(int scale)
+        {
+            if (filling || cfg.Scale == scale) return;
+            double ratio = (double)scale / cfg.Scale;
+            cfg.Scale = scale;
+            if (window.WindowState == WindowState.Normal)
+            {
+                Rect area = SystemParameters.WorkArea;
+                window.Width = Math.Min(window.ActualWidth * ratio, area.Width);
+                window.Height = Math.Min(window.ActualHeight * ratio, area.Height);
+                window.Left = Math.Max(area.Left, Math.Min(window.Left, area.Right - window.Width));
+                window.Top = Math.Max(area.Top, Math.Min(window.Top, area.Bottom - window.Height));
+            }
+            ApplyScale();
+            SaveWindowSize();
+        }
+
+        void SetAccent(string accent)
+        {
+            if (filling || cfg.Accent == accent) return;
+            cfg.Accent = accent;
+            cfg.Save();
+            ApplyTheme();
+        }
+
+        // ---------- История за сутки ----------
+        // Полоса за 24 часа: цвет — состояние обхода в эту минуту, пусто — лаунчер не работал
+        void RenderHistory()
+        {
+            if (!window.IsVisible) return;
+            Canvas bar = E<Canvas>("HistoryBar");
+            bar.Children.Clear();
+            double width = bar.ActualWidth, height = 16;
+            if (width <= 0) return;
+            DateTime now = DateTime.Now, from = now.AddHours(-24);
+            List<KeyValuePair<DateTime, char>> points = StateHistory.Last24h();
+            Dictionary<char, int> minutesBy = new Dictionary<char, int> { { 'o', 0 }, { 'p', 0 }, { 'e', 0 }, { 'f', 0 } };
+            int i = 0;
+            while (i < points.Count)
+            {
+                // соседние минуты с одинаковым состоянием — один отрезок
+                int j = i;
+                while (j + 1 < points.Count && points[j + 1].Value == points[i].Value && (points[j + 1].Key - points[j].Key).TotalMinutes <= 2) j++;
+                char state = points[i].Value;
+                minutesBy[state] += j - i + 1;
+                DateTime start = points[i].Key, end = points[j].Key.AddMinutes(1);
+                double x1 = (start - from).TotalMinutes / 1440 * width, x2 = (end - from).TotalMinutes / 1440 * width;
+                Rectangle seg = new Rectangle { Width = Math.Max(1.5, x2 - x1), Height = height };
+                seg.SetResourceReference(Shape.FillProperty, HistoryColor(state));
+                seg.ToolTip = start.ToString("HH:mm") + "–" + end.ToString("HH:mm") + " · " + T(HistoryName(state));
+                Canvas.SetLeft(seg, Math.Max(0, x1));
+                bar.Children.Add(seg);
+                i = j + 1;
+            }
+            Text("HistorySummary").Text = points.Count == 0 ? T("данных пока нет") : T("работал") + " " + Span(minutesBy['o']);
+            WrapPanel legend = E<WrapPanel>("HistoryLegend");
+            legend.Children.Clear();
+            foreach (char c in new[] { 'o', 'p', 'e', 'f' })
+            {
+                if (minutesBy[c] == 0 && c != 'o') continue;
+                StackPanel item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 14, 0) };
+                Ellipse dot = new Ellipse { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+                dot.SetResourceReference(Shape.FillProperty, HistoryColor(c));
+                item.Children.Add(dot);
+                TextBlock t = new TextBlock { Text = T(HistoryName(c)) + " " + Span(minutesBy[c]), FontSize = 11 };
+                t.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                item.Children.Add(t);
+                legend.Children.Add(item);
+            }
+        }
+
+        static string HistoryColor(char c) { return c == 'o' ? "Accent" : c == 'p' ? "Wait" : c == 'e' ? "Fail" : "Idle"; }
+        static string HistoryName(char c) { return c == 'o' ? "работал" : c == 'p' ? "пауза (VPN)" : c == 'e' ? "сбой" : "выключен"; }
+
+        static string Span(int minutes)
+        {
+            return minutes >= 60 ? (minutes / 60) + " " + T("ч") + (minutes % 60 > 0 ? " " + (minutes % 60) + " " + T("мин") : "") : minutes + " " + T("мин");
         }
 
         // Карточка-переключатель: плавно подсвечивается бирюзовым, ползунок едет вправо
@@ -923,7 +1158,55 @@ namespace ZapretLauncher
             Fade(E<UIElement>("ToggleTrackOn"), on ? 1 : 0, d);
             Fade(E<UIElement>("GlowBg"), on ? 0.9 : 0, d);
             Slide(E<Ellipse>("ToggleKnob"), on ? 28 : 0, d);
-            Text("PowerIcon").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Muted");
+            if (on && !first) Ripple();
+            animateCards = true;
+            // пока обход работает, подсветка карточки медленно «дышит»
+            UIElement glow = E<UIElement>("GlowBg");
+            if (on)
+            {
+                DoubleAnimation breathe = new DoubleAnimation(0.9, 0.5, new Duration(TimeSpan.FromSeconds(2.6)))
+                {
+                    AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, BeginTime = d,
+                    EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+                };
+                glow.BeginAnimation(UIElement.OpacityProperty, breathe, HandoffBehavior.Compose);
+            }
+        }
+
+        // Волна от значка щита при включении
+        void Ripple()
+        {
+            Ellipse r = E<Ellipse>("Ripple");
+            ScaleTransform s = new ScaleTransform(1, 1);
+            r.RenderTransform = s;
+            Duration d = new Duration(TimeSpan.FromMilliseconds(700));
+            IEasingFunction ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            s.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.6, 9, d) { EasingFunction = ease });
+            s.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.6, 9, d) { EasingFunction = ease });
+            r.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.35, 0, d));
+        }
+
+        // Карточка-переключатель окрашивается по состоянию: жёлтая — пауза из-за VPN, красная — ошибка; значок щита меняется на паузу или предупреждение
+        void UpdateCardState(string state)
+        {
+            if (state == cardState) return;
+            cardState = state;
+            bool tinted = state == "pause" || state == "error";
+            Border layer = E<Border>("StateLayer");
+            Border fly = F<Border>("FlyState");
+            if (tinted)
+            {
+                Color c = Theme.Color(state == "pause" ? "Wait" : "Fail");
+                Brush bg = new LinearGradientBrush(Color.FromArgb(0x38, c.R, c.G, c.B), Color.FromArgb(0x0C, c.R, c.G, c.B), 45);
+                Brush border = new SolidColorBrush(Color.FromArgb(0x90, c.R, c.G, c.B));
+                foreach (Border b in new[] { layer, fly }) if (b != null) { b.Background = bg; b.BorderBrush = border; }
+            }
+            TimeSpan d = TimeSpan.FromMilliseconds(260);
+            Fade(layer, tinted ? 1 : 0, d);
+            Fade(fly, tinted ? 1 : 0, d);
+            Text("PowerIcon").Text = state == "pause" ? "" : state == "error" ? "" : "";
+            Text("PowerIcon").SetResourceReference(TextBlock.ForegroundProperty,
+                state == "on" ? "AccentText" : state == "pause" ? "Wait" : state == "error" ? "Fail" : "Muted");
         }
 
         static void Fade(UIElement e, double to, TimeSpan d)
@@ -1043,7 +1326,11 @@ namespace ZapretLauncher
         void CreateFlyout()
         {
             flyout = LoadWindow("flyout.xaml");
-            F<Image>("FlyIcon").Source = appIcon;
+            F<Image>("FlyIcon").Source = window.Icon;
+            ApplyScale();
+            if (I18n.English) F<Button>("FlyPing").Content = "Refresh";
+            cardState = null;   // перекрасить мини-окно по состоянию
+            F<Button>("FlyDiscord").Click += async delegate { HideFlyout(); await FixDiscordUi(); };
             flyout.Deactivated += delegate { HideFlyout(); };
             flyout.KeyDown += (s, e) => { if (e.Key == Key.Escape) HideFlyout(); };
             F<Grid>("FlyToggle").MouseLeftButtonUp += async delegate { await ToggleBypass(); };
@@ -1116,6 +1403,8 @@ namespace ZapretLauncher
             List<StrategyItem> ordered = items.Select((i, n) => new { i, n })
                 .OrderBy(x => Array.IndexOf(GroupOrder, cfg.Favorites.Contains(x.i.File) ? "Избранное" : GroupOf(x.i.File))).ThenBy(x => x.n)
                 .Select(x => x.i).ToList();
+            // при поиске показываем все группы, иначе свёрнутые остаются свёрнутыми
+            foreach (StrategyItem i in ordered) i.GroupOpen = query.Length > 0 || !cfg.CollapsedGroups.Contains(i.Group);
             ListCollectionView view = new ListCollectionView(ordered);
             view.GroupDescriptions.Add(new PropertyGroupDescription("Group"));
             ListBox list = E<ListBox>("StrategyList");
@@ -1151,8 +1440,27 @@ namespace ZapretLauncher
                     i.MarkColor = total == 0 || ok == 0 ? R("Fail") : ok == total ? R("Ok") : R("Wait");
                     i.Subtitle = total == 0 ? file + "  ·  " + T("не запустилась") : file + "  ·  " + ok + "/" + total + (ok > 0 ? " · " + avg + " " + T("мс") : "");
                 }
+                i.Tip = PickTip(file, score.StartsWith("0/0/"));
             }
             return i;
+        }
+
+        // Подсказка к стратегии: что открылось на последнем подборе и за сколько
+        string PickTip(string file, bool failedToStart)
+        {
+            string head = T("Последний подбор") + (cfg.PickDate.Length > 0 ? " · " + cfg.PickDate : "");
+            if (failedToStart) return head + "\n" + T("Стратегия не запустилась");
+            string details;
+            if (!cfg.PickDetails.TryGetValue(file, out details)) return null;
+            List<string> lines = new List<string> { head };
+            foreach (string part in details.Split(';'))
+            {
+                string[] kv = part.Split('=');
+                int ms;
+                if (kv.Length != 2 || !int.TryParse(kv[1], out ms)) continue;
+                lines.Add((ms >= 0 ? "✓  " : "✗  ") + T(kv[0] == "Видео" ? "Видео YouTube" : kv[0]) + " — " + (ms >= 0 ? ms + " " + T("мс") : T("не открылся")));
+            }
+            return string.Join("\n", lines);
         }
 
         void ToggleFavorite(string file)
@@ -1194,6 +1502,7 @@ namespace ZapretLauncher
                 }
             }
             SetActive(running);
+            UpdateCardState(TrayState(running));
             if (running != trayActive)
             {
                 trayActive = running;
@@ -1240,7 +1549,14 @@ namespace ZapretLauncher
             if (exiting) return;
             bool running = Zapret.Running;
             string state = TrayState(running);
-            if (state != trayState) { trayState = state; tray.Icon = trayIcons[state]; }
+            if (state != trayState)
+            {
+                trayState = state;
+                tray.Icon = trayIcons[state];
+                window.Icon = windowIcons[state];
+                E<Image>("TitleIcon").Source = window.Icon;
+                if (flyout != null) F<Image>("FlyIcon").Source = window.Icon;
+            }
             string local = Zapret.LocalVersion;
             miStart.Enabled = local != null && !busy;
             miStop.Enabled = (running || pausedByVpn) && !busy;
@@ -1326,6 +1642,9 @@ namespace ZapretLauncher
             E<ToggleButton>("ChipTelegram").IsChecked = cfg.Telegram;
             E<RadioButton>(I18n.English ? "LangEn" : "LangRu").IsChecked = true;
             E<RadioButton>(cfg.Theme == "light" ? "ThemeLight" : cfg.Theme == "system" ? "ThemeSystem" : "ThemeDark").IsChecked = true;
+            string accentKey = Theme.Accents.ContainsKey(cfg.Accent) || cfg.Accent == "system" ? cfg.Accent : "teal";
+            E<RadioButton>("Accent" + char.ToUpper(accentKey[0]) + accentKey.Substring(1)).IsChecked = true;
+            E<RadioButton>("Scale" + cfg.Scale).IsChecked = true;
             CheckBox mica = E<CheckBox>("SwMica");
             mica.IsChecked = cfg.Transparent && Theme.MicaSupported;
             mica.IsEnabled = Theme.MicaSupported;
@@ -1426,6 +1745,8 @@ namespace ZapretLauncher
         void WireEvents()
         {
             ClickSync("BtnMinimize", () => { window.WindowState = WindowState.Minimized; });
+            ClickSync("BtnMaximize", () => { window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; });
+            E<Canvas>("HistoryBar").SizeChanged += delegate { RenderHistory(); };
             ClickSync("BtnClose", () => window.Close());
             foreach (string p in new[] { "Strategies", "Domains", "Settings", "Log" })
             {
@@ -1433,7 +1754,6 @@ namespace ZapretLauncher
                 E<RadioButton>("Nav" + p).Checked += delegate { ShowPage(page); };
             }
             ClickSync("NavFolder", () => Process.Start("explorer.exe", "\"" + Paths.Zapret + "\""));
-            ClickSync("BtnFolder2", () => Process.Start("explorer.exe", "\"" + Paths.Zapret + "\""));
             ClickSync("NavInfo", () => Process.Start("https://github.com/" + cfg.LauncherRepo));
 
             E<FrameworkElement>("PowerButton").MouseLeftButtonUp += async delegate { await ToggleBypass(); };
@@ -1455,6 +1775,16 @@ namespace ZapretLauncher
             };
             strategies.AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler((s, e) =>
             {
+                // заголовок группы: запоминаем, свёрнута ли она
+                ToggleButton g = e.OriginalSource as ToggleButton;
+                if (g != null && g.Tag is string && E<TextBox>("SearchBox").Text.Trim().Length == 0)
+                {
+                    string group = (string)g.Tag;
+                    cfg.CollapsedGroups.Remove(group);
+                    if (g.IsChecked != true) cfg.CollapsedGroups.Add(group);
+                    cfg.Save();
+                    return;
+                }
                 Button b = e.OriginalSource as Button;
                 if (b != null && b.Tag is string) ToggleFavorite((string)b.Tag);
             }));
@@ -1525,6 +1855,19 @@ namespace ZapretLauncher
                 cfg.Save();
                 ApplyTheme();
             });
+            foreach (string accent in Theme.Accents.Keys.Concat(new[] { "system" }))
+            {
+                string a = accent;
+                ClickSync("Accent" + char.ToUpper(a[0]) + a.Substring(1), () => SetAccent(a));
+            }
+            foreach (int scale in new[] { 90, 100, 115, 130 })
+            {
+                int sc = scale;
+                ClickSync("Scale" + sc, () => SetScale(sc));
+            }
+            // клик по «?» не должен переключать настройку, внутри которой он стоит
+            foreach (string help in new[] { "HelpWatchdog", "HelpVpn", "HelpNet", "HelpGf", "HelpIpset" })
+                E<UIElement>(help).MouseLeftButtonDown += (s, e) => e.Handled = true;
             ClickSync("LangRu", () => SetLanguage("ru"));
             ClickSync("LangEn", () => SetLanguage("en"));
             ClickSync("BtnOnboarding", ShowOnboarding);
@@ -1648,6 +1991,7 @@ namespace ZapretLauncher
 
         public void Exit()
         {
+            if (!exiting) { SaveWindowSize(); StateHistory.Save(); }
             exiting = true;
             foreach (DispatcherTimer t in new[] { statusTimer, updateTimer }) if (t != null) t.Stop();
             tray.Visible = false;

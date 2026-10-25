@@ -22,6 +22,7 @@ namespace ZapretLauncher
         public static readonly string Temp = Path.Combine(Root, "temp");
         public static readonly string Config = Path.Combine(Root, "launcher.json");
         public static readonly string Log = Path.Combine(Root, "launcher.log");
+        public static readonly string History = Path.Combine(Root, "history.txt");
         public static readonly string HostsCache = Path.Combine(Root, "telegram-hosts.txt");
         public static readonly string HostsBackup = Path.Combine(Root, "hosts.backup");
         public static readonly string TgDir = Path.Combine(Root, "tgproxy");
@@ -87,8 +88,16 @@ namespace ZapretLauncher
         public string Theme { get; set; }      // dark / light / system
         public bool Transparent { get; set; }  // фон Mica (Windows 11)
         public bool OnboardingDone { get; set; }
+        public string Accent { get; set; }     // teal / blue / violet / green / orange / pink / system
+        public int Scale { get; set; }         // масштаб интерфейса, %: 90 / 100 / 115 / 130
+        public double WindowWidth { get; set; }
+        public double WindowHeight { get; set; }
+        public bool WindowMaximized { get; set; }
         public List<string> Favorites { get; set; }
+        public List<string> CollapsedGroups { get; set; }            // свёрнутые группы в списке стратегий
         public Dictionary<string, string> PickScores { get; set; }   // стратегия -> "открылось/всего/среднее мс" из последнего подбора
+        public Dictionary<string, string> PickDetails { get; set; }  // стратегия -> "Сайт=мс;Сайт=-1" (-1 — не открылся) из последнего подбора
+        public string PickDate { get; set; }
         public string SkipVersion { get; set; }
         public string LauncherRepo { get; set; }
         public Dictionary<string, NetProfile> NetworkProfiles { get; set; }
@@ -96,11 +105,13 @@ namespace ZapretLauncher
         public Config()
         {
             Strategy = "general.bat"; AutoUpdate = true; Watchdog = true; VpnPause = true; NetworkProfilesEnabled = true; Toasts = true;
-            Language = "auto"; Theme = "dark";
-            SkipVersion = ""; LauncherRepo = Consts.LauncherRepo;
+            Language = "auto"; Theme = "dark"; Accent = "teal"; Scale = 100;
+            SkipVersion = ""; LauncherRepo = Consts.LauncherRepo; PickDate = "";
             NetworkProfiles = new Dictionary<string, NetProfile>();
             Favorites = new List<string>();
+            CollapsedGroups = new List<string>();
             PickScores = new Dictionary<string, string>();
+            PickDetails = new Dictionary<string, string>();
         }
 
         public static Config Load()
@@ -121,6 +132,11 @@ namespace ZapretLauncher
             if (raw != null && !raw.Contains("\"OnboardingDone\"")) c.OnboardingDone = true;
             if (c.Favorites == null) c.Favorites = new List<string>();
             if (c.PickScores == null) c.PickScores = new Dictionary<string, string>();
+            if (c.PickDetails == null) c.PickDetails = new Dictionary<string, string>();
+            if (c.CollapsedGroups == null) c.CollapsedGroups = new List<string>();
+            if (string.IsNullOrEmpty(c.Accent)) c.Accent = "teal";
+            if (c.Scale != 90 && c.Scale != 115 && c.Scale != 130) c.Scale = 100;
+            if (c.PickDate == null) c.PickDate = "";
             if (string.IsNullOrEmpty(c.Theme)) c.Theme = "dark";
             if (c.NetworkProfiles == null) c.NetworkProfiles = new Dictionary<string, NetProfile>();
             if (string.IsNullOrEmpty(c.LauncherRepo)) c.LauncherRepo = Consts.LauncherRepo;
@@ -162,6 +178,48 @@ namespace ZapretLauncher
             }
             Action<string> h = Line;
             if (h != null) h(line);
+        }
+    }
+
+    // Состояние обхода за последние сутки: по букве на минуту (o — работал, p — пауза из-за VPN, e — ошибка, f — выключен).
+    // Минуты, когда лаунчер не работал (компьютер выключен), просто отсутствуют
+    static class StateHistory
+    {
+        static readonly SortedDictionary<DateTime, char> minutes = new SortedDictionary<DateTime, char>();
+        static int unsaved;
+
+        public static void Load()
+        {
+            DateTime from = DateTime.Now.AddHours(-24);
+            foreach (string line in Util.ReadLines(Paths.History))
+            {
+                string[] p = line.Split(' ');
+                DateTime t;
+                if (p.Length == 2 && p[1].Length == 1 &&
+                    DateTime.TryParseExact(p[0], "yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out t) && t >= from)
+                    minutes[t] = p[1][0];
+            }
+        }
+
+        public static void Record(string state)
+        {
+            DateTime now = DateTime.Now;
+            DateTime m = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
+            minutes[m] = state == "on" ? 'o' : state == "pause" ? 'p' : state == "error" ? 'e' : 'f';
+            foreach (DateTime old in minutes.Keys.Where(k => k < now.AddHours(-24)).ToList()) minutes.Remove(old);
+            if (++unsaved >= 5) Save();
+        }
+
+        public static void Save()
+        {
+            unsaved = 0;
+            try { Util.WriteLines(Paths.History, minutes.Select(kv => kv.Key.ToString("yyyyMMddHHmm") + " " + kv.Value)); } catch { }
+        }
+
+        public static List<KeyValuePair<DateTime, char>> Last24h()
+        {
+            DateTime from = DateTime.Now.AddHours(-24);
+            return minutes.Where(kv => kv.Key >= from).ToList();
         }
     }
 

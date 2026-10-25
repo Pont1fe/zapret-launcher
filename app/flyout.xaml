@@ -29,6 +29,8 @@
             </LinearGradientBrush>
           </Border.Background>
         </Border>
+        <!-- Жёлтый — пауза из-за VPN, красный — ошибка: цвет задаётся в коде -->
+        <Border x:Name="FlyState" CornerRadius="16" BorderThickness="1" Opacity="0"/>
         <Grid Margin="16,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition/>
@@ -55,11 +57,14 @@
       <Grid Margin="0,14,0,0">
         <Grid.ColumnDefinitions>
           <ColumnDefinition/>
-          <ColumnDefinition Width="8"/>
+          <ColumnDefinition Width="6"/>
+          <ColumnDefinition/>
+          <ColumnDefinition Width="6"/>
           <ColumnDefinition/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="FlyPing" Style="{DynamicResource GhostButton}" Height="34" Content="Обновить пинг"/>
+        <Button x:Name="FlyPing" Style="{DynamicResource GhostButton}" Height="34" Content="Обновить" ToolTip="Заново проверить сайты и пинг"/>
         <Button x:Name="FlyPick" Grid.Column="2" Style="{DynamicResource GhostButton}" Height="34" Content="Подобрать" ToolTip="Подобрать стратегию"/>
+        <Button x:Name="FlyDiscord" Grid.Column="4" Style="{DynamicResource GhostButton}" Height="34" Content="Discord" ToolTip="Починить Discord"/>
       </Grid>
     </StackPanel>
   </Border>

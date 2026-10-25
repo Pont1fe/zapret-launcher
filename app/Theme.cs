@@ -71,12 +71,79 @@ namespace ZapretLauncher
             catch { return true; }
         }
 
-        // theme: dark / light / system
-        public static void Apply(string theme, bool transparent)
+        // Цвета акцента; бирюзовый — родная палитра выше, остальные выводятся из базового цвета
+        public static readonly Dictionary<string, string> Accents = new Dictionary<string, string>
+        {
+            { "teal", "#1FB89A" }, { "blue", "#3B82F6" }, { "violet", "#8B5CF6" }, { "green", "#22C55E" }, { "orange", "#F59E0B" }, { "pink", "#EC4899" },
+        };
+
+        // Цвет акцента Windows (Параметры → Персонализация → Цвета)
+        public static Color SystemAccent()
+        {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\DWM"))
+                {
+                    object v = k == null ? null : k.GetValue("AccentColor");
+                    if (v is int)
+                    {
+                        int abgr = (int)v;
+                        return System.Windows.Media.Color.FromRgb((byte)(abgr & 0xFF), (byte)((abgr >> 8) & 0xFF), (byte)((abgr >> 16) & 0xFF));
+                    }
+                }
+            }
+            catch { }
+            return (Color)ColorConverter.ConvertFromString(Accents["teal"]);
+        }
+
+        static Color Mix(Color a, Color b, double t)
+        {
+            return System.Windows.Media.Color.FromRgb((byte)(a.R + (b.R - a.R) * t), (byte)(a.G + (b.G - a.G) * t), (byte)(a.B + (b.B - a.B) * t));
+        }
+
+        static string Hex(Color c) { return "#" + c.R.ToString("X2") + c.G.ToString("X2") + c.B.ToString("X2"); }
+        static string Hex(byte alpha, Color c) { return "#" + alpha.ToString("X2") + c.R.ToString("X2") + c.G.ToString("X2") + c.B.ToString("X2"); }
+
+        // Оттенки акцента для тёмной и светлой темы — по тем же пропорциям, что у бирюзовой палитры
+        static void ApplyAccent(Dictionary<string, string> colors, Color a, bool dark)
+        {
+            Color black = Colors.Black, white = Colors.White;
+            if (dark)
+            {
+                Color bg = (Color)ColorConverter.ConvertFromString("#16171B");
+                colors["Accent"] = Hex(a);
+                colors["AccentHover"] = Hex(Mix(a, white, 0.18));
+                colors["AccentSoft"] = Hex(Mix(bg, a, 0.14));
+                colors["AccentBorder"] = Hex(Mix(bg, a, 0.38));
+                colors["AccentText"] = Hex(Mix(a, black, 0.85));
+                colors["ActiveFrom"] = Hex(Mix(bg, a, 0.26));
+                colors["ActiveTo"] = Hex(Mix(bg, a, 0.07));
+                colors["ActiveBorder"] = Hex(Mix(bg, a, 0.6));
+                colors["Glow"] = Hex(0x55, a);
+            }
+            else
+            {
+                Color deep = Mix(a, black, 0.12);
+                colors["Accent"] = Hex(deep);
+                colors["AccentHover"] = Hex(Mix(a, black, 0.24));
+                colors["AccentSoft"] = Hex(Mix(white, a, 0.14));
+                colors["AccentBorder"] = Hex(Mix(white, a, 0.42));
+                colors["AccentText"] = "#FFFFFF";
+                colors["ActiveFrom"] = Hex(Mix(white, a, 0.24));
+                colors["ActiveTo"] = Hex(Mix(white, a, 0.08));
+                colors["ActiveBorder"] = Hex(Mix(white, a, 0.52));
+                colors["Glow"] = Hex(0x44, deep);
+            }
+        }
+
+        // theme: dark / light / system; accent: ключ из Accents или system
+        public static void Apply(string theme, bool transparent, string accent = "teal")
         {
             Dark = theme == "light" ? false : theme == "dark" ? true : SystemPrefersDark();
             Transparent = transparent && MicaSupported;
             Dictionary<string, string> colors = new Dictionary<string, string>(Dark ? DarkColors : LightColors);
+            if (accent == "system") ApplyAccent(colors, SystemAccent(), Dark);
+            else if (accent != "teal" && Accents.ContainsKey(accent)) ApplyAccent(colors, (Color)ColorConverter.ConvertFromString(Accents[accent]), Dark);
             if (Transparent) foreach (KeyValuePair<string, string> kv in Dark ? DarkGlass : LightGlass) colors[kv.Key] = kv.Value;
             ResourceDictionary res = Application.Current.Resources;
             foreach (KeyValuePair<string, string> kv in colors)
@@ -85,6 +152,7 @@ namespace ZapretLauncher
                 res[kv.Key] = new SolidColorBrush(c);
                 res[kv.Key + "Color"] = c;
             }
+            res["SystemAccent"] = new SolidColorBrush(SystemAccent());
         }
 
         public static Brush Brush(string key) { return (Brush)Application.Current.Resources[key]; }
@@ -121,7 +189,7 @@ namespace ZapretLauncher
             catch { }
             WindowChrome chrome = new WindowChrome
             {
-                CaptionHeight = 38, ResizeBorderThickness = new Thickness(0), CornerRadius = new CornerRadius(0),
+                CaptionHeight = 38, ResizeBorderThickness = new Thickness(window.ResizeMode == ResizeMode.CanResize ? 6 : 0), CornerRadius = new CornerRadius(0),
                 UseAeroCaptionButtons = false, GlassFrameThickness = Transparent ? new Thickness(-1) : new Thickness(0)
             };
             WindowChrome.SetWindowChrome(window, chrome);

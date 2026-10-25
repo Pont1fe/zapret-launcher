@@ -29,7 +29,99 @@
     <Setter Property="Background" Value="{DynamicResource CardRaised}"/>
     <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-    <Setter Property="Padding" Value="8,5"/>
+    <Setter Property="Padding" Value="10,7"/>
+    <Setter Property="MaxWidth" Value="340"/>
+    <Setter Property="ContentTemplate">
+      <Setter.Value>
+        <DataTemplate>
+          <TextBlock Text="{Binding}" TextWrapping="Wrap" LineHeight="18"/>
+        </DataTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Значок «?» рядом с настройкой: подсказка всплывает сразу при наведении -->
+  <Style x:Key="HelpIcon" TargetType="TextBlock">
+    <Setter Property="Text" Value="&#xE9CE;"/>
+    <Setter Property="FontFamily" Value="{StaticResource Icons}"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Foreground" Value="{DynamicResource Faint}"/>
+    <Setter Property="Margin" Value="7,0,0,0"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="Cursor" Value="Help"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="ToolTipService.InitialShowDelay" Value="80"/>
+    <Setter Property="ToolTipService.ShowDuration" Value="30000"/>
+    <Style.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="Foreground" Value="{DynamicResource AccentHover}"/>
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+
+  <!-- Кружок выбора цвета акцента: цвет — в Background -->
+  <Style x:Key="Swatch" TargetType="RadioButton">
+    <Setter Property="Width" Value="32"/>
+    <Setter Property="Height" Value="32"/>
+    <Setter Property="Margin" Value="0,0,8,0"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="GroupName" Value="accent"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="RadioButton">
+          <Grid Background="Transparent">
+            <Ellipse x:Name="ring" Stroke="{DynamicResource Text}" StrokeThickness="2" Opacity="0"/>
+            <Ellipse Margin="5" Fill="{TemplateBinding Background}"/>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="ring" Property="Opacity" Value="0.35"/>
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="ring" Property="Opacity" Value="1"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Заголовок группы стратегий: клик сворачивает группу -->
+  <Style x:Key="GroupHeader" TargetType="ToggleButton">
+    <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Margin" Value="0,8,6,4"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ToggleButton">
+          <Border x:Name="bg" Background="Transparent" CornerRadius="8" Padding="4,4">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock x:Name="arrow" Text="&#xE70D;" FontFamily="{StaticResource Icons}" FontSize="9" VerticalAlignment="Center" Margin="0,0,8,0"
+                         RenderTransformOrigin="0.5,0.5">
+                <TextBlock.RenderTransform>
+                  <RotateTransform Angle="0"/>
+                </TextBlock.RenderTransform>
+              </TextBlock>
+              <ContentPresenter VerticalAlignment="Center" TextElement.FontSize="11" TextElement.FontWeight="SemiBold"/>
+            </StackPanel>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="False">
+              <Setter TargetName="arrow" Property="RenderTransform">
+                <Setter.Value>
+                  <RotateTransform Angle="-90"/>
+                </Setter.Value>
+              </Setter>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="bg" Property="Background" Value="{DynamicResource Hover}"/>
+              <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
   </Style>
 
   <Style x:Key="InputBox" TargetType="TextBox">
