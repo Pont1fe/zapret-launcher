@@ -22,18 +22,39 @@ namespace ZapretLauncher
 
     static class Zapret
     {
+        // Версию спрашивают каждую секунду — service.bat перечитываем, только когда он изменился
+        static readonly Dictionary<string, KeyValuePair<DateTime, string>> versionCache = new Dictionary<string, KeyValuePair<DateTime, string>>();
+
         public static string VersionOf(string dir)
         {
             string svc = Path.Combine(dir, "service.bat");
             if (!File.Exists(svc)) return null;
+            DateTime stamp = File.GetLastWriteTimeUtc(svc);
+            KeyValuePair<DateTime, string> cached;
+            if (versionCache.TryGetValue(svc, out cached) && cached.Key == stamp) return cached.Value;
             Match m = Regex.Match(File.ReadAllText(svc), "set \"LOCAL_VERSION=([^\"]+)\"");
-            return m.Success ? m.Groups[1].Value : null;
+            string version = m.Success ? m.Groups[1].Value : null;
+            versionCache[svc] = new KeyValuePair<DateTime, string>(stamp, version);
+            return version;
         }
 
         public static string LocalVersion { get { return VersionOf(Paths.Zapret); } }
 
         public static Process[] Winws() { return Process.GetProcessesByName("winws"); }
-        public static bool Running { get { return Winws().Length > 0; } }
+
+        // Список процессов — дорогой вызов, а Running спрашивают много раз за секунду: ответ живёт 300 мс
+        static bool runningCached;
+        static int runningAt;
+        public static bool Running
+        {
+            get
+            {
+                int now = Environment.TickCount;
+                if (runningAt == 0 || unchecked(now - runningAt) > 300) { runningCached = Winws().Length > 0; runningAt = now == 0 ? 1 : now; }
+                return runningCached;
+            }
+        }
+        static void ResetRunning() { runningAt = 0; }
 
         // Служба zapret из service.bat (null — не установлена)
         public static ServiceController Service()
@@ -260,6 +281,7 @@ namespace ZapretLauncher
                 await Task.Run(() => { foreach (Process p in procs) { try { p.WaitForExit(5000); } catch { } } });
                 Log.Write("Обход остановлен");
             }
+            ResetRunning();
             if (unloadDriver) await UnloadDriver();
         }
 
@@ -280,20 +302,24 @@ namespace ZapretLauncher
             Log.Write("Служба zapret (из service.bat) удалена");
         }
 
-        // Запускает winws со стратегией; бросает исключение, если он не поднялся
-        public static async Task Start(string strategy)
+        // Запускает winws со стратегией; бросает исключение, если он не поднялся.
+        // fast — для подбора: проверки системы уже сделаны первым запуском, ждём меньше
+        public static async Task Start(string strategy, bool fast = false)
         {
             string bat = Paths.InZapret(strategy);
             if (!File.Exists(bat)) throw new Exception("Стратегия не найдена: " + strategy);
             await Stop(false);
-            // Драйвер от другой установки zapret выгружаем, если им больше никто не пользуется
-            if (Conflicts.ForeignWinDivert() != null && Conflicts.OtherDpiTools().Count == 0)
+            if (!fast)
             {
-                Log.Write("Выгружаю драйвер WinDivert от другой установки zapret");
-                await UnloadDriver();
+                // Драйвер от другой установки zapret выгружаем, если им больше никто не пользуется
+                if (Conflicts.ForeignWinDivert() != null && Conflicts.OtherDpiTools().Count == 0)
+                {
+                    Log.Write("Выгружаю драйвер WinDivert от другой установки zapret");
+                    await UnloadDriver();
+                }
+                InitUserLists();
+                await Util.RunAsync("netsh.exe", "interface tcp set global timestamps=enabled");
             }
-            InitUserLists();
-            await Util.RunAsync("netsh.exe", "interface tcp set global timestamps=enabled");
 
             string args = StrategyArgs(bat);
             if (args != null)
@@ -316,8 +342,9 @@ namespace ZapretLauncher
             }
 
             bool started = false;
-            for (int i = 0; i < 30 && !started; i++) { await Task.Delay(100); started = Running; }
-            if (started) { await Task.Delay(1500); started = Running; }   // если winws сразу упал — что-то не так
+            for (int i = 0; i < 30 && !started; i++) { await Task.Delay(100); started = Winws().Length > 0; }
+            if (started) { await Task.Delay(fast ? 600 : 1500); started = Winws().Length > 0; }   // если winws сразу упал — что-то не так
+            ResetRunning();
             if (!started)
                 throw new Exception("winws.exe не запустился. Возможно, его удалил антивирус — добавьте папку лаунчера в исключения. " +
                     "Чтобы увидеть ошибку, запустите «" + strategy + "» из папки zapret вручную.");
@@ -330,7 +357,7 @@ namespace ZapretLauncher
             if (Directory.Exists(Paths.Temp)) Directory.Delete(Paths.Temp, true);
             Directory.CreateDirectory(Paths.Temp);
             string zip = Path.Combine(Paths.Temp, "release.zip");
-            await Util.Download(release.Url, zip);
+            await Util.Download(release, zip);
             string extracted = Path.Combine(Paths.Temp, "x");
             await Task.Run(() => ZipFile.ExtractToDirectory(zip, extracted));
 

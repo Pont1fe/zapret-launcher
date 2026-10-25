@@ -125,7 +125,13 @@ namespace ZapretLauncher
             return null;
         }
 
+        // Проверки сети идут в фоновых потоках — кэш общий, поэтому под замком
         public static bool IsPhysical(int index)
+        {
+            lock (physicalCache) return IsPhysicalLocked(index);
+        }
+
+        static bool IsPhysicalLocked(int index)
         {
             bool cached;
             if (physicalCache.TryGetValue(index, out cached)) return cached;
@@ -309,6 +315,15 @@ namespace ZapretLauncher
     static class Autostart
     {
         public static bool Enabled { get { return Util.Run("schtasks.exe", "/Query /TN " + Consts.TaskName) == 0; } }
+
+        // При старте: задача есть — убеждаемся, что она ведёт на этот exe (папку могли перенести); пересоздаём, только если нет
+        public static bool EnsureCurrent()
+        {
+            string xml;
+            if (Util.Run("schtasks.exe", "/Query /TN " + Consts.TaskName + " /XML", out xml) != 0) return false;
+            if (xml.IndexOf(Esc(Paths.Exe), StringComparison.OrdinalIgnoreCase) < 0) Set(true);
+            return true;
+        }
 
         public static void Set(bool on)
         {

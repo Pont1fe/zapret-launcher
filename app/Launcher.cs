@@ -43,19 +43,22 @@ namespace ZapretLauncher
         readonly Config cfg;
         Window window, flyout;
         Forms.NotifyIcon tray;
-        Forms.ToolStripMenuItem miOpen, miStart, miStop, miStrategies, miPick, miExit;
-        System.Drawing.Icon iconOn, iconOff;
+        Forms.ToolStripMenuItem miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miExit;
+        Dictionary<string, System.Drawing.Icon> trayIcons;
+        string trayState;
         ImageSource appIcon;
-        DispatcherTimer statusTimer, updateTimer, healthTimer;
+        DispatcherTimer statusTimer, updateTimer;
 
         // состояние
         bool busy, picking, cancelPick, exiting, hintShown, filling, trayActive, siteChecking, netChanged = true;
         bool? visualActive;
         bool wantRunning;        // пользователь хочет, чтобы обход работал
         bool pausedByVpn;        // обход выключен, пока включён VPN
+        bool crashed;            // сторож не смог перезапустить winws — значок в трее красный, пока обход не включат
         int tick, failStreak, onboardingStep;
         int? baseline;           // сколько сайтов открывала лучшая стратегия (если какие-то недоступны всегда — не дёргаемся зря)
         DateTime lastRestart = DateTime.MinValue, siteCheckDue = DateTime.MaxValue, flyoutHiddenAt = DateTime.MinValue;
+        DateTime healthDue = DateTime.MaxValue, trimDue = DateTime.MaxValue;   // следующая фоновая проверка сайтов; когда отдать память системе
         Release latest, launcherLatest;
         DateTime? lastCheck;
         string conflictText = "", vpnName;
@@ -107,7 +110,18 @@ namespace ZapretLauncher
             UpdateUi();
             if (!autostart) window.Show();
 
+            // смена сети и пробуждение — сразу перепроверяем VPN, сеть и сайты, не дожидаясь таймеров
             NetworkChange.NetworkAddressChanged += delegate { netChanged = true; };
+            NetworkChange.NetworkAvailabilityChanged += delegate { netChanged = true; };
+            SystemEvents.PowerModeChanged += (s, e) =>
+            {
+                if (e.Mode == PowerModes.Resume) window.Dispatcher.BeginInvoke(new Action(OnResume));
+            };
+            window.IsVisibleChanged += delegate
+            {
+                if (window.IsVisible) { BuildSitePanel(); UpdateUi(); }
+                else trimDue = DateTime.Now.AddSeconds(20);
+            };
             SystemEvents.UserPreferenceChanged += (s, e) =>
             {
                 if (cfg.Theme == "system" && e.Category == UserPreferenceCategory.General)
@@ -133,12 +147,19 @@ namespace ZapretLauncher
             Log.Write("Лаунчер " + Consts.Version + " запущен" + (autostart ? " (автозапуск)" : ""));
             if (Paths.Root.Any(c => c > 127))
                 Log.Write("Внимание: в пути к лаунчеру есть кириллица или спецсимволы — zapret может работать некорректно. Переместите папку, например, в C:\\ZapretLauncher");
-            try { if (Autostart.Enabled) Autostart.Set(true); } catch { }   // путь мог измениться (переезд папки, PowerShell-версия)
+            // schtasks и WMI небыстрые — опрашиваем их в фоне, окно уже на экране
+            bool autoOn = false;
+            try { autoOn = await Task.Run(() => Autostart.EnsureCurrent()); } catch { }   // путь мог измениться (переезд папки)
+            filling = true;
+            E<CheckBox>("SwAutostart").IsChecked = autoOn;
+            E<ToggleButton>("ChipAutostart").IsChecked = autoOn;
+            filling = false;
             try { Shell.MigrateShortcuts(); Shell.UpdateUninstallEntry(); } catch (Exception e) { Log.Write("Ярлыки: " + e.Message); }
             foreach (string legacy in new[] { "ZapretLauncher.ps1", "Start.bat", "launcher.ico" })
                 try { File.Delete(System.IO.Path.Combine(Paths.Root, legacy)); } catch { }
-            UpdateConflicts();
-            CheckNetwork();
+            await UpdateConflicts();
+            await CheckNetwork();
+            CheckHosts();
 
             bool installedNow = false;
             if (Zapret.LocalVersion == null)
@@ -160,7 +181,7 @@ namespace ZapretLauncher
                 updateTimer.Interval = ok ? TimeSpan.FromHours(6) : TimeSpan.FromMinutes(5);
             });
             if (!installedNow && !await BackgroundUpdate()) updateTimer.Interval = TimeSpan.FromMinutes(5);
-            healthTimer = Timer(TimeSpan.FromMinutes(3), delegate { if (Zapret.Running) siteCheckDue = DateTime.Now; });
+            healthDue = DateTime.Now.Add(HealthInterval());
             statusTimer = Timer(TimeSpan.FromSeconds(1), async delegate { await OnTick(); });
             // после самообновления старый exe ещё может быть занят завершающимся процессом — пробуем удалить ещё несколько раз
             for (int i = 0; i < 10 && File.Exists(Paths.Exe + ".old"); i++) { await Task.Delay(1000); SelfUpdate.CleanupOld(); }
@@ -177,17 +198,94 @@ namespace ZapretLauncher
             return t;
         }
 
-        // Раз в секунду: интерфейс, сторож по упавшему winws, VPN (5 с), сеть (10 с), конфликты (15 с), проверка сайтов
+        // Окна не видно — лаунчер работает в трее и всё проверяет реже
+        bool Idle { get { return !window.IsVisible && (flyout == null || !flyout.IsVisible); } }
+
+        static bool OnBattery()
+        {
+            try { return Forms.SystemInformation.PowerStatus.PowerLineStatus == Forms.PowerLineStatus.Offline; } catch { return false; }
+        }
+
+        // Фоновая проверка сайтов: при открытом окне — раз в 3 мин, в трее — раз в 6, от батареи — раз в 10
+        TimeSpan HealthInterval() { return TimeSpan.FromMinutes(OnBattery() ? 10 : Idle ? 6 : 3); }
+
+        // Раз в секунду: интерфейс, сторож по упавшему winws, VPN, сеть, конфликты, hosts, проверка сайтов.
+        // Смена сети (событие Windows) проверяется сразу; остальное — по расписанию, в трее реже
+        bool ticking;   // проверки идут в фоне — следующий тик не начинается, пока не закончился прошлый
+
         async Task OnTick()
         {
             if (busy || exiting) return;
+            if (Idle) UpdateTray(); else UpdateUi();
+            if (ticking) return;
+            ticking = true;
+            try { await Tick(); }
+            finally { ticking = false; }
+        }
+
+        async Task Tick()
+        {
             tick++;
-            UpdateUi();
-            if (tick % 5 == 1) await CheckVpn();
-            if (netChanged || tick % 10 == 2) { netChanged = false; await CheckNetworkAndApply(); }
-            if (tick % 15 == 3) UpdateConflicts();
+            bool idle = Idle;
+            bool changed = netChanged;
+            if (changed || tick % (idle ? 10 : 5) == 1) await CheckVpn();
+            if (changed || tick % (idle ? 30 : 10) == 2) { netChanged = false; await CheckNetworkAndApply(); }
+            if (tick % (idle ? 60 : 15) == 3) await UpdateConflicts();
+            if (tick % 60 == 4) CheckHosts();
             await CrashGuard();
+            if (DateTime.Now >= healthDue)
+            {
+                healthDue = DateTime.Now.Add(HealthInterval());
+                if (Zapret.Running && siteCheckDue == DateTime.MaxValue) siteCheckDue = DateTime.Now;
+            }
             if (!busy && !siteChecking && Zapret.Running && DateTime.Now >= siteCheckDue) await SiteCheck(true);
+            if (idle && DateTime.Now >= trimDue) { trimDue = DateTime.Now.AddMinutes(15); TrimMemory(); }
+        }
+
+        // После сна: сеть могла смениться, соединения — оборваться. Проверяем всё сразу, а сайты — когда сеть поднимется
+        void OnResume()
+        {
+            if (exiting) return;
+            Log.Write("Компьютер вышел из сна — проверяю обход");
+            netChanged = true;
+            failStreak = 0;
+            lastRestart = DateTime.MinValue;
+            if (wantRunning) siteCheckDue = DateTime.Now.AddSeconds(8);
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        static extern bool SetProcessWorkingSetSize(IntPtr process, IntPtr min, IntPtr max);
+
+        // В трее окно не нужно: собираем мусор и отдаём Windows неиспользуемую память (WPF держит её про запас)
+        static void TrimMemory()
+        {
+            try
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1));
+            }
+            catch { }
+        }
+
+        // Блок Telegram в hosts стёр антивирус или «чистильщик» — возвращаем
+        string hostsError;
+        void CheckHosts()
+        {
+            if (!cfg.Telegram || Zapret.LocalVersion == null) return;
+            try
+            {
+                if (Telegram.HostsOk()) { hostsError = null; return; }
+                Log.Write("Записи Telegram в hosts пропали или изменены — восстанавливаю");
+                Telegram.SetHosts(true);
+                hostsError = null;
+            }
+            catch (Exception e)
+            {
+                if (hostsError != e.Message) Log.Write("Не удалось проверить hosts: " + e.Message);   // не повторяем одну и ту же ошибку каждую минуту
+                hostsError = e.Message;
+            }
         }
 
         // ---------- Диалоги и уведомления ----------
@@ -219,7 +317,7 @@ namespace ZapretLauncher
         }
 
         // ---------- Запуск и остановка ----------
-        async Task StartBypass(bool quiet)
+        async Task StartBypass(bool quiet, bool fast = false)
         {
             if (!File.Exists(Paths.InZapret(cfg.Strategy)))
             {
@@ -244,9 +342,10 @@ namespace ZapretLauncher
             }
             if (cfg.Telegram && !quiet) { try { Telegram.SetWeb(true); } catch (Exception e) { Log.Write("Telegram Web: " + e.Message); } }
 
-            await Zapret.Start(cfg.Strategy);
+            await Zapret.Start(cfg.Strategy, fast);
             wantRunning = true;
             pausedByVpn = false;
+            crashed = false;
             if (quiet) return;
             Log.Write("Запущена стратегия: " + Zapret.Title(cfg.Strategy));
             SaveNetworkProfile();
@@ -259,6 +358,7 @@ namespace ZapretLauncher
         {
             wantRunning = false;
             pausedByVpn = false;
+            crashed = false;
             await Zapret.Stop(false);
             await Telegram.StopProxy();
             siteResults = null;
@@ -309,6 +409,7 @@ namespace ZapretLauncher
             if (!Zapret.Running && !pausedByVpn)
             {
                 wantRunning = false;
+                crashed = true;
                 Notify("Сторож: перезапуск не удался — больше не пытаюсь, пока обход не включат вручную", new[] { "Включить обход", "start" });
             }
         }
@@ -377,6 +478,8 @@ namespace ZapretLauncher
             E<Button>("BtnMain").Content = T("Остановить подбор");
             PickBest best = null;
             Log.Write("Подбор стратегии: проверяю " + strategies.Count + " шт. (" + string.Join(", ", Sites.Targets(cfg.Telegram, false).Select(t => t.Key)) + ")");
+            Stopwatch total = Stopwatch.StartNew();
+            ShowPickProgress(0, strategies.Count);
             try
             {
                 for (int i = 0; i < strategies.Count; i++)
@@ -386,10 +489,19 @@ namespace ZapretLauncher
                     Text("PowerStatus").Text = T("Подбор") + " " + (i + 1) + " / " + strategies.Count;
                     Text("PowerTimer").Text = T(Zapret.Title(s));
                     cfg.Strategy = s;
-                    try { await StartBypass(true); }
-                    catch { cfg.PickScores[s] = "0/0/0"; Log.Write("  " + Zapret.Title(s) + " — не запустилась"); continue; }
-                    await Task.Delay(1000);
-                    List<SiteResult> res = await Sites.Test(cfg.Telegram, false);
+                    UpdateStrategyList();   // в списке подсвечивается проверяемая стратегия, метки обновляются по ходу
+                    siteChecking = true;
+                    BuildSitePanel();
+                    List<SiteResult> res;
+                    try
+                    {
+                        // первый запуск — с полной подготовкой системы, дальше — быстрый
+                        try { await StartBypass(true, i > 0); }
+                        catch { cfg.PickScores[s] = "0/0/0"; Log.Write("  " + Zapret.Title(s) + " — не запустилась"); ShowPickProgress(i + 1, strategies.Count); continue; }
+                        await Task.Delay(400);
+                        res = await Sites.Test(cfg.Telegram, false, 4);
+                    }
+                    finally { siteChecking = false; }
                     List<SiteResult> okRes = res.Where(r => r.Ok).ToList();
                     int avg = okRes.Count > 0 ? (int)okRes.Average(r => r.Ms) : 0;
                     cfg.PickScores[s] = okRes.Count + "/" + res.Count + "/" + avg;
@@ -400,10 +512,18 @@ namespace ZapretLauncher
                         best = new PickBest();
                         best.File = s; best.Ok = okRes.Count; best.Total = res.Count; best.Score = score;
                     }
+                    // карточки сайтов показывают результат только что проверенной стратегии
+                    siteResults = res;
+                    BuildSitePanel();
+                    Text("PowerHint").Text = best.Ok > 0
+                        ? T("Лучшая пока") + ": " + T(Zapret.Title(best.File)) + " · " + best.Ok + "/" + best.Total
+                        : T("Пока ни одна стратегия не открыла сайты");
+                    ShowPickProgress(i + 1, strategies.Count);
                     if (stopAtFirstPerfect && okRes.Count == res.Count) break;
                 }
             }
-            finally { picking = false; }
+            finally { picking = false; HidePickProgress(); }
+            Log.Write("Подбор занял " + (int)total.Elapsed.TotalSeconds + " сек.");
             cfg.Strategy = best != null && best.Ok > 0 ? best.File : original;
             cfg.Save();
             await StartBypass(false);
@@ -415,6 +535,25 @@ namespace ZapretLauncher
             }
             else Log.Write("Ни одна стратегия не открыла проверочные сайты — оставляю прежнюю");
             return best;
+        }
+
+        // Полоска на карточке-переключателе и прогресс на значке в панели задач
+        void ShowPickProgress(int done, int count)
+        {
+            double value = count == 0 ? 0 : (double)done / count;
+            E<FrameworkElement>("PickProgress").Visibility = Visibility.Visible;
+            ScaleTransform scale = E<Border>("PickFill").RenderTransform as ScaleTransform;
+            if (scale == null || scale.IsFrozen) { scale = new ScaleTransform(0, 1); E<Border>("PickFill").RenderTransform = scale; }
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(value, new Duration(TimeSpan.FromMilliseconds(300))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+            if (window.TaskbarItemInfo == null) window.TaskbarItemInfo = new System.Windows.Shell.TaskbarItemInfo();
+            window.TaskbarItemInfo.ProgressState = System.Windows.Shell.TaskbarItemProgressState.Normal;
+            window.TaskbarItemInfo.ProgressValue = value;
+        }
+
+        void HidePickProgress()
+        {
+            E<FrameworkElement>("PickProgress").Visibility = Visibility.Collapsed;
+            if (window.TaskbarItemInfo != null) window.TaskbarItemInfo.ProgressState = System.Windows.Shell.TaskbarItemProgressState.None;
         }
 
         async Task StartAutoPickUi()
@@ -434,8 +573,8 @@ namespace ZapretLauncher
         // ---------- Пауза при VPN ----------
         async Task CheckVpn()
         {
-            vpnName = Conflicts.ActiveVpn();
-            if (!cfg.VpnPause || busy) return;
+            vpnName = await Task.Run(() => Conflicts.ActiveVpn());
+            if (!cfg.VpnPause || busy || exiting) return;
             if (vpnName != null && Zapret.Running && wantRunning)
             {
                 await RunBusy(async () =>
@@ -456,10 +595,10 @@ namespace ZapretLauncher
         }
 
         // ---------- Профили сетей ----------
-        void CheckNetwork()
+        async Task CheckNetwork()
         {
             NetworkId net = null;
-            try { net = Networks.Current(); } catch { }
+            try { net = await Task.Run(() => Networks.Current()); } catch { }
             if ((net == null ? null : net.Id) != (currentNet == null ? null : currentNet.Id) || tick < 3)
             {
                 currentNet = net;
@@ -471,7 +610,7 @@ namespace ZapretLauncher
         async Task CheckNetworkAndApply()
         {
             string before = currentNet == null ? null : currentNet.Id;
-            CheckNetwork();
+            await CheckNetwork();
             string after = currentNet == null ? null : currentNet.Id;
             if (after == null || after == before || before == null) return;
 
@@ -566,6 +705,8 @@ namespace ZapretLauncher
 
         void BuildSitePanel()
         {
+            // окно скрыто — карточки не перестраиваем (их соберёт показ окна), обновляем только мини-окно
+            if (!window.IsVisible) { UpdateFlyout(); return; }
             UniformGrid panel = E<UniformGrid>("SitePanel");
             panel.Children.Clear();
             foreach (string site in VisibleSites())
@@ -635,9 +776,11 @@ namespace ZapretLauncher
         }
 
         // ---------- Конфликты ----------
-        void UpdateConflicts()
+        async Task UpdateConflicts()
         {
-            List<Conflict> conflicts = Conflicts.All();
+            List<Conflict> conflicts;
+            try { conflicts = await Task.Run(() => Conflicts.All()); } catch { return; }
+            if (exiting) return;
             if (cfg.VpnPause) conflicts = conflicts.Where(c => c.Kind != "vpn").ToList();   // с паузой VPN — штатная ситуация
             string text = string.Join("\n", conflicts.Select(c => T(c.Text)));
             if (text != conflictText)
@@ -1051,10 +1194,9 @@ namespace ZapretLauncher
                 }
             }
             SetActive(running);
-            if (running != trayActive || tray.Icon == null)
+            if (running != trayActive)
             {
                 trayActive = running;
-                tray.Icon = running ? iconOn : iconOff;
                 BuildSitePanel();
             }
 
@@ -1077,12 +1219,38 @@ namespace ZapretLauncher
                 Text("LauncherVersionText").Text = "Zapret Launcher " + Consts.Version + " — " + T("доступна") + " " + launcherLatest.Version + ", " + T("обновить");
             UpdateNetStatus();
             UpdateFlyout();
+            UpdateTray();
+        }
 
+        // Состояние для значка в трее: on — работает, pause — пауза из-за VPN, error — упал или сайты не открываются, off — выключен
+        string TrayState(bool running)
+        {
+            if (pausedByVpn && !running) return "pause";
+            if (running)
+            {
+                bool allFail = !picking && siteResults != null && siteResults.Count > 0 && siteResults.All(r => !r.Ok);
+                return allFail ? "error" : "on";
+            }
+            return crashed || (wantRunning && !busy) ? "error" : "off";
+        }
+
+        // Дешёвая часть обновления — значок, подсказка и меню трея; в трее только она и работает
+        void UpdateTray()
+        {
+            if (exiting) return;
+            bool running = Zapret.Running;
+            string state = TrayState(running);
+            if (state != trayState) { trayState = state; tray.Icon = trayIcons[state]; }
+            string local = Zapret.LocalVersion;
             miStart.Enabled = local != null && !busy;
             miStop.Enabled = (running || pausedByVpn) && !busy;
             miPick.Enabled = local != null && (!busy || picking);
             miPick.Text = T(picking ? "Остановить подбор" : "Подобрать стратегию");
-            string trayText = running ? "Zapret: " + T("работает") + " · " + T(Zapret.Title(cfg.Strategy)) : pausedByVpn ? "Zapret: " + T("пауза (VPN)") : "Zapret: " + T("остановлен");
+            miFixDiscord.Enabled = !busy;
+            string trayText = running
+                ? "Zapret: " + T(state == "error" ? "сайты не открываются" : "работает") + " · " + T(Zapret.Title(cfg.Strategy))
+                : pausedByVpn ? "Zapret: " + T("пауза (VPN)")
+                : state == "error" ? "Zapret: " + T("ошибка — обход не работает") : "Zapret: " + T("остановлен");
             tray.Text = trayText.Length > 63 ? trayText.Substring(0, 63) : trayText;
         }
 
@@ -1146,11 +1314,7 @@ namespace ZapretLauncher
 
         void InitSwitches()
         {
-            filling = true;
-            bool auto = false;
-            try { auto = Autostart.Enabled; } catch { }
-            E<CheckBox>("SwAutostart").IsChecked = auto;
-            E<ToggleButton>("ChipAutostart").IsChecked = auto;
+            filling = true;   // автозапуск выставит Startup — запрос к Планировщику задач долгий
             E<CheckBox>("SwAutoUpdate").IsChecked = cfg.AutoUpdate;
             E<ToggleButton>("ChipAutoUpdate").IsChecked = cfg.AutoUpdate;
             E<CheckBox>("SwStartOnOpen").IsChecked = cfg.StartOnOpen;
@@ -1231,6 +1395,21 @@ namespace ZapretLauncher
             ApplyTheme();
         }
 
+        // «Починить Discord»: включить обход, если он выключен, закрыть Discord, очистить кэш и открыть заново
+        async Task FixDiscordUi()
+        {
+            if (busy) return;
+            ShowWindow();
+            if (Ask("Закрыть Discord, очистить его кэш и открыть заново?\nВход и настройки сохранятся. Если идёт звонок, он прервётся.",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            await RunBusy(async () =>
+            {
+                if (!Zapret.Running && !pausedByVpn && Zapret.LocalVersion != null) await StartBypass(false);
+                bool opened = await DiscordFix.Run();
+                if (!opened) Ask("Кэш Discord очищен. Откройте Discord вручную — ярлык в меню «Пуск» не найден.");
+            }, "Discord…");
+        }
+
         async Task SelectStrategy(string file)
         {
             if (file == cfg.Strategy) return;
@@ -1291,7 +1470,8 @@ namespace ZapretLauncher
                 psi.EnvironmentVariables["NO_UPDATE_CHECK"] = "1";
                 Process.Start(psi);
             });
-            Click("BtnRemoveService", () => RunBusy(async () => { await Zapret.RemoveService(); await Zapret.Stop(true); }));
+            Click("BtnFixDiscord", FixDiscordUi);
+            Click("BtnRemoveService",() => RunBusy(async () => { await Zapret.RemoveService(); await Zapret.Stop(true); }));
             Click("BtnRollback", async () =>
             {
                 if (Dialog.Show(window, T("Вернуть zapret") + " " + Zapret.VersionOf(Paths.Backup) + " " + T("вместо") + " " + Zapret.LocalVersion + "?\n" + T("Ваши списки и фильтры сохранятся."),
@@ -1368,7 +1548,7 @@ namespace ZapretLauncher
                 cfg.VpnPause = E<CheckBox>("SwVpnPause").IsChecked == true;
                 cfg.Save();
                 Log.Write(cfg.VpnPause ? "Пауза при VPN включена" : "Пауза при VPN выключена");
-                UpdateConflicts();
+                await UpdateConflicts();
                 if (!cfg.VpnPause && pausedByVpn) await StartBypassUi();
             });
             ClickSync("SwNetProfiles", () =>
@@ -1416,10 +1596,11 @@ namespace ZapretLauncher
 
         void BuildTray()
         {
-            iconOn = Icons.ToIcon(Icons.Draw(32, true));
-            iconOff = Icons.ToIcon(Icons.Draw(32, false));
+            trayIcons = new Dictionary<string, System.Drawing.Icon>();
+            foreach (string state in new[] { "on", "off", "pause", "error" }) trayIcons[state] = Icons.ToIcon(Icons.Draw(32, state));
             tray = new Forms.NotifyIcon();
-            tray.Icon = iconOff;
+            tray.Icon = trayIcons["off"];
+            trayState = "off";
             tray.Text = "Zapret Launcher";
             tray.Visible = true;
             Forms.ContextMenuStrip menu = new Forms.ContextMenuStrip();
@@ -1435,14 +1616,16 @@ namespace ZapretLauncher
             miStrategies.DropDown.Renderer = new DarkMenuRenderer();
             miStrategies.DropDown.BackColor = menu.BackColor;
             miPick = new Forms.ToolStripMenuItem(T("Подобрать стратегию"));
+            miFixDiscord = new Forms.ToolStripMenuItem(T("Починить Discord"));
             miExit = new Forms.ToolStripMenuItem(T("Выход (обход продолжит работать)"));
-            menu.Items.AddRange(new Forms.ToolStripItem[] { miOpen, miStart, miStop, miStrategies, miPick, new Forms.ToolStripSeparator(), miExit });
+            menu.Items.AddRange(new Forms.ToolStripItem[] { miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, new Forms.ToolStripSeparator(), miExit });
             tray.ContextMenuStrip = menu;
 
             miOpen.Click += delegate { ShowWindow(); };
             miStart.Click += async delegate { await StartBypassUi(); };
             miStop.Click += async delegate { await StopBypassUi(); };
             miPick.Click += async delegate { ShowWindow(); await StartAutoPickUi(); };
+            miFixDiscord.Click += async delegate { await FixDiscordUi(); };
             miExit.Click += delegate { Exit(); };
             // клик по значку — мини-окно, двойной клик — главное окно
             tray.MouseClick += (s, e) => { if (e.Button == Forms.MouseButtons.Left) window.Dispatcher.BeginInvoke(new Action(ToggleFlyout)); };
@@ -1466,7 +1649,7 @@ namespace ZapretLauncher
         public void Exit()
         {
             exiting = true;
-            foreach (DispatcherTimer t in new[] { statusTimer, updateTimer, healthTimer }) if (t != null) t.Stop();
+            foreach (DispatcherTimer t in new[] { statusTimer, updateTimer }) if (t != null) t.Stop();
             tray.Visible = false;
             tray.Dispose();
             if (flyout != null) flyout.Close();

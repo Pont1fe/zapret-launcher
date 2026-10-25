@@ -141,11 +141,25 @@ namespace ZapretLauncher
     {
         public static event Action<string> Line;
         static readonly object sync = new object();
+        const long MaxSize = 1024 * 1024;   // больше 1 МБ — старый журнал уходит в launcher.log.1
+        static int writes;
 
         public static void Write(string message)
         {
             string line = "[" + DateTime.Now.ToString("dd.MM HH:mm:ss") + "] " + I18n.T(message);
-            lock (sync) { try { File.AppendAllText(Paths.Log, line + "\r\n", Encoding.UTF8); } catch { } }
+            lock (sync)
+            {
+                try
+                {
+                    if (writes++ % 50 == 0 && File.Exists(Paths.Log) && new FileInfo(Paths.Log).Length > MaxSize)
+                    {
+                        File.Delete(Paths.Log + ".1");
+                        File.Move(Paths.Log, Paths.Log + ".1");
+                    }
+                    File.AppendAllText(Paths.Log, line + "\r\n", Encoding.UTF8);
+                }
+                catch { }
+            }
             Action<string> h = Line;
             if (h != null) h(line);
         }
@@ -156,6 +170,7 @@ namespace ZapretLauncher
         public string Version;
         public string Url;
         public string Name;
+        public string Sha256;   // контрольная сумма файла из GitHub (поле digest); null — GitHub её не дал
     }
 
     static class Util
@@ -216,13 +231,27 @@ namespace ZapretLauncher
             }
         }
 
-        public static async Task Download(string url, string file)
+        // Скачивает файл релиза и сверяет SHA-256 с тем, что сообщил GitHub: битая или подменённая загрузка не установится
+        public static async Task Download(Release release, string file)
         {
-            HttpResponseMessage r = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            HttpResponseMessage r = await Http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead);
             r.EnsureSuccessStatusCode();
             using (Stream src = await r.Content.ReadAsStreamAsync())
             using (FileStream dst = File.Create(file))
                 await src.CopyToAsync(dst);
+            if (release.Sha256 == null) return;
+            string actual = await Task.Run(() =>
+            {
+                using (FileStream fs = File.OpenRead(file))
+                using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+                    return string.Concat(sha.ComputeHash(fs).Select(b => b.ToString("x2")));
+            });
+            if (!actual.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                try { File.Delete(file); } catch { }
+                throw new Exception("Контрольная сумма " + release.Name + " не совпала — файл повреждён или подменён, установка отменена");
+            }
+            Log.Write("Контрольная сумма " + release.Name + " совпала");
         }
 
         // Последний релиз репозитория; assetMatch выбирает нужный файл
@@ -239,6 +268,9 @@ namespace ZapretLauncher
                 {
                     Release rel = new Release();
                     rel.Version = tag; rel.Name = name; rel.Url = (string)a["browser_download_url"];
+                    object digest;
+                    if (a.TryGetValue("digest", out digest) && digest is string && ((string)digest).StartsWith("sha256:"))
+                        rel.Sha256 = ((string)digest).Substring(7);
                     return rel;
                 }
             }

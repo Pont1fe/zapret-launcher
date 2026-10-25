@@ -336,6 +336,12 @@
           <TextBlock Text="ИНСТРУМЕНТЫ" Style="{DynamicResource SectionLabel}"/>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
+              <Button x:Name="BtnFixDiscord" Style="{DynamicResource RowButton}">
+                <StackPanel>
+                  <TextBlock Text="Починить Discord" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Закрыть Discord, очистить его кэш и открыть заново. Вход и настройки сохранятся" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </Button>
               <Button x:Name="BtnService" Style="{DynamicResource RowButton}">
                 <StackPanel>
                   <TextBlock Text="service.bat" Style="{DynamicResource RowTitle}"/>
@@ -461,6 +467,15 @@
                 </Ellipse.RenderTransform>
               </Ellipse>
             </Grid>
+          </Grid>
+          <!-- Прогресс подбора стратегии -->
+          <Grid x:Name="PickProgress" VerticalAlignment="Bottom" Height="4" Margin="22,0,22,14" Visibility="Collapsed" IsHitTestVisible="False">
+            <Border CornerRadius="2" Background="{DynamicResource TrackOff}"/>
+            <Border x:Name="PickFill" CornerRadius="2" Background="{DynamicResource Accent}" RenderTransformOrigin="0,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform ScaleX="0"/>
+              </Border.RenderTransform>
+            </Border>
           </Grid>
         </Grid>
 

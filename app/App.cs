@@ -19,7 +19,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "3.2.1";
+        public const string Value = "3.3.0";
     }
 
     static class App

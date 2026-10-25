@@ -64,7 +64,7 @@ namespace ZapretLauncher
             Log.Write("Скачиваю tg-ws-proxy " + release.Version + "...");
             Directory.CreateDirectory(Paths.TgDir);
             string tmp = Paths.TgExe + ".download";
-            await Util.Download(release.Url, tmp);
+            await Util.Download(release, tmp);
             bool wasRunning = ProxyRunning;
             await StopProxy();
             if (File.Exists(Paths.TgExe)) File.Delete(Paths.TgExe);
@@ -138,15 +138,29 @@ namespace ZapretLauncher
             if (lines.Length > 0) Util.WriteLines(Paths.HostsCache, lines);
         }
 
-        public static void SetHosts(bool on)
+        static readonly Encoding HostsEncoding = Encoding.Default;   // побайтово сохраняем остальной hosts как есть
+
+        static string BuildHosts(string content, bool on)
         {
-            Encoding enc = Encoding.Default;   // побайтово сохраняем остальной hosts как есть
-            string content = File.ReadAllText(Paths.Hosts, enc);
             string rx = @"(?s)(\r?\n)*" + Regex.Escape(Consts.HostsBegin) + ".*?" + Regex.Escape(Consts.HostsEnd) + @"\r?\n?";
             string clean = Regex.Replace(content, rx, "\r\n").TrimEnd('\r', '\n');
-            string updated = on
+            return on
                 ? clean + "\r\n\r\n" + Consts.HostsBegin + "\r\n" + string.Join("\r\n", HostsLines()) + "\r\n" + Consts.HostsEnd + "\r\n"
                 : clean + "\r\n";
+        }
+
+        // Блок Telegram в hosts на месте и не изменён (антивирусы и «чистильщики» иногда его стирают)
+        public static bool HostsOk()
+        {
+            string content = File.ReadAllText(Paths.Hosts, HostsEncoding);
+            return BuildHosts(content, true) == content;
+        }
+
+        public static void SetHosts(bool on)
+        {
+            Encoding enc = HostsEncoding;
+            string content = File.ReadAllText(Paths.Hosts, enc);
+            string updated = BuildHosts(content, on);
             if (updated == content) return;
             if (!File.Exists(Paths.HostsBackup)) File.Copy(Paths.Hosts, Paths.HostsBackup);
             try { File.WriteAllText(Paths.Hosts, updated, enc); }
