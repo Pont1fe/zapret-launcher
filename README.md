@@ -4,6 +4,26 @@
 
 A friendly Windows launcher for [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) by Flowseal — bypass DPI blocking of Discord, YouTube and Telegram with one click.
 
+<p align="center">
+  <img src="docs/screenshots/main-dark-en.png" alt="Main window, dark theme" width="820">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/main-light-en.png" alt="Light theme"></td>
+    <td width="50%"><img src="docs/screenshots/settings-en.png" alt="Settings"></td>
+  </tr>
+  <tr>
+    <td align="center">Light theme</td>
+    <td align="center">Settings</td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/screenshots/flyout-en.png" alt="Tray mini window" width="330"><br>
+  <sub>Mini window by the tray — click the tray icon</sub>
+</p>
+
 ## Install
 
 1. Download **ZapretLauncherSetup.exe** from [Releases](https://github.com/Pont1fe/zapret-launcher/releases/latest).

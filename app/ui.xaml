@@ -116,7 +116,7 @@
                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
                 <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                  <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"/>
+                  <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Text}"/>
                   <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                     <Ellipse Width="6" Height="6" Fill="{Binding MarkColor}" Visibility="{Binding MarkVisibility}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{DynamicResource Muted}"/>
@@ -173,7 +173,7 @@
                     <ColumnDefinition/>
                     <ColumnDefinition Width="Auto"/>
                   </Grid.ColumnDefinitions>
-                  <TextBlock Text="{Binding}" FontSize="13" VerticalAlignment="Center"/>
+                  <TextBlock Text="{Binding}" FontSize="13" VerticalAlignment="Center" Foreground="{DynamicResource Text}"/>
                   <Button Grid.Column="1" Style="{DynamicResource IconButton}" Width="28" Height="28" FontSize="11"
                           Content="&#xE711;" Tag="{Binding}" ToolTip="Удалить"/>
                 </Grid>

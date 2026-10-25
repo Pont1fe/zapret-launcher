@@ -281,7 +281,13 @@
     </Setter>
   </Style>
 
+  <!-- У ListBox и ListBoxItem в стандартной теме Windows чёрный текст — задаём цвет темы явно -->
+  <Style TargetType="ListBox">
+    <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+  </Style>
+
   <Style x:Key="PlainItem" TargetType="ListBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ListBoxItem">
@@ -301,6 +307,7 @@
   <!-- Стратегии — отдельными карточками, выбранная подсвечена рамкой -->
   <Style x:Key="StrategyItemStyle" TargetType="ListBoxItem">
     <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ListBoxItem">

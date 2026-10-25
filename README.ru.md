@@ -4,6 +4,26 @@
 
 Удобный лаунчер для [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) (Flowseal) — обход блокировок Discord, YouTube и Telegram в Windows одной кнопкой.
 
+<p align="center">
+  <img src="docs/screenshots/main-dark-ru.png" alt="Главное окно, тёмная тема" width="820">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/main-light-ru.png" alt="Светлая тема"></td>
+    <td width="50%"><img src="docs/screenshots/settings-ru.png" alt="Настройки"></td>
+  </tr>
+  <tr>
+    <td align="center">Светлая тема</td>
+    <td align="center">Настройки</td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/screenshots/flyout-ru.png" alt="Мини-окно у трея" width="330"><br>
+  <sub>Мини-окно у трея — открывается кликом по значку</sub>
+</p>
+
 ## Установка
 
 1. Скачайте **ZapretLauncherSetup.exe** со страницы [Releases](https://github.com/Pont1fe/zapret-launcher/releases/latest).
