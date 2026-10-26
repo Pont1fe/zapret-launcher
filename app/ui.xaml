@@ -541,13 +541,10 @@
               <Border x:Name="PowerIconOn" CornerRadius="20" Background="{DynamicResource Accent}" Opacity="0"/>
               <TextBlock x:Name="PowerIcon" Text="&#xEA18;" FontFamily="{DynamicResource Icons}" FontSize="28" Foreground="{DynamicResource Muted}"
                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-              <!-- Кольцо загрузки: крутится вокруг щита, пока обход включается, выключается или идёт подбор -->
-              <Ellipse x:Name="BusyRing" Margin="-7" StrokeThickness="3" Stroke="{DynamicResource Accent}" StrokeDashArray="18 58" StrokeDashCap="Round"
-                       Opacity="0" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
-                <Ellipse.RenderTransform>
-                  <RotateTransform/>
-                </Ellipse.RenderTransform>
-              </Ellipse>
+              <!-- Индикатор загрузки: полоска бежит по контуру скруглённой иконки, пока обход включается, выключается или идёт подбор.
+                   Периметр контура (74×74, радиус 24) ≈ 255 px = 85 толщин линии — сумма штриха и пробела ровно один круг -->
+              <Rectangle x:Name="BusyRing" Margin="-5" RadiusX="24" RadiusY="24" StrokeThickness="3" Stroke="{DynamicResource Accent}"
+                         StrokeDashArray="22 63" StrokeDashCap="Round" Opacity="0" IsHitTestVisible="False"/>
             </Grid>
             <StackPanel Grid.Column="1" Margin="18,0,12,0" VerticalAlignment="Center">
               <TextBlock x:Name="PowerStatus" Text="Обход выключен" FontSize="20" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>

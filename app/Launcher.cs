@@ -508,12 +508,11 @@ namespace ZapretLauncher
 
         void BusyRing(bool on)
         {
-            Ellipse ring = E<Ellipse>("BusyRing");
-            RotateTransform rot = ring.RenderTransform as RotateTransform;
-            if (rot == null || rot.IsFrozen) { rot = new RotateTransform(); ring.RenderTransform = rot; }
-            if (on) rot.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, new Duration(TimeSpan.FromSeconds(0.9))) { RepeatBehavior = RepeatBehavior.Forever });
+            // штрих бежит по контуру: смещение на длину штриха+пробела (85) — ровно один оборот
+            Shape ring = E<Shape>("BusyRing");
+            if (on) ring.BeginAnimation(Shape.StrokeDashOffsetProperty, new DoubleAnimation(0, -85, new Duration(TimeSpan.FromSeconds(1.1))) { RepeatBehavior = RepeatBehavior.Forever });
             DoubleAnimation fade = new DoubleAnimation(on ? 1 : 0, new Duration(TimeSpan.FromMilliseconds(200)));
-            if (!on) fade.Completed += delegate { if (!busy) rot.BeginAnimation(RotateTransform.AngleProperty, null); };
+            if (!on) fade.Completed += delegate { if (!busy) ring.BeginAnimation(Shape.StrokeDashOffsetProperty, null); };
             ring.BeginAnimation(UIElement.OpacityProperty, fade);
         }
 
