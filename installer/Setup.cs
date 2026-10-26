@@ -60,9 +60,15 @@ static class Installer
 
     static string ShortVersion(Version v) { return v.Major + "." + v.Minor + "." + v.Build; }
 
+    // Сборку из ресурса можно загрузить только один раз за запуск (повторная загрузка бросает FileLoadException) — запоминаем версию
+    static string version;
     public static string Version
     {
-        get { return ShortVersion(Assembly.ReflectionOnlyLoad(Resource(ExeName)).GetName().Version); }
+        get
+        {
+            if (version == null) version = ShortVersion(Assembly.ReflectionOnlyLoad(Resource(ExeName)).GetName().Version);
+            return version;
+        }
     }
 
     static RegistryKey Hklm() { return RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64); }
