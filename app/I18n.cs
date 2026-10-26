@@ -427,6 +427,28 @@ namespace ZapretLauncher
                 "Последний подбор", "Last search",
                 "Стратегия не запустилась", "The strategy failed to start",
                 "не открылся", "blocked",
+                // 3.3.2: компактный вид, меню в панели задач, быстрый подбор, откат после обновления
+                "Компактный вид", "Compact view",
+                "Полный вид", "Full view",
+                "Жду интернет…", "Waiting for internet…",
+                "Интернет появился через ", "Internet came up after ",
+                "Интернета нет уже ", "No internet for ",
+                " сек. — включаю обход без него", " s — turning bypass on anyway",
+                "Меню в панели задач: ", "Taskbar menu: ",
+                "Команды из панели задач недоступны: ", "Taskbar commands are unavailable: ",
+                "Для быстрого подбора отметьте звёздочкой хотя бы две стратегии в списке.", "For a quick search, star at least two strategies in the list.",
+                "Быстрый подбор по избранному: проверить только стратегии со звёздочкой", "Quick search among favorites: test only starred strategies",
+                "Быстрый подбор по избранному", "Quick search among favorites",
+                "Запустить обход с выбранной стратегией", "Start bypass with the selected strategy",
+                "Остановить обход", "Stop bypass",
+                "Проверить все стратегии и выбрать лучшую", "Test all strategies and pick the best one",
+                "Проверить только избранные стратегии", "Test only favorite strategies",
+                "Закрыть Discord, очистить его кэш и открыть заново", "Close Discord, clear its cache and open it again",
+                "Избранные стратегии", "Favorite strategies",
+                "После обновления zapret сайты открываются хуже", "After the zapret update fewer sites open",
+                "из", "of",
+                "Вернуть версию", "Restore version",
+                "Вернуть прошлую версию", "Restore the previous version",
             };
             for (int i = 0; i + 1 < pairs.Length; i += 2) Map[pairs[i]] = pairs[i + 1];
             // фразы: длинные раньше коротких; если фраза начинается или кончается буквой — не посреди слова

@@ -19,7 +19,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "3.3.1";
+        public const string Value = "3.3.2";
     }
 
     static class App
@@ -70,7 +70,9 @@ namespace ZapretLauncher
                 Dialog.Show(null, I18n.T(e.Exception.Message), "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
                 e.Handled = true;
             };
+            Window splash = autostart ? null : Splash.Show();
             Launcher launcher = new Launcher(autostart, cfg);
+            if (splash != null) Splash.Close(splash);
 
             EventWaitHandle showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
             ThreadPool.RegisterWaitForSingleObject(showEvent, delegate
@@ -89,6 +91,53 @@ namespace ZapretLauncher
             owned = false;
             try { mutex.ReleaseMutex(); } catch { }
             mutex.Dispose();
+        }
+    }
+
+    // Заставка при запуске: значок и название, пока главное окно собирается; потом плавно исчезает
+    static class Splash
+    {
+        public static Window Show()
+        {
+            Window w = new Window
+            {
+                WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = System.Windows.Media.Brushes.Transparent,
+                ResizeMode = ResizeMode.NoResize, Width = 240, Height = 240, Topmost = true, ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowActivated = false
+            };
+            System.Windows.Media.TextOptions.SetTextFormattingMode(w, System.Windows.Media.TextFormattingMode.Display);
+            System.Windows.Controls.StackPanel content = new System.Windows.Controls.StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            content.Children.Add(new System.Windows.Controls.Image { Source = Icons.ToImageSource(Icons.Draw(160, "on")), Width = 80, Height = 80 });
+            System.Windows.Controls.TextBlock title = new System.Windows.Controls.TextBlock
+            {
+                Text = "Zapret Launcher", FontFamily = new System.Windows.Media.FontFamily("Segoe UI"), FontSize = 16, FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 16, 0, 0), Foreground = Theme.Brush("Text")
+            };
+            System.Windows.Controls.TextBlock version = new System.Windows.Controls.TextBlock
+            {
+                Text = Consts.Version, FontFamily = new System.Windows.Media.FontFamily("Segoe UI"), FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0), Foreground = Theme.Brush("Muted")
+            };
+            content.Children.Add(title);
+            content.Children.Add(version);
+            w.Content = new System.Windows.Controls.Border
+            {
+                Margin = new Thickness(20), CornerRadius = new CornerRadius(28), Background = Theme.Brush("CardRaised"),
+                BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(1), Child = content,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 24, ShadowDepth = 4, Opacity = 0.35 }
+            };
+            w.Show();
+            // дорисовать заставку сейчас, пока поток не занят сборкой главного окна
+            w.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Render, new Action(() => { }));
+            return w;
+        }
+
+        public static void Close(Window w)
+        {
+            System.Windows.Media.Animation.DoubleAnimation fade = new System.Windows.Media.Animation.DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(220)));
+            fade.BeginTime = TimeSpan.FromMilliseconds(150);
+            fade.Completed += delegate { w.Close(); };
+            w.BeginAnimation(UIElement.OpacityProperty, fade);
         }
     }
 

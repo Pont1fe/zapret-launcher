@@ -54,10 +54,15 @@ function Invoke-Csc([string[]]$CscArgs) {
     if ($LASTEXITCODE -ne 0) { throw "csc завершился с кодом $LASTEXITCODE" }
 }
 
+# Помощник для меню в панели задач (без прав администратора) — встраивается в лаунчер, тот кладёт его рядом с собой
+$helperExe = Join-Path $obj 'ZapretLauncherCmd.exe'
+Invoke-Csc @("/out:$helperExe", "/win32icon:$ico", "/win32manifest:$(Join-Path $root 'helper\app.manifest')", (Join-Path $root 'helper\Cmd.cs'))
+
 # Лаунчер
 $app = Join-Path $root 'app'
 $launcherExe = Join-Path $dist 'ZapretLauncher.exe'
 Invoke-Csc @(
+    "/resource:$helperExe,ZapretLauncherCmd.exe",
     "/out:$launcherExe", "/win32icon:$ico", "/win32manifest:$(Join-Path $app 'app.manifest')",
     "/lib:$wpf", '/r:PresentationFramework.dll', '/r:PresentationCore.dll', '/r:WindowsBase.dll', '/r:System.Xaml.dll',
     '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Management.dll', '/r:System.ServiceProcess.dll',

@@ -93,6 +93,7 @@ namespace ZapretLauncher
         public double WindowWidth { get; set; }
         public double WindowHeight { get; set; }
         public bool WindowMaximized { get; set; }
+        public bool Compact { get; set; }      // компактный вид: только правая панель
         public List<string> Favorites { get; set; }
         public List<string> CollapsedGroups { get; set; }            // свёрнутые группы в списке стратегий
         public Dictionary<string, string> PickScores { get; set; }   // стратегия -> "открылось/всего/среднее мс" из последнего подбора

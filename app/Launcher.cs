@@ -48,10 +48,10 @@ namespace ZapretLauncher
         Forms.ToolStripMenuItem miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miExit;
         Dictionary<string, System.Drawing.Icon> trayIcons;
         Dictionary<string, ImageSource> windowIcons;   // значок окна и панели задач — того же цвета, что в трее
+        Dictionary<string, ImageSource> imageIcons;    // тот же значок картинкой — в заголовке и мини-окне
         string trayState, cardState;
         DateTime historyMinute;
         bool animateCards;                              // следующая сборка карточек сайтов — с появлением по очереди
-        ImageSource appIcon;
         DispatcherTimer statusTimer, updateTimer;
 
         // состояние
@@ -103,11 +103,15 @@ namespace ZapretLauncher
             }));
             try { foreach (string line in File.ReadLines(Paths.Log).Reverse().Take(200).Reverse()) E<TextBox>("LogBox").AppendText(line + "\r\n"); } catch { }
 
-            appIcon = Icons.ToImageSource(Icons.Draw(64, true));
             windowIcons = new Dictionary<string, ImageSource>();
-            foreach (string state in new[] { "on", "off", "pause", "error" }) windowIcons[state] = Icons.ToImageSource(Icons.Draw(64, state));
+            imageIcons = new Dictionary<string, ImageSource>();
+            foreach (string state in new[] { "on", "off", "pause", "error" })
+            {
+                windowIcons[state] = Icons.WindowIcon(state);
+                imageIcons[state] = Icons.ToImageSource(Icons.Draw(48, state));   // для заголовка и мини-окна — с запасом под масштаб экрана
+            }
             window.Icon = windowIcons["off"];
-            E<Image>("TitleIcon").Source = window.Icon;
+            E<Image>("TitleIcon").Source = imageIcons["off"];
 
             if (I18n.English) Text("PingText").Text = "Refresh";   // «Обновить» в остальных местах — это Update
             StateHistory.Load();
@@ -119,7 +123,7 @@ namespace ZapretLauncher
             UpdateStrategyList();
             BuildSitePanel();
             UpdateUi();
-            if (!autostart) window.Show();
+            if (!autostart) { window.Show(); BuildSitePanel(); }   // до показа окна карточки не собираются
 
             // смена сети и пробуждение — сразу перепроверяем VPN, сеть и сайты, не дожидаясь таймеров
             NetworkChange.NetworkAddressChanged += delegate { netChanged = true; };
@@ -182,6 +186,11 @@ namespace ZapretLauncher
             UpdateStrategyList();
             if (!cfg.OnboardingDone && !autostart) ShowOnboarding();
 
+            try { TaskbarMenu.EnsureHelper(); UpdateTaskbarMenu(); } catch (Exception e) { Log.Write("Меню в панели задач: " + e.Message); }
+            WatchCommands();
+
+            // при входе в Windows сеть поднимается не сразу — ждём интернет, иначе первая проверка ошибочно покажет сбой
+            if (autostart && Zapret.LocalVersion != null && !Zapret.Running) await WaitForInternet(90);
             if ((autostart || cfg.StartOnOpen) && Zapret.LocalVersion != null && !Zapret.Running) await StartBypassUi();
             else if (cfg.Telegram && Zapret.Running && !Telegram.ProxyRunning) await RunBusy(() => Telegram.StartProxy(cfg), "Telegram…");
             if (Zapret.Running) siteCheckDue = DateTime.Now.AddSeconds(3);
@@ -198,6 +207,85 @@ namespace ZapretLauncher
             for (int i = 0; i < 10 && File.Exists(Paths.Exe + ".old"); i++) { await Task.Delay(1000); SelfUpdate.CleanupOld(); }
             UpdateTitle();
             UpdateUi();
+        }
+
+        async Task WaitForInternet(int maxSeconds)
+        {
+            Stopwatch sw = Stopwatch.StartNew();
+            while (sw.Elapsed.TotalSeconds < maxSeconds)
+            {
+                if (await Task.Run(() => InternetUp()))
+                {
+                    if (sw.Elapsed.TotalSeconds >= 2) Log.Write("Интернет появился через " + (int)sw.Elapsed.TotalSeconds + " сек.");
+                    return;
+                }
+                Text("PowerStatus").Text = T("Жду интернет…");
+                await Task.Delay(2000);
+            }
+            Log.Write("Интернета нет уже " + maxSeconds + " сек. — включаю обход без него");
+        }
+
+        // Есть ли интернет: TCP-соединение с публичными DNS-серверами (их провайдеры не блокируют)
+        static bool InternetUp()
+        {
+            if (!NetworkInterface.GetIsNetworkAvailable()) return false;
+            foreach (string ip in new[] { "77.88.8.8", "1.1.1.1", "8.8.8.8" })
+            {
+                try
+                {
+                    using (System.Net.Sockets.TcpClient c = new System.Net.Sockets.TcpClient())
+                        if (c.ConnectAsync(ip, 53).Wait(1500) && c.Connected) return true;
+                }
+                catch { }
+            }
+            return false;
+        }
+
+        // ---------- Команды из меню в панели задач ----------
+        FileSystemWatcher commandWatcher;
+
+        void WatchCommands()
+        {
+            try
+            {
+                commandWatcher = new FileSystemWatcher(Paths.Root, "command.txt");
+                FileSystemEventHandler h = (s, e) => window.Dispatcher.BeginInvoke(new Action(async () => await RunCommandFile()));
+                commandWatcher.Created += h;
+                commandWatcher.Changed += h;
+                commandWatcher.Renamed += (s, e) => window.Dispatcher.BeginInvoke(new Action(async () => await RunCommandFile()));
+                commandWatcher.EnableRaisingEvents = true;
+            }
+            catch (Exception e) { Log.Write("Команды из панели задач недоступны: " + e.Message); }
+            if (File.Exists(TaskbarMenu.CommandFile)) window.Dispatcher.BeginInvoke(new Action(async () => await RunCommandFile()));   // лаунчер запустили ради команды
+        }
+
+        async Task RunCommandFile()
+        {
+            string command = null;
+            for (int i = 0; i < 5 && command == null; i++)
+            {
+                bool busyFile = false;
+                try { command = File.ReadAllText(TaskbarMenu.CommandFile).Trim(); File.Delete(TaskbarMenu.CommandFile); }
+                catch (FileNotFoundException) { return; }
+                catch { busyFile = true; }
+                if (busyFile) await Task.Delay(100);   // помощник ещё пишет файл
+            }
+            if (string.IsNullOrEmpty(command) || exiting) return;
+            if (command == "start") { if (!Zapret.Running) await StartBypassUi(); }
+            else if (command == "stop") { if (Zapret.Running || pausedByVpn) await StopBypassUi(); }
+            else if (command == "pick") { ShowWindow(); await StartAutoPickUi(false); }
+            else if (command == "pickfav") { ShowWindow(); await StartAutoPickUi(true); }
+            else if (command == "fixdiscord") await FixDiscordUi();
+            else if (command.StartsWith("strategy "))
+            {
+                string file = command.Substring(9);
+                if (Zapret.Strategies().Contains(file)) await SelectStrategy(file);   // только существующие стратегии
+            }
+        }
+
+        void UpdateTaskbarMenu()
+        {
+            try { TaskbarMenu.Update(cfg.Favorites.Where(f => File.Exists(Paths.InZapret(f)))); } catch { }
         }
 
         DispatcherTimer Timer(TimeSpan interval, EventHandler tickHandler)
@@ -327,10 +415,11 @@ namespace ZapretLauncher
             window.Dispatcher.BeginInvoke(new Action(async () =>
             {
                 ShowWindow();
-                if (action == "pick") await StartAutoPickUi();
+                if (action == "pick") await StartAutoPickUi(false);
                 else if (action == "update") await InstallZapretUi();
                 else if (action == "launcher-update") await UpdateLauncherUi(false);
                 else if (action == "start") await StartBypassUi();
+                else if (action == "rollback") RollbackUi(true);
             }));
         }
 
@@ -400,7 +489,7 @@ namespace ZapretLauncher
             if (busy) return;
             busy = true;
             window.Cursor = Cursors.AppStarting;
-            if (busyText != null) { Text("PowerStatus").Text = T(busyText); Text("PowerTimer").Text = " "; }
+            if (busyText != null) { Text("PowerStatus").Text = T(busyText); Text("PowerTimer").Text = " "; BusyRing(true); }
             try { await action(); }
             catch (Exception e)
             {
@@ -412,8 +501,20 @@ namespace ZapretLauncher
             {
                 busy = false;
                 window.Cursor = null;
+                BusyRing(false);
                 UpdateUi();
             }
+        }
+
+        void BusyRing(bool on)
+        {
+            Ellipse ring = E<Ellipse>("BusyRing");
+            RotateTransform rot = ring.RenderTransform as RotateTransform;
+            if (rot == null || rot.IsFrozen) { rot = new RotateTransform(); ring.RenderTransform = rot; }
+            if (on) rot.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, new Duration(TimeSpan.FromSeconds(0.9))) { RepeatBehavior = RepeatBehavior.Forever });
+            DoubleAnimation fade = new DoubleAnimation(on ? 1 : 0, new Duration(TimeSpan.FromMilliseconds(200)));
+            if (!on) fade.Completed += delegate { if (!busy) rot.BeginAnimation(RotateTransform.AngleProperty, null); };
+            ring.BeginAnimation(UIElement.OpacityProperty, fade);
         }
 
         // ---------- Сторож ----------
@@ -461,6 +562,7 @@ namespace ZapretLauncher
                 if (h.Count > 16) h.RemoveAt(0);
             }
             BuildSitePanel();
+            if (control != null && control.Ok) CompareAfterUpdate();
             if (!health || busy || control == null || !control.Ok) return;   // нет интернета — менять стратегию бессмысленно
 
             int ok = siteResults.Count(r => r.Ok);
@@ -484,12 +586,43 @@ namespace ZapretLauncher
             }, "Подбор…");
         }
 
+        // После автообновления zapret: если сайтов открывается меньше, чем до него, — предлагаем вернуть прошлую версию
+        int? okBeforeUpdate;
+        string updatedFrom;
+
+        void CompareAfterUpdate()
+        {
+            if (updatedFrom == null || !okBeforeUpdate.HasValue || siteResults == null) return;
+            string from = updatedFrom;
+            int before = okBeforeUpdate.Value, now = siteResults.Count(r => r.Ok);
+            updatedFrom = null;
+            okBeforeUpdate = null;
+            if (now >= before || Zapret.VersionOf(Paths.Backup) != from) return;
+            string text = T("После обновления zapret сайты открываются хуже") + " (" + now + " " + T("из") + " " + siteResults.Count + " " + T("вместо") + " " + before + "). " +
+                          T("Вернуть версию") + " " + from + "?";
+            Log.Write(text);
+            if (window.IsVisible)
+            {
+                if (Ask(text, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes) RollbackUi(false);
+            }
+            else Notify(text, new[] { "Вернуть прошлую версию", "rollback" });
+        }
+
+        async void RollbackUi(bool ask)
+        {
+            if (ask && Dialog.Show(window, T("Вернуть zapret") + " " + Zapret.VersionOf(Paths.Backup) + " " + T("вместо") + " " + Zapret.LocalVersion + "?\n" + T("Ваши списки и фильтры сохранятся."),
+                "Zapret Launcher", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            await RunBusy(async () => { await Zapret.Rollback(cfg, s => StartBypass(false)); UpdateStrategyList(); UpdateTitle(); }, "Откат…");
+        }
+
         // ---------- Подбор стратегии ----------
         class PickBest { public string File; public int Ok, Total, Score; }
 
-        async Task<PickBest> AutoPick(bool stopAtFirstPerfect)
+        // favoritesOnly — быстрый подбор: только стратегии со звёздочкой
+        async Task<PickBest> AutoPick(bool stopAtFirstPerfect, bool favoritesOnly = false)
         {
             List<string> strategies = Zapret.Strategies();
+            if (favoritesOnly) strategies = strategies.Where(s => cfg.Favorites.Contains(s)).ToList();
             if (strategies.Count == 0) throw new Exception("zapret не установлен");
             string original = cfg.Strategy;
             cancelPick = false;
@@ -577,16 +710,21 @@ namespace ZapretLauncher
             if (window.TaskbarItemInfo != null) window.TaskbarItemInfo.ProgressState = System.Windows.Shell.TaskbarItemProgressState.None;
         }
 
-        async Task StartAutoPickUi()
+        async Task StartAutoPickUi(bool favoritesOnly)
         {
             if (picking) { cancelPick = true; return; }
             if (Zapret.LocalVersion == null) return;
+            if (favoritesOnly && cfg.Favorites.Count(f => File.Exists(Paths.InZapret(f))) < 2)
+            {
+                Ask("Для быстрого подбора отметьте звёздочкой хотя бы две стратегии в списке.");
+                return;
+            }
             string vpn = Conflicts.ActiveVpn();
             if (vpn != null && Dialog.Show(window, T("Интернет идёт через VPN") + " (" + vpn + ").\n\n" + T("Выключите VPN на время подбора, иначе результат будет неверным. Всё равно продолжить?"),
                 "Zapret Launcher", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
             await RunBusy(async () =>
             {
-                PickBest best = await AutoPick(false);
+                PickBest best = await AutoPick(false, favoritesOnly);
                 if (best != null && best.Ok > 0) Notify("Подбор завершён: " + Zapret.Title(best.File) + " (" + best.Ok + " из " + best.Total + " сайтов)");
             }, "Подбор…");
         }
@@ -791,7 +929,7 @@ namespace ZapretLauncher
                 card.SetResourceReference(Border.BackgroundProperty, "CardRaised");
                 if (siteChecking) Shimmer(card);
                 else if (stagger) AppearLater(card, n);
-                panel.Children.Add(card);
+                panel.Children.Add(LiftOnHover(card, SiteUrl(site), site));
                 n++;
             }
             UpdateFlyout();
@@ -804,6 +942,43 @@ namespace ZapretLauncher
             if (site == "YouTube") return new[] { "", "#FF2D2D" };
             if (site == "Telegram") return new[] { "", "#2AABEE" };
             return new[] { "", "#6B7280" };
+        }
+
+        static string SiteUrl(string site)
+        {
+            if (site == "Discord") return "https://discord.com/app";
+            if (site == "YouTube") return "https://www.youtube.com/";
+            if (site == "Telegram") return "https://web.telegram.org/";
+            return null;
+        }
+
+        // Карточка приподнимается при наведении (тень и сдвиг вверх), клик открывает сайт в браузере.
+        // Тень — у отдельной подложки: эффект на самой карточке размыл бы текст
+        FrameworkElement LiftOnHover(Border card, string url, string site)
+        {
+            Grid wrap = new Grid { Margin = card.Margin };
+            card.Margin = new Thickness(0);
+            Border under = new Border { CornerRadius = card.CornerRadius, Opacity = 0 };
+            under.SetResourceReference(Border.BackgroundProperty, "CardRaised");
+            under.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Direction = 270, Opacity = Theme.Dark ? 0.5 : 0.18, Color = Colors.Black };
+            wrap.Children.Add(under);
+            wrap.Children.Add(card);
+            if (url == null) return wrap;
+            wrap.Cursor = Cursors.Hand;
+            wrap.ToolTip = T("Открыть") + " " + site;
+            TranslateTransform tr = new TranslateTransform();
+            wrap.RenderTransform = tr;
+            Duration d = new Duration(TimeSpan.FromMilliseconds(160));
+            Action<bool> lift = up =>
+            {
+                tr.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(up ? -3 : 0, d) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+                under.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(up ? 1 : 0, d));
+            };
+            wrap.MouseEnter += delegate { lift(true); };
+            wrap.MouseLeave += delegate { lift(false); };
+            // через explorer, чтобы браузер открылся без прав администратора
+            wrap.MouseLeftButtonUp += delegate { Process.Start("explorer.exe", "\"" + url + "\""); };
+            return wrap;
         }
 
         // Появление карточек по очереди: лёгкое затухание и сдвиг снизу
@@ -896,10 +1071,13 @@ namespace ZapretLauncher
                 if (allowAuto && cfg.AutoUpdate && !skipped)
                 {
                     Log.Write("Доступна новая версия zapret: " + latest.Version + " (установлена: " + local + ")");
+                    // запоминаем, сколько сайтов открывалось до обновления, — после него сравним
+                    okBeforeUpdate = Zapret.Running && siteResults != null ? siteResults.Count(r => r.Ok) : (int?)null;
                     await Zapret.Install(latest, cfg, s => StartBypass(false));
                     UpdateStrategyList();
                     UpdateTitle();
                     Notify("zapret обновлён до версии " + latest.Version);
+                    if (okBeforeUpdate.HasValue && Zapret.Running) { updatedFrom = local; siteCheckDue = DateTime.Now.AddSeconds(15); }
                 }
                 else if (!skipped || !quiet)
                     Notify("Доступна новая версия zapret: " + latest.Version + (skipped ? " (пропущена после отката)" : ""), new[] { "Обновить", "update" });
@@ -1030,9 +1208,10 @@ namespace ZapretLauncher
         void RestoreWindowSize()
         {
             double k = cfg.Scale / 100.0;
-            double w = cfg.WindowWidth > 0 ? cfg.WindowWidth : 1000 * k, h = cfg.WindowHeight > 0 ? cfg.WindowHeight : 700 * k;
+            double w = cfg.Compact ? 520 * k : cfg.WindowWidth > 0 ? cfg.WindowWidth : 1000 * k, h = cfg.WindowHeight > 0 ? cfg.WindowHeight : 700 * k;
             Rect area = SystemParameters.WorkArea;
-            window.Width = Math.Min(Math.Max(w, window.MinWidth * k), area.Width);
+            if (cfg.Compact) SetCompact(true, false);
+            window.Width = Math.Min(Math.Max(w, window.MinWidth), area.Width);
             window.Height = Math.Min(Math.Max(h, window.MinHeight * k), area.Height);
             if (cfg.WindowMaximized) window.WindowState = WindowState.Maximized;
             window.StateChanged += delegate { OnWindowStateChanged(); };
@@ -1054,7 +1233,37 @@ namespace ZapretLauncher
         {
             cfg.WindowMaximized = window.WindowState == WindowState.Maximized;
             Rect r = window.RestoreBounds;
-            if (!r.IsEmpty && r.Width > 0) { cfg.WindowWidth = Math.Round(r.Width); cfg.WindowHeight = Math.Round(r.Height); }
+            if (!r.IsEmpty && r.Width > 0)
+            {
+                if (!cfg.Compact) cfg.WindowWidth = Math.Round(r.Width);   // в компактном виде ширину обычного окна не трогаем
+                cfg.WindowHeight = Math.Round(r.Height);
+            }
+            cfg.Save();
+        }
+
+        // Компактный вид: только правая панель (переключатель, сайты, история), без меню и списка стратегий
+        void SetCompact(bool on, bool resize)
+        {
+            double k = cfg.Scale / 100.0;
+            if (on && resize && !cfg.Compact) SaveWindowSize();
+            cfg.Compact = on;
+            if (window.WindowState == WindowState.Maximized && resize) window.WindowState = WindowState.Normal;
+            Grid root = E<Grid>("Root");
+            root.ColumnDefinitions[0].Width = new GridLength(on ? 0 : 76);
+            root.ColumnDefinitions[1].MinWidth = on ? 0 : 400;
+            root.ColumnDefinitions[1].Width = on ? new GridLength(0) : new GridLength(5, GridUnitType.Star);
+            E<FrameworkElement>("Sidebar").Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+            E<FrameworkElement>("MidPanel").Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+            window.MinWidth = (on ? 460 : 900) * k;
+            if (resize)
+            {
+                double right = window.Left + window.Width;
+                window.Width = on ? 520 * k : Math.Max(window.MinWidth, cfg.WindowWidth > 0 ? cfg.WindowWidth : 1000 * k);
+                window.Left = Math.Max(SystemParameters.WorkArea.Left, right - window.Width);   // окно остаётся у того же правого края
+            }
+            Button b = E<Button>("BtnCompact");
+            b.Content = on ? "" : "";
+            b.ToolTip = T(on ? "Полный вид" : "Компактный вид");
             cfg.Save();
         }
 
@@ -1062,7 +1271,7 @@ namespace ZapretLauncher
         {
             double k = cfg.Scale / 100.0;
             E<Grid>("Root").LayoutTransform = k == 1 ? Transform.Identity : new ScaleTransform(k, k);
-            window.MinWidth = 900 * k;
+            window.MinWidth = (cfg.Compact ? 460 : 900) * k;
             window.MinHeight = 620 * k;
             if (flyout != null) F<FrameworkElement>("FlyCard").LayoutTransform = k == 1 ? Transform.Identity : new ScaleTransform(k, k);
         }
@@ -1225,6 +1434,15 @@ namespace ZapretLauncher
 
         void ShowPage(string name)
         {
+            // подсветка в боковом меню переезжает к выбранному пункту
+            RadioButton nav = E<RadioButton>("Nav" + name);
+            if (nav != null && nav.IsLoaded)
+            {
+                double y = nav.TranslatePoint(new Point(0, 0), E<Grid>("Sidebar")).Y - 11;
+                TranslateTransform pill = E<Border>("NavPill").RenderTransform as TranslateTransform;
+                if (pill == null || pill.IsFrozen) { pill = new TranslateTransform(); E<Border>("NavPill").RenderTransform = pill; }
+                pill.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(y, new Duration(TimeSpan.FromMilliseconds(260))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut } });
+            }
             foreach (string p in new[] { "Strategies", "Domains", "Settings", "Log" })
             {
                 FrameworkElement page = E<FrameworkElement>("Page" + p);
@@ -1292,7 +1510,7 @@ namespace ZapretLauncher
             cfg.OnboardingDone = true;
             cfg.Save();
             E<FrameworkElement>("Onboarding").Visibility = Visibility.Collapsed;
-            if (!skip && last) await StartAutoPickUi();
+            if (!skip && last) await StartAutoPickUi(false);
         }
 
         // ---------- Мини-окно у трея ----------
@@ -1326,7 +1544,7 @@ namespace ZapretLauncher
         void CreateFlyout()
         {
             flyout = LoadWindow("flyout.xaml");
-            F<Image>("FlyIcon").Source = window.Icon;
+            F<Image>("FlyIcon").Source = imageIcons[trayState ?? "off"];
             ApplyScale();
             if (I18n.English) F<Button>("FlyPing").Content = "Refresh";
             cardState = null;   // перекрасить мини-окно по состоянию
@@ -1336,7 +1554,7 @@ namespace ZapretLauncher
             F<Grid>("FlyToggle").MouseLeftButtonUp += async delegate { await ToggleBypass(); };
             F<Button>("FlyOpen").Click += delegate { ShowWindow(); };
             F<Button>("FlyPing").Click += async delegate { await PingNow(); };
-            F<Button>("FlyPick").Click += async delegate { ShowWindow(); await StartAutoPickUi(); };
+            F<Button>("FlyPick").Click += async delegate { ShowWindow(); await StartAutoPickUi(false); };
         }
 
         void UpdateFlyout()
@@ -1468,6 +1686,7 @@ namespace ZapretLauncher
             if (!cfg.Favorites.Remove(file)) cfg.Favorites.Add(file);
             cfg.Save();
             UpdateStrategyList();
+            UpdateTaskbarMenu();
         }
 
         void UpdateUi()
@@ -1554,8 +1773,8 @@ namespace ZapretLauncher
                 trayState = state;
                 tray.Icon = trayIcons[state];
                 window.Icon = windowIcons[state];
-                E<Image>("TitleIcon").Source = window.Icon;
-                if (flyout != null) F<Image>("FlyIcon").Source = window.Icon;
+                E<Image>("TitleIcon").Source = imageIcons[state];
+                if (flyout != null) F<Image>("FlyIcon").Source = imageIcons[state];
             }
             string local = Zapret.LocalVersion;
             miStart.Enabled = local != null && !busy;
@@ -1745,7 +1964,8 @@ namespace ZapretLauncher
         void WireEvents()
         {
             ClickSync("BtnMinimize", () => { window.WindowState = WindowState.Minimized; });
-            ClickSync("BtnMaximize", () => { window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; });
+            ClickSync("BtnCompact", () => SetCompact(!cfg.Compact, true));
+            ClickSync("BtnMaximize",() => { window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; });
             E<Canvas>("HistoryBar").SizeChanged += delegate { RenderHistory(); };
             ClickSync("BtnClose", () => window.Close());
             foreach (string p in new[] { "Strategies", "Domains", "Settings", "Log" })
@@ -1791,7 +2011,8 @@ namespace ZapretLauncher
 
             Click("BtnCheck", () => RunBusy(() => CheckUpdates(false, false), "Проверка…"));
             Click("BtnInstallUpdate", InstallZapretUi);
-            Click("BtnMain", StartAutoPickUi);
+            Click("BtnMain", () => StartAutoPickUi(false));
+            Click("BtnQuickPick", () => StartAutoPickUi(true));
             ClickSync("BtnService", () =>
             {
                 ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", "/c \"\"" + Paths.InZapret("service.bat") + "\" admin\"");
@@ -1802,12 +2023,7 @@ namespace ZapretLauncher
             });
             Click("BtnFixDiscord", FixDiscordUi);
             Click("BtnRemoveService",() => RunBusy(async () => { await Zapret.RemoveService(); await Zapret.Stop(true); }));
-            Click("BtnRollback", async () =>
-            {
-                if (Dialog.Show(window, T("Вернуть zapret") + " " + Zapret.VersionOf(Paths.Backup) + " " + T("вместо") + " " + Zapret.LocalVersion + "?\n" + T("Ваши списки и фильтры сохранятся."),
-                    "Zapret Launcher", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-                await RunBusy(async () => { await Zapret.Rollback(cfg, s => StartBypass(false)); UpdateStrategyList(); UpdateTitle(); }, "Откат…");
-            });
+            ClickSync("BtnRollback", () => RollbackUi(true));
             Click("BtnUninstall", async () =>
             {
                 MessageBoxResult a = Dialog.Show(window,
@@ -1939,8 +2155,12 @@ namespace ZapretLauncher
 
         void BuildTray()
         {
-            trayIcons = new Dictionary<string, System.Drawing.Icon>();
-            foreach (string state in new[] { "on", "off", "pause", "error" }) trayIcons[state] = Icons.ToIcon(Icons.Draw(32, state));
+            BuildTrayIcons();
+            // сменили масштаб экрана — перерисовываем значки под новый размер
+            SystemEvents.DisplaySettingsChanged += delegate
+            {
+                window.Dispatcher.BeginInvoke(new Action(() => { BuildTrayIcons(); trayState = null; UpdateTray(); }));
+            };
             tray = new Forms.NotifyIcon();
             tray.Icon = trayIcons["off"];
             trayState = "off";
@@ -1967,7 +2187,7 @@ namespace ZapretLauncher
             miOpen.Click += delegate { ShowWindow(); };
             miStart.Click += async delegate { await StartBypassUi(); };
             miStop.Click += async delegate { await StopBypassUi(); };
-            miPick.Click += async delegate { ShowWindow(); await StartAutoPickUi(); };
+            miPick.Click += async delegate { ShowWindow(); await StartAutoPickUi(false); };
             miFixDiscord.Click += async delegate { await FixDiscordUi(); };
             miExit.Click += delegate { Exit(); };
             // клик по значку — мини-окно, двойной клик — главное окно
@@ -1987,6 +2207,13 @@ namespace ZapretLauncher
                 }
                 UpdateUi();
             };
+        }
+
+        void BuildTrayIcons()
+        {
+            int size = Icons.TraySize();
+            trayIcons = new Dictionary<string, System.Drawing.Icon>();
+            foreach (string state in new[] { "on", "off", "pause", "error" }) trayIcons[state] = Icons.ToIcon(Icons.Draw(size, state));
         }
 
         public void Exit()

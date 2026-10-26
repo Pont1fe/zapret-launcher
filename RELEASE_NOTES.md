@@ -3,6 +3,15 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/main-dark-en.png)
 
+### 3.3.2
+- Sharp tray icon at any display scale, crisper small text, multi-size window icon / Чёткий значок в трее при любом масштабе экрана, резкий мелкий текст, значок окна во всех размерах
+- Taskbar icon menu (right click): turn bypass on/off, find a strategy, fix Discord, favorite strategies — without UAC prompts / Меню на значке в панели задач (правый клик): включить и выключить обход, подбор, «Починить Discord», избранные стратегии — без запроса UAC
+- Quick search among starred strategies (star button next to “Find best strategy”) / Быстрый подбор по избранным стратегиям (кнопка со звёздочкой рядом с «Подобрать стратегию»)
+- If fewer sites open after a zapret auto-update, the launcher offers to restore the previous version / Если после автообновления zapret сайтов открывается меньше, лаунчер предложит вернуть прошлую версию
+- On Windows start, bypass waits for the internet to come up / При запуске Windows обход ждёт появления интернета
+- Compact view (button in the title bar), splash screen, loading ring on the switch, site cards lift on hover and open the site on click, sliding menu highlight / Компактный вид (кнопка в заголовке), заставка при запуске, кольцо загрузки на переключателе, карточки сайтов приподнимаются при наведении и открывают сайт по клику, плавная подсветка меню
+- Fixed: site cards were empty when the launcher opened with bypass off / Исправлено: карточки сайтов были пустыми, если открыть лаунчер с выключенным обходом
+
 ### 3.3.1
 - The window can be resized and maximized; size and position are remembered / Окно можно растягивать и разворачивать на весь экран, размер запоминается
 - 24-hour history: when bypass worked, was paused for VPN or failed / История за сутки: когда обход работал, стоял на паузе из-за VPN или давал сбой

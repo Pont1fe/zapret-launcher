@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -46,7 +47,8 @@ namespace ZapretLauncher
                     path.CloseFigure();
                     using (System.Drawing.Drawing2D.LinearGradientBrush brush = new System.Drawing.Drawing2D.LinearGradientBrush(rect, c1, c2, 45f)) g.FillPath(brush, path);
                 }
-                using (Font font = new Font("Segoe MDL2 Assets", size * 0.5f, System.Drawing.FontStyle.Regular, GraphicsUnit.Pixel))
+                // на маленьких размерах щит чуть крупнее — иначе в трее он теряется
+                using (Font font = new Font("Segoe MDL2 Assets", size * (size <= 24 ? 0.6f : 0.5f), System.Drawing.FontStyle.Regular, GraphicsUnit.Pixel))
                 using (StringFormat f = new StringFormat())
                 {
                     f.Alignment = StringAlignment.Center;
@@ -58,6 +60,42 @@ namespace ZapretLauncher
         }
 
         public static Icon ToIcon(Bitmap bmp) { return Icon.FromHandle(bmp.GetHicon()); }
+
+        [DllImport("user32.dll")] static extern int GetSystemMetricsForDpi(int index, uint dpi);
+        [DllImport("user32.dll")] static extern uint GetDpiForSystem();
+
+        // Размер значка в трее при текущем масштабе экрана (16 при 100%, 20 при 125%, 24 при 150%…):
+        // рисуем ровно в нём, чтобы Windows не ужимала картинку и щит оставался чётким
+        public static int TraySize()
+        {
+            try { return Math.Max(16, GetSystemMetricsForDpi(49 /* SM_CXSMICON */, GetDpiForSystem())); }
+            catch { return Math.Max(16, SystemInformation.SmallIconSize.Width); }
+        }
+
+        // Значок окна из нескольких размеров (как .ico): Windows берёт подходящий для панели задач и Alt+Tab, а не растягивает один
+        public static ImageSource WindowIcon(string state)
+        {
+            int[] sizes = { 16, 20, 24, 32, 40, 48, 64, 256 };
+            byte[][] frames = new byte[sizes.Length][];
+            for (int i = 0; i < sizes.Length; i++)
+                using (Bitmap bmp = Draw(sizes[i], state))
+                using (MemoryStream ms = new MemoryStream()) { bmp.Save(ms, ImageFormat.Png); frames[i] = ms.ToArray(); }
+            MemoryStream ico = new MemoryStream();
+            using (BinaryWriter w = new BinaryWriter(ico, System.Text.Encoding.ASCII, true))
+            {
+                w.Write((ushort)0); w.Write((ushort)1); w.Write((ushort)sizes.Length);
+                int offset = 6 + 16 * sizes.Length;
+                for (int i = 0; i < sizes.Length; i++)
+                {
+                    w.Write((byte)(sizes[i] % 256)); w.Write((byte)(sizes[i] % 256)); w.Write((byte)0); w.Write((byte)0);
+                    w.Write((ushort)1); w.Write((ushort)32); w.Write(frames[i].Length); w.Write(offset);
+                    offset += frames[i].Length;
+                }
+                foreach (byte[] f in frames) w.Write(f);
+            }
+            ico.Position = 0;
+            return BitmapFrame.Create(ico, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        }
 
         public static ImageSource ToImageSource(Bitmap bmp)
         {
@@ -136,6 +174,54 @@ namespace ZapretLauncher
         public static void RemoveUninstallEntry()
         {
             try { Hklm().DeleteSubKeyTree(Consts.UninstallKey, false); } catch { }
+        }
+    }
+
+    // Меню на значке в панели задач (правый клик). Пункты запускают ZapretLauncherCmd.exe — он без прав администратора,
+    // поэтому UAC не появляется; команда приходит лаунчеру через command.txt
+    static class TaskbarMenu
+    {
+        public static readonly string Helper = Path.Combine(Paths.Root, "ZapretLauncherCmd.exe");
+        public static readonly string CommandFile = Path.Combine(Paths.Root, "command.txt");
+
+        // Помощник лежит внутри лаунчера; кладём его рядом, если его нет или он от другой версии
+        public static void EnsureHelper()
+        {
+            using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("ZapretLauncherCmd.exe"))
+            {
+                if (s == null) return;
+                byte[] bytes = new byte[s.Length];
+                s.Read(bytes, 0, bytes.Length);
+                if (File.Exists(Helper) && new FileInfo(Helper).Length == bytes.Length && File.ReadAllBytes(Helper).SequenceEqual(bytes)) return;
+                File.WriteAllBytes(Helper, bytes);
+            }
+        }
+
+        public static void Update(System.Collections.Generic.IEnumerable<string> favorites)
+        {
+            System.Windows.Shell.JumpList list = new System.Windows.Shell.JumpList { ShowFrequentCategory = false, ShowRecentCategory = false };
+            list.JumpItems.Add(Item("Включить обход", "start", "Запустить обход с выбранной стратегией"));
+            list.JumpItems.Add(Item("Выключить обход", "stop", "Остановить обход"));
+            list.JumpItems.Add(Item("Подобрать стратегию", "pick", "Проверить все стратегии и выбрать лучшую"));
+            list.JumpItems.Add(Item("Быстрый подбор по избранному", "pickfav", "Проверить только избранные стратегии"));
+            list.JumpItems.Add(Item("Починить Discord", "fixdiscord", "Закрыть Discord, очистить его кэш и открыть заново"));
+            foreach (string f in favorites)
+            {
+                System.Windows.Shell.JumpTask t = Item(I18n.T(Zapret.Title(f)), "strategy " + f, f);
+                t.CustomCategory = I18n.T("Избранные стратегии");
+                list.JumpItems.Add(t);
+            }
+            System.Windows.Shell.JumpList.SetJumpList(System.Windows.Application.Current, list);
+            list.Apply();
+        }
+
+        static System.Windows.Shell.JumpTask Item(string title, string command, string description)
+        {
+            return new System.Windows.Shell.JumpTask
+            {
+                Title = I18n.T(title), Description = I18n.T(description), ApplicationPath = Helper, Arguments = "\"" + command + "\"",
+                IconResourcePath = Paths.Exe, IconResourceIndex = 0, WorkingDirectory = Paths.Root
+            };
         }
     }
 

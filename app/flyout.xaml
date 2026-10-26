@@ -4,7 +4,8 @@
         Title="Zapret Launcher" Width="356" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent" ResizeMode="NoResize"
         ShowInTaskbar="False" Topmost="True" ShowActivated="True"
-        Foreground="{DynamicResource Text}" FontFamily="Segoe UI" FontSize="13" UseLayoutRounding="True">
+        Foreground="{DynamicResource Text}" FontFamily="Segoe UI" FontSize="13" UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display" RenderOptions.BitmapScalingMode="HighQuality">
   <Border x:Name="FlyCard" Margin="12" CornerRadius="18" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="18,16">
     <Border.Effect>
       <DropShadowEffect BlurRadius="28" ShadowDepth="4" Opacity="0.35" Color="Black"/>

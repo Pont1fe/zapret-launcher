@@ -148,13 +148,17 @@
               <TextBlock Text="{TemplateBinding Tag}" FontSize="10" HorizontalAlignment="Center" Margin="0,4,0,0"/>
             </StackPanel>
           </Border>
+          <!-- подложка выбранного пункта — отдельная плашка NavPill в окне, она переезжает между пунктами -->
           <ControlTemplate.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
+            <MultiTrigger>
+              <MultiTrigger.Conditions>
+                <Condition Property="IsMouseOver" Value="True"/>
+                <Condition Property="IsChecked" Value="False"/>
+              </MultiTrigger.Conditions>
               <Setter TargetName="bg" Property="Background" Value="{DynamicResource NavHover}"/>
               <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            </Trigger>
+            </MultiTrigger>
             <Trigger Property="IsChecked" Value="True">
-              <Setter TargetName="bg" Property="Background" Value="{DynamicResource AccentSoft}"/>
               <Setter Property="Foreground" Value="{DynamicResource AccentHover}"/>
             </Trigger>
           </ControlTemplate.Triggers>

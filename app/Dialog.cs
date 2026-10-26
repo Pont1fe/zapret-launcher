@@ -23,6 +23,7 @@ namespace ZapretLauncher
                 ResizeMode = ResizeMode.NoResize, SizeToContent = SizeToContent.WidthAndHeight, ShowInTaskbar = owner == null || !owner.IsVisible,
                 Title = title, FontFamily = new FontFamily("Segoe UI"), FontSize = 13, Topmost = owner == null || !owner.IsVisible
             };
+            TextOptions.SetTextFormattingMode(w, TextFormattingMode.Display);   // мелкий текст — по пиксельной сетке, без мыла
             if (owner != null && owner.IsVisible) { w.Owner = owner; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
             else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
             if (owner != null && owner.Icon != null) w.Icon = owner.Icon;
