@@ -2179,7 +2179,7 @@ namespace ZapretLauncher
             miStrategies.DropDown.BackColor = menu.BackColor;
             miPick = new Forms.ToolStripMenuItem(T("Подобрать стратегию"));
             miFixDiscord = new Forms.ToolStripMenuItem(T("Починить Discord"));
-            miExit = new Forms.ToolStripMenuItem(T("Выход (обход продолжит работать)"));
+            miExit = new Forms.ToolStripMenuItem(T("Выход"));
             menu.Items.AddRange(new Forms.ToolStripItem[] { miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, new Forms.ToolStripSeparator(), miExit });
             tray.ContextMenuStrip = menu;
 
@@ -2188,7 +2188,7 @@ namespace ZapretLauncher
             miStop.Click += async delegate { await StopBypassUi(); };
             miPick.Click += async delegate { ShowWindow(); await StartAutoPickUi(false); };
             miFixDiscord.Click += async delegate { await FixDiscordUi(); };
-            miExit.Click += delegate { Exit(); };
+            miExit.Click += async delegate { await QuitAndStop(); };
             // клик по значку — мини-окно, двойной клик — главное окно
             tray.MouseClick += (s, e) => { if (e.Button == Forms.MouseButtons.Left) window.Dispatcher.BeginInvoke(new Action(ToggleFlyout)); };
             tray.MouseDoubleClick += (s, e) => { if (e.Button == Forms.MouseButtons.Left) ShowWindow(); };
@@ -2214,6 +2214,30 @@ namespace ZapretLauncher
             trayIcons = new Dictionary<string, System.Drawing.Icon>();
             foreach (string state in new[] { "on", "off", "pause", "error" }) trayIcons[state] = Icons.ToIcon(Icons.Draw(size, state));
         }
+
+        // «Выход» из меню трея: обход и Telegram-прокси выключаются вместе с лаунчером.
+        // Перезапуск после самообновления и смены языка идёт через Exit() напрямую — там обход не прерывается
+        async Task QuitAndStop()
+        {
+            if (exiting || quitting) return;
+            quitting = true;
+            if (picking) cancelPick = true;
+            wantRunning = false;   // чтобы сторож не перезапустил winws, пока лаунчер закрывается
+            pausedByVpn = false;
+            if (statusTimer != null) statusTimer.Stop();
+            HideFlyout();
+            tray.Text = "Zapret: " + T("выключаю обход…");
+            try
+            {
+                await Zapret.Stop(false);
+                await Telegram.StopProxy();
+            }
+            catch (Exception e) { Log.Write("Не удалось остановить обход при выходе: " + e.Message); }
+            Log.Write("Лаунчер закрыт, обход выключен");
+            Exit();
+        }
+
+        bool quitting;
 
         public void Exit()
         {

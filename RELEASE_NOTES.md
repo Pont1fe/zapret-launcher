@@ -3,6 +3,10 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/main-dark-en.png)
 
+### 3.3.3
+- “Exit” in the tray menu now turns bypass and the Telegram proxy off before closing the launcher (restarts after updates still keep bypass running) / «Выход» в меню трея теперь выключает обход и Telegram-прокси перед закрытием лаунчера (при перезапуске после обновления обход по-прежнему не прерывается)
+- Fixed the installer crashing on start / Исправлено падение установщика при запуске
+
 ### 3.3.2
 - Sharp tray icon at any display scale, crisper small text, multi-size window icon / Чёткий значок в трее при любом масштабе экрана, резкий мелкий текст, значок окна во всех размерах
 - Taskbar icon menu (right click): turn bypass on/off, find a strategy, fix Discord, favorite strategies — without UAC prompts / Меню на значке в панели задач (правый клик): включить и выключить обход, подбор, «Починить Discord», избранные стратегии — без запроса UAC
