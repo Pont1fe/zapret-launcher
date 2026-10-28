@@ -3,6 +3,12 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/main-dark-en.png)
 
+### 3.4.0
+- Settings backup: save to / restore from a file; an automatic copy outside the launcher folder is offered back after reinstalling / Резервная копия настроек: сохранение в файл и восстановление; автокопия вне папки лаунчера — после переустановки лаунчер предложит её вернуть
+- Secure DNS (Settings → DNS): Cloudflare, Google, Quad9 or AdGuard with DNS over HTTPS on Windows 11; restores automatic DNS if the server doesn't respond / Защищённый DNS (Настройки → DNS): Cloudflare, Google, Quad9 или AdGuard с шифрованием DNS через HTTPS в Windows 11; если сервер не отвечает, DNS возвращается автоматический
+- Check any site on the Domains page: does it open, how fast, is DNS spoofed / Проверка любого сайта на странице «Домены»: открывается ли, за сколько, не подменён ли DNS
+- The IPSet list updates itself weekly / Список IPSet обновляется сам раз в неделю
+
 ### 3.3.3
 - “Exit” in the tray menu now turns bypass and the Telegram proxy off before closing the launcher (restarts after updates still keep bypass running) / «Выход» в меню трея теперь выключает обход и Telegram-прокси перед закрытием лаунчера (при перезапуске после обновления обход по-прежнему не прерывается)
 - Fixed the installer crashing on start / Исправлено падение установщика при запуске

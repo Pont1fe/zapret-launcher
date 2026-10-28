@@ -19,7 +19,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "3.3.3";
+        public const string Value = "3.4.0";
     }
 
     static class App
@@ -187,6 +187,9 @@ namespace ZapretLauncher
             if (Zapret.Service() != null) await Zapret.RemoveService();
             Autostart.Set(false);
             try { Telegram.SetHosts(false); } catch (Exception e) { Log.Write(e.Message); }
+            // защищённый DNS включал лаунчер — возвращаем автоматический DNS
+            Config cfg = Config.Load();
+            if (cfg.SecureDns.Length > 0) { try { SecureDns.Disable(cfg.DnsAdapters); } catch (Exception e) { Log.Write("DNS: " + e.Message); } }
             Shell.RemoveShortcuts();
             Shell.RemoveUninstallEntry();
             Log.Write("Автозапуск, службы, ярлыки и записи в hosts удалены");

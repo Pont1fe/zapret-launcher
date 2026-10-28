@@ -135,7 +135,7 @@ namespace ZapretLauncher
             window.IsVisibleChanged += delegate
             {
                 if (window.IsVisible) { BuildSitePanel(); UpdateUi(); RenderHistory(); }
-                else { trimDue = DateTime.Now.AddSeconds(20); SaveWindowSize(); }
+                else { trimDue = DateTime.Now.AddSeconds(20); SaveWindowSize(); AutoBackup(); }
             };
             SystemEvents.UserPreferenceChanged += (s, e) =>
             {
@@ -184,6 +184,10 @@ namespace ZapretLauncher
                 installedNow = true;
             }
             UpdateStrategyList();
+            // новая установка, а от прошлой осталась автокопия настроек — предлагаем вернуть
+            if (Config.Fresh && !autostart && OfferAutoRestore()) return;
+            backupReady = true;   // до этого момента автокопию не трогаем: свежие настройки затёрли бы старые
+            AutoBackup();
             if (!cfg.OnboardingDone && !autostart) ShowOnboarding();
 
             try { TaskbarMenu.EnsureHelper(); UpdateTaskbarMenu(); } catch (Exception e) { Log.Write("Меню в панели задач: " + e.Message); }
@@ -207,6 +211,128 @@ namespace ZapretLauncher
             for (int i = 0; i < 10 && File.Exists(Paths.Exe + ".old"); i++) { await Task.Delay(1000); SelfUpdate.CleanupOld(); }
             UpdateTitle();
             UpdateUi();
+        }
+
+        // ---------- Резервная копия настроек ----------
+        bool backupReady;
+        void AutoBackup() { if (backupReady) SettingsBackup.Auto(); }
+
+        bool OfferAutoRestore()
+        {
+            string created = SettingsBackup.Describe(SettingsBackup.AutoFile);
+            if (created == null) return false;
+            if (Ask(T("Найдены настройки от прошлой установки лаунчера") + " (" + created + "): " +
+                    T("стратегия, домены, избранное, профили сетей.") + "\n\n" + T("Восстановить их?"),
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return false;
+            try { SettingsBackup.Restore(SettingsBackup.AutoFile); }
+            catch (Exception e) { Ask(e.Message, MessageBoxButton.OK, MessageBoxImage.Error); return false; }
+            Restart();
+            return true;
+        }
+
+        void BackupSave()
+        {
+            Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = T("Сохранить настройки в файл"), FileName = "ZapretLauncher-" + DateTime.Now.ToString("yyyy-MM-dd") + ".zlbackup",
+                Filter = T("Резервная копия Zapret Launcher") + " (*.zlbackup)|*.zlbackup", DefaultExt = ".zlbackup",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+            };
+            if (dlg.ShowDialog(window) != true) return;
+            try
+            {
+                cfg.Save();
+                SettingsBackup.Save(dlg.FileName);
+                Log.Write("Настройки сохранены в " + dlg.FileName);
+                Ask("Настройки сохранены. После переустановки откройте этот файл через «Восстановить настройки из файла».");
+            }
+            catch (Exception e) { Ask(T("Не удалось сохранить: ") + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); }
+        }
+
+        void BackupRestore()
+        {
+            Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = T("Восстановить настройки из файла"),
+                Filter = T("Резервная копия Zapret Launcher") + " (*.zlbackup;*.json)|*.zlbackup;*.json",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+            };
+            if (dlg.ShowDialog(window) != true) return;
+            string created = SettingsBackup.Describe(dlg.FileName);
+            if (created == null) { Ask("Это не файл резервной копии Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+            if (Ask(T("Заменить текущие настройки копией от") + " " + created + "?\n" + T("Лаунчер перезапустится, обход продолжит работать"),
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            try { SettingsBackup.Restore(dlg.FileName); }
+            catch (Exception e) { Ask(T("Не удалось восстановить: ") + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            Restart();
+        }
+
+        // ---------- Защищённый DNS ----------
+        string DnsChoice()
+        {
+            foreach (string key in SecureDns.Providers.Keys)
+                if (E<RadioButton>("Dns" + char.ToUpper(key[0]) + key.Substring(1)).IsChecked == true) return key;
+            return "cloudflare";
+        }
+
+        async Task SetSecureDns(bool on, string provider)
+        {
+            await RunBusy(async () =>
+            {
+                if (cfg.SecureDns.Length > 0) await Task.Run(() => SecureDns.Disable(cfg.DnsAdapters));
+                cfg.SecureDns = "";
+                cfg.DnsAdapters = new List<string>();
+                if (on)
+                {
+                    List<string> adapters = await Task.Run(() => SecureDns.Enable(provider));
+                    if (adapters.Count == 0) throw new Exception("Не найден сетевой адаптер с интернетом");
+                    cfg.SecureDns = provider;
+                    cfg.DnsAdapters = adapters;
+                    cfg.Save();
+                    // DNS не отвечает (например, провайдер режет и HTTPS, и обычный DNS к серверу) — возвращаем как было, чтобы не остаться без интернета
+                    if (!await SecureDns.Works())
+                    {
+                        await Task.Run(() => SecureDns.Disable(adapters));
+                        cfg.SecureDns = "";
+                        cfg.DnsAdapters = new List<string>();
+                        cfg.Save();
+                        throw new Exception(T("DNS") + " " + SecureDns.Providers[provider].Name + " " + T("не отвечает в вашей сети — вернул автоматический DNS. Попробуйте другой сервер."));
+                    }
+                    Log.Write("Защищённый DNS включён: " + SecureDns.Providers[provider].Name + " (" + string.Join(", ", adapters) + ")");
+                }
+                else
+                {
+                    cfg.Save();
+                    Log.Write("Защищённый DNS выключен — DNS снова автоматический");
+                }
+            }, "DNS…");
+            filling = true;
+            E<CheckBox>("SwSecureDns").IsChecked = cfg.SecureDns.Length > 0;
+            filling = false;
+        }
+
+        // ---------- Проверка сайта ----------
+        async Task CheckDomain()
+        {
+            TextBlock info = Text("DomainInfo");
+            string d = Zapret.NormalizeDomain(E<TextBox>("DomainInput").Text.Split(new[] { ' ', ',', ';' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "");
+            if (d == null) { info.Text = T("Введите адрес сайта, например example.com"); return; }
+            Button btn = E<Button>("BtnCheckDomain");
+            btn.IsEnabled = false;
+            info.Text = d + ": " + T("проверяю…");
+            bool dns = true;
+            SiteResult r;
+            try { r = await Sites.Check(d, ok => dns = ok); }
+            finally { btn.IsEnabled = true; }
+            bool listed = Zapret.UserDomains("general").Any(x => d == x || d.EndsWith("." + x));
+            string state = Zapret.Running ? T("обход включён") : pausedByVpn ? T("пауза из-за VPN") : T("обход выключен");
+            if (!dns)
+                info.Text = d + ": " + T("домен не найден (DNS). Если сайт существует, провайдер может подменять DNS — включите «Защищённый DNS» в настройках.");
+            else if (r.Ok)
+                info.Text = d + ": " + T("открывается") + " — " + r.Ms + " " + T("мс") + (r.TcpMs >= 0 ? ", TCP " + r.TcpMs + " " + T("мс") : "") + " (" + state + ")";
+            else
+                info.Text = d + ": " + T("не открывается") + " (" + state + "). " +
+                    (listed ? T("Сайт уже в списке — попробуйте подобрать стратегию.") : Zapret.Running ? T("Нажмите «Добавить», чтобы обходить его, и проверьте снова.") : T("Включите обход и проверьте снова."));
         }
 
         async Task WaitForInternet(int maxSeconds)
@@ -1083,6 +1209,8 @@ namespace ZapretLauncher
             }
             else if (!quiet) Log.Write("zapret: установлена последняя версия (" + local + ")");
 
+            if (allowAuto && cfg.AutoUpdate) await AutoUpdateIpset();
+
             if (cfg.Telegram)
             {
                 try { await Telegram.UpdateHostsCache(); Telegram.SetHosts(true); }
@@ -1105,6 +1233,24 @@ namespace ZapretLauncher
             }
 
             await CheckLauncherUpdate(quiet, allowAuto && cfg.AutoUpdate);
+        }
+
+        // Список IP-адресов для IPSet — раз в неделю вместе с проверкой обновлений. Если он изменился и используется,
+        // обход перезапускается, чтобы winws перечитал список
+        async Task AutoUpdateIpset()
+        {
+            string mode = Zapret.IpsetMode(Paths.Zapret);
+            DateTime last;
+            if (mode == null || (DateTime.TryParse(cfg.IpsetUpdated, out last) && (DateTime.Now - last).TotalDays < 7)) return;
+            string file = Paths.InZapret(@"lists\ipset-all.txt");
+            string target = mode == "loaded" ? file : file + ".backup";
+            string before = File.Exists(target) ? File.ReadAllText(target) : "";
+            try { await Zapret.UpdateIpsetList(); }
+            catch (Exception e) { Log.Write("IPSet: не удалось обновить список: " + e.Message); return; }
+            cfg.IpsetUpdated = DateTime.Now.ToString("yyyy-MM-dd");
+            cfg.Save();
+            bool changed = File.Exists(target) && File.ReadAllText(target) != before;
+            if (changed && mode == "loaded" && Zapret.Running && !pausedByVpn) await StartBypass(false);
         }
 
         async Task CheckLauncherUpdate(bool quiet, bool install)
@@ -1821,6 +1967,7 @@ namespace ZapretLauncher
             Log.Write("Добавлено в «" + (DomainKind == "general" ? "Обходить" : "Не трогать") + "»: " + string.Join(", ", fresh));
             E<TextBox>("DomainInput").Text = "";
             UpdateDomainUi();
+            AutoBackup();
             await RestartIfRunning();
         }
 
@@ -1829,6 +1976,7 @@ namespace ZapretLauncher
             Zapret.SaveUserDomains(DomainKind, Zapret.UserDomains(DomainKind).Where(d => d != domain));
             Log.Write("Удалён домен: " + domain);
             UpdateDomainUi();
+            AutoBackup();
             await RestartIfRunning();
         }
 
@@ -1863,6 +2011,10 @@ namespace ZapretLauncher
             string accentKey = Theme.Accents.ContainsKey(cfg.Accent) || cfg.Accent == "system" ? cfg.Accent : "teal";
             E<RadioButton>("Accent" + char.ToUpper(accentKey[0]) + accentKey.Substring(1)).IsChecked = true;
             E<RadioButton>("Scale" + cfg.Scale).IsChecked = true;
+            E<CheckBox>("SwSecureDns").IsChecked = cfg.SecureDns.Length > 0;
+            string dnsKey = SecureDns.Providers.ContainsKey(cfg.SecureDns) ? cfg.SecureDns : "cloudflare";
+            E<RadioButton>("Dns" + char.ToUpper(dnsKey[0]) + dnsKey.Substring(1)).IsChecked = true;
+            if (!SecureDns.EncryptionSupported) Text("DnsSub").Text = T("В Windows 10 шифрования DNS нет — будет только публичный DNS вместо провайдерского");
             CheckBox mica = E<CheckBox>("SwMica");
             mica.IsChecked = cfg.Transparent && Theme.MicaSupported;
             mica.IsEnabled = Theme.MicaSupported;
@@ -2021,6 +2173,16 @@ namespace ZapretLauncher
                 Process.Start(psi);
             });
             Click("BtnFixDiscord", FixDiscordUi);
+            ClickSync("BtnBackupSave", BackupSave);
+            ClickSync("BtnBackupRestore", BackupRestore);
+            Click("BtnCheckDomain", CheckDomain);
+            Click("SwSecureDns", () => SetSecureDns(E<CheckBox>("SwSecureDns").IsChecked == true, DnsChoice()));
+            foreach (string key in SecureDns.Providers.Keys)
+            {
+                string k = key;
+                // другой сервер при включённом защищённом DNS — переключаем сразу
+                Click("Dns" + char.ToUpper(k[0]) + k.Substring(1), () => cfg.SecureDns.Length > 0 && cfg.SecureDns != k ? SetSecureDns(true, k) : Task.FromResult(0));
+            }
             Click("BtnRemoveService",() => RunBusy(async () => { await Zapret.RemoveService(); await Zapret.Stop(true); }));
             ClickSync("BtnRollback", () => RollbackUi(true));
             Click("BtnUninstall", async () =>
@@ -2081,7 +2243,7 @@ namespace ZapretLauncher
                 ClickSync("Scale" + sc, () => SetScale(sc));
             }
             // клик по «?» не должен переключать настройку, внутри которой он стоит
-            foreach (string help in new[] { "HelpWatchdog", "HelpVpn", "HelpNet", "HelpGf", "HelpIpset" })
+            foreach (string help in new[] { "HelpWatchdog", "HelpVpn", "HelpNet", "HelpGf", "HelpIpset", "HelpDns" })
                 E<UIElement>(help).MouseLeftButtonDown += (s, e) => e.Handled = true;
             ClickSync("LangRu", () => SetLanguage("ru"));
             ClickSync("LangEn", () => SetLanguage("en"));
@@ -2241,7 +2403,7 @@ namespace ZapretLauncher
 
         public void Exit()
         {
-            if (!exiting) { SaveWindowSize(); StateHistory.Save(); }
+            if (!exiting) { SaveWindowSize(); StateHistory.Save(); AutoBackup(); }
             exiting = true;
             foreach (DispatcherTimer t in new[] { statusTimer, updateTimer }) if (t != null) t.Stop();
             tray.Visible = false;

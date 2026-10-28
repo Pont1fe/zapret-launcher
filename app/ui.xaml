@@ -185,7 +185,11 @@
               <TextBox x:Name="DomainInput" Style="{DynamicResource InputBox}" Margin="-2,0,0,0"/>
             </Grid>
           </Border>
-          <Button x:Name="BtnAddDomain" Grid.Column="1" Style="{DynamicResource AccentButton}" Height="38" Margin="8,0,0,0" Content="Добавить"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal">
+            <Button x:Name="BtnCheckDomain" Style="{DynamicResource GhostButton}" Height="38" Margin="8,0,0,0" Content="Проверить"
+                    ToolTip="Проверить, открывается ли сайт сейчас"/>
+            <Button x:Name="BtnAddDomain" Style="{DynamicResource AccentButton}" Height="38" Margin="8,0,0,0" Content="Добавить"/>
+          </StackPanel>
         </Grid>
         <TextBlock x:Name="DomainInfo" Grid.Row="3" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,12" TextWrapping="Wrap"
                    Text="Поддомены учитываются автоматически. Изменения применяются сразу."/>
@@ -351,6 +355,30 @@
             </StackPanel>
           </Border>
 
+          <TextBlock Text="DNS" Style="{DynamicResource SectionLabel}"/>
+          <Border Style="{DynamicResource SettingsCard}">
+            <StackPanel>
+              <CheckBox x:Name="SwSecureDns" Style="{DynamicResource Switch}">
+                <StackPanel>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Защищённый DNS" Style="{DynamicResource RowTitle}"/>
+                    <TextBlock x:Name="HelpDns" Style="{DynamicResource HelpIcon}"
+                               ToolTip="Часть блокировок провайдеры делают подменой DNS: сайт «не находится», и никакая стратегия не помогает. Лаунчер поставит на сетевые адаптеры публичный DNS и включит шифрование DNS через HTTPS, чтобы провайдер не мог подменить ответы. Выключение возвращает автоматический DNS."/>
+                  </StackPanel>
+                  <TextBlock x:Name="DnsSub" Text="DNS через HTTPS: провайдер не сможет подменить адреса сайтов" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </CheckBox>
+              <Border Padding="16,10,16,12">
+                <StackPanel Orientation="Horizontal">
+                  <RadioButton x:Name="DnsCloudflare" Style="{DynamicResource Segment}" GroupName="dns" Content="Cloudflare"/>
+                  <RadioButton x:Name="DnsGoogle" Style="{DynamicResource Segment}" GroupName="dns" Content="Google"/>
+                  <RadioButton x:Name="DnsQuad9" Style="{DynamicResource Segment}" GroupName="dns" Content="Quad9"/>
+                  <RadioButton x:Name="DnsAdguard" Style="{DynamicResource Segment}" GroupName="dns" Content="AdGuard" ToolTip="Ещё и блокирует рекламу и трекеры"/>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </Border>
+
           <TextBlock Text="ФИЛЬТРЫ" Style="{DynamicResource SectionLabel}"/>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
@@ -448,6 +476,18 @@
                 <StackPanel>
                   <TextBlock x:Name="LauncherVersionText" Text="Zapret Launcher" Style="{DynamicResource RowTitle}"/>
                   <TextBlock x:Name="LauncherRepoText" Text="" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </Button>
+              <Button x:Name="BtnBackupSave" Style="{DynamicResource RowButton}">
+                <StackPanel>
+                  <TextBlock Text="Сохранить настройки в файл" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Настройки, домены, избранное и профили сетей — для переустановки Windows или другого компьютера" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </Button>
+              <Button x:Name="BtnBackupRestore" Style="{DynamicResource RowButton}">
+                <StackPanel>
+                  <TextBlock Text="Восстановить настройки из файла" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock x:Name="BackupSub" Text="Лаунчер перезапустится, обход продолжит работать" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
               <Button x:Name="BtnUninstall" Style="{DynamicResource RowButton}">

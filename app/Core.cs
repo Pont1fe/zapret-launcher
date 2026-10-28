@@ -94,6 +94,12 @@ namespace ZapretLauncher
         public double WindowHeight { get; set; }
         public bool WindowMaximized { get; set; }
         public bool Compact { get; set; }      // компактный вид: только правая панель
+        public string SecureDns { get; set; }  // "" — выключен; cloudflare / google / quad9 / adguard
+        public List<string> DnsAdapters { get; set; }   // адаптеры, на которых лаунчер поменял DNS (чтобы вернуть как было)
+        public string IpsetUpdated { get; set; }        // когда список IPSet обновлялся автоматически (yyyy-MM-dd)
+
+        // launcher.json не было — первая установка (или после удаления); не сохраняется в файл
+        [ScriptIgnore] public static bool Fresh { get; private set; }
         public List<string> Favorites { get; set; }
         public List<string> CollapsedGroups { get; set; }            // свёрнутые группы в списке стратегий
         public Dictionary<string, string> PickScores { get; set; }   // стратегия -> "открылось/всего/среднее мс" из последнего подбора
@@ -113,6 +119,7 @@ namespace ZapretLauncher
             CollapsedGroups = new List<string>();
             PickScores = new Dictionary<string, string>();
             PickDetails = new Dictionary<string, string>();
+            SecureDns = ""; DnsAdapters = new List<string>(); IpsetUpdated = "";
         }
 
         public static Config Load()
@@ -131,10 +138,14 @@ namespace ZapretLauncher
             if (c == null) c = new Config();
             // приветствие показываем только новым установкам, не тем, кто уже пользуется лаунчером
             if (raw != null && !raw.Contains("\"OnboardingDone\"")) c.OnboardingDone = true;
+            Fresh = raw == null;
             if (c.Favorites == null) c.Favorites = new List<string>();
             if (c.PickScores == null) c.PickScores = new Dictionary<string, string>();
             if (c.PickDetails == null) c.PickDetails = new Dictionary<string, string>();
             if (c.CollapsedGroups == null) c.CollapsedGroups = new List<string>();
+            if (c.DnsAdapters == null) c.DnsAdapters = new List<string>();
+            if (c.SecureDns == null) c.SecureDns = "";
+            if (c.IpsetUpdated == null) c.IpsetUpdated = "";
             if (string.IsNullOrEmpty(c.Accent)) c.Accent = "teal";
             if (c.Scale != 90 && c.Scale != 115 && c.Scale != 130) c.Scale = 100;
             if (c.PickDate == null) c.PickDate = "";

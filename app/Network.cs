@@ -83,6 +83,30 @@ namespace ZapretLauncher
             return r;
         }
 
+        // Проверка любого сайта по домену: находится ли адрес (DNS), открывается ли по HTTPS и за сколько, TCP-пинг.
+        // dnsOk=false — домен не нашёлся; тогда остальное не проверяем
+        public static async Task<SiteResult> Check(string domain, Action<bool> dnsResult)
+        {
+            bool dnsOk;
+            try
+            {
+                Task<IPAddress[]> t = Dns.GetHostAddressesAsync(domain);
+                dnsOk = await Task.WhenAny(t, Task.Delay(5000)) == t && !t.IsFaulted && t.Result.Length > 0;
+            }
+            catch { dnsOk = false; }
+            dnsResult(dnsOk);
+            SiteResult r = new SiteResult { Name = domain };
+            if (!dnsOk) return r;
+            HttpClientHandler handler = new HttpClientHandler { AllowAutoRedirect = false };
+            using (HttpClient client = new HttpClient(handler))
+            {
+                client.Timeout = TimeSpan.FromSeconds(8);
+                client.DefaultRequestHeaders.ConnectionClose = true;
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+                return await One(client, domain, "https://" + domain + "/");
+            }
+        }
+
         // Время установки TCP-соединения; DPI его обычно не трогает, поэтому это честный «пинг» до сервера
         static async Task<int> TcpPing(Uri uri)
         {
