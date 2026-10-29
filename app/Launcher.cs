@@ -45,7 +45,7 @@ namespace ZapretLauncher
         readonly Config cfg;
         Window window, flyout;
         Forms.NotifyIcon tray;
-        Forms.ToolStripMenuItem miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miExit;
+        Forms.ToolStripMenuItem miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miVpn, miExit;
         Dictionary<string, System.Drawing.Icon> trayIcons;
         Dictionary<string, ImageSource> windowIcons;   // значок окна и панели задач — того же цвета, что в трее
         Dictionary<string, ImageSource> imageIcons;    // тот же значок картинкой — в заголовке и мини-окне
@@ -134,7 +134,11 @@ namespace ZapretLauncher
             };
             window.IsVisibleChanged += delegate
             {
-                if (window.IsVisible) { BuildSitePanel(); UpdateUi(); RenderHistory(); }
+                if (window.IsVisible)
+                {
+                    BuildSitePanel(); UpdateUi(); RenderHistory();
+                    if (whatsNewPending) window.Dispatcher.BeginInvoke(new Action(ShowWhatsNew), DispatcherPriority.ApplicationIdle);
+                }
                 else { trimDue = DateTime.Now.AddSeconds(20); SaveWindowSize(); AutoBackup(); }
             };
             SystemEvents.UserPreferenceChanged += (s, e) =>
@@ -188,6 +192,11 @@ namespace ZapretLauncher
             if (Config.Fresh && !autostart && OfferAutoRestore()) return;
             backupReady = true;   // до этого момента автокопию не трогаем: свежие настройки затёрли бы старые
             AutoBackup();
+            // «Что нового» — после обновления лаунчера; новой установке не показываем
+            if (cfg.LastSeenVersion != Consts.Version) Icons.RefreshShellIcons();   // новая версия могла принести новый значок
+            // у обновившихся с 3.x поля LastSeenVersion ещё нет (пустое) — им тоже показываем
+            if (Config.Fresh) { cfg.LastSeenVersion = Consts.Version; cfg.Save(); }
+            else if (cfg.LastSeenVersion != Consts.Version) { if (window.IsVisible) ShowWhatsNew(); else whatsNewPending = true; }
             if (!cfg.OnboardingDone && !autostart) ShowOnboarding();
 
             try { TaskbarMenu.EnsureHelper(); UpdateTaskbarMenu(); } catch (Exception e) { Log.Write("Меню в панели задач: " + e.Message); }
@@ -198,6 +207,16 @@ namespace ZapretLauncher
             if ((autostart || cfg.StartOnOpen) && Zapret.LocalVersion != null && !Zapret.Running) await StartBypassUi();
             else if (cfg.Telegram && Zapret.Running && !Telegram.ProxyRunning) await RunBusy(() => Telegram.StartProxy(cfg), "Telegram…");
             if (Zapret.Running) siteCheckDue = DateTime.Now.AddSeconds(3);
+
+            // VPN был включён до перезапуска лаунчера или Windows — включаем снова
+            vpnRunning = Vpn.Running;
+            if (vpnRunning) { Vpn.ReadApiEndpoint(); vpnConnectedAt = Vpn.StartedAt(); }   // лаунчер перезапустился, а VPN работал
+            if (cfg.VpnOn && !vpnRunning && CurrentServer != null)
+            {
+                try { await StartVpn(true); Log.Write("VPN подключён: " + CurrentServer.Name); }
+                catch (Exception e) { Log.Write("VPN не подключился: " + e.Message); }
+            }
+            RefreshVpnUi();
 
             updateTimer = Timer(TimeSpan.FromHours(6), async delegate
             {
@@ -211,6 +230,765 @@ namespace ZapretLauncher
             for (int i = 0; i < 10 && File.Exists(Paths.Exe + ".old"); i++) { await Task.Delay(1000); SelfUpdate.CleanupOld(); }
             UpdateTitle();
             UpdateUi();
+        }
+
+        // ---------- Встроенный VPN ----------
+        bool vpnRunning;                 // обновляется в тике: опрос процессов ядра недешёвый
+        int vpnFails;
+        DateTime vpnLastStart = DateTime.MinValue;
+
+        VpnServer CurrentServer { get { return cfg.VpnServers.Count == 0 ? null : cfg.VpnServers[Math.Min(cfg.VpnSelected, cfg.VpnServers.Count - 1)]; } }
+        bool VpnSitesKind { get { return E<RadioButton>("VpnKindSites").IsChecked == true; } }
+
+        // ---------- Пинг, автовыбор сервера, трафик ----------
+        readonly Dictionary<string, int> vpnPing = new Dictionary<string, int>();   // ссылка → мс (-1 нет ответа, -2 UDP)
+        bool vpnPinging;
+        int vpnDeadChecks;
+        DateTime vpnHealthDue = DateTime.MinValue;
+        long[] vpnTrafficLast;
+        DateTime vpnTrafficAt;
+        string vpnSpeedText = "";
+
+        async Task PingVpnServers()
+        {
+            if (vpnPinging || cfg.VpnServers.Count == 0) return;
+            vpnPinging = true;
+            Text("VpnInfo").Text = T("Проверяю серверы: открываю сайт через каждый…");
+            try
+            {
+                List<VpnServer> list = cfg.VpnServers.ToList();
+                int[] ms = await Vpn.Delays(list);   // настоящий запрос через каждый сервер, а не просто соединение
+                for (int i = 0; i < list.Count; i++) vpnPing[list[i].Link] = ms[i];
+                int ok = ms.Count(m => m >= 0);
+                Text("VpnInfo").Text = T("Работают серверов") + ": " + ok + " " + T("из") + " " + list.Count + ". " + T("Время — сколько открывается сайт через сервер");
+            }
+            finally { vpnPinging = false; }
+            RefreshVpnUi();
+        }
+
+        // Индекс самого быстрого отвечающего сервера (UDP-серверы — в конце очереди); -1 — никто не ответил
+        int BestServer(int exclude = -1)
+        {
+            int best = -1, bestMs = int.MaxValue;
+            for (int i = 0; i < cfg.VpnServers.Count; i++)
+            {
+                if (i == exclude) continue;
+                int ms;
+                if (!vpnPing.TryGetValue(cfg.VpnServers[i].Link, out ms) || ms == -1) continue;
+                int rank = ms == Vpn.PingUdp ? 100000 : ms;
+                if (rank < bestMs) { best = i; bestMs = rank; }
+            }
+            return best;
+        }
+
+        async Task SelectBestServer()
+        {
+            await PingVpnServers();
+            int best = BestServer();
+            if (best < 0) { Text("VpnInfo").Text = T("Ни один сервер не ответил — проверьте интернет или подписку"); return; }
+            if (best == cfg.VpnSelected) return;
+            cfg.VpnSelected = best;
+            Log.Write("VPN: выбран самый быстрый сервер — " + CurrentServer.Name);
+            await ApplyVpnChanges();
+        }
+
+        // Автовыбор: текущий сервер дважды подряд не ответил — переходим на самый быстрый из отвечающих
+        async Task VpnHealth()
+        {
+            if (!cfg.VpnAutoBest || !vpnRunning || busy || CurrentServer == null || DateTime.Now < vpnHealthDue) return;
+            vpnHealthDue = DateTime.Now.AddMinutes(1);
+            int ms = await Vpn.CurrentDelay();   // сайт через VPN открывается?
+            if (ms != -1) { vpnDeadChecks = 0; return; }
+            if (++vpnDeadChecks < 2 || cfg.VpnServers.Count < 2) return;
+            vpnDeadChecks = 0;
+            await PingVpnServers();
+            int best = BestServer(cfg.VpnSelected);
+            if (best < 0) return;
+            string from = CurrentServer.Name;
+            cfg.VpnSelected = best;
+            Notify("VPN: сервер «" + from + "» не отвечает — переключаюсь на «" + CurrentServer.Name + "»");
+            await ApplyVpnChanges();
+        }
+
+        // Скорость и объём трафика через VPN — раз в пару секунд, пока это видно
+        async Task UpdateVpnTraffic()
+        {
+            long[] t = vpnRunning ? await Vpn.Traffic() : null;
+            if (t == null) { vpnTrafficLast = null; vpnSpeedText = ""; }
+            else
+            {
+                DateTime now = DateTime.Now;
+                if (vpnTrafficLast != null)
+                {
+                    double sec = Math.Max(0.5, (now - vpnTrafficAt).TotalSeconds);
+                    double down = Math.Max(0, t[0] - vpnTrafficLast[0]) * 8 / sec / 1e6, up = Math.Max(0, t[1] - vpnTrafficLast[1]) * 8 / sec / 1e6;
+                    vpnSpeedText = "↓ " + Mbps(down) + "  ↑ " + Mbps(up) + "  ·  " + T("за сессию") + " " + Bytes(t[0] + t[1]);
+                    vpnSpeeds.Add(down);
+                    if (vpnSpeeds.Count > 60) vpnSpeeds.RemoveAt(0);
+                }
+                vpnTrafficLast = t;
+                vpnTrafficAt = now;
+            }
+            TextBlock traffic = Text("VpnTraffic");
+            traffic.Text = vpnSpeedText;
+            traffic.Visibility = vpnSpeedText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            UpdateVpnTimer();
+            DrawVpnGraph();
+            UpdatePowerVpn();
+        }
+
+        // Время подключения: «Подключено 1:23:45»
+        DateTime? vpnConnectedAt;
+        readonly List<double> vpnSpeeds = new List<double>();   // скорость загрузки за последние ~2 минуты, Мбит/с
+
+        void UpdateVpnTimer()
+        {
+            TextBlock timer = Text("VpnTimer");
+            if (!vpnRunning || !vpnConnectedAt.HasValue) { timer.Visibility = Visibility.Collapsed; return; }
+            TimeSpan d = DateTime.Now - vpnConnectedAt.Value;
+            timer.Text = T("Подключено") + " " + (int)d.TotalHours + ":" + d.ToString(@"mm\:ss");
+            timer.Visibility = Visibility.Visible;
+        }
+
+        // График скорости загрузки через VPN: линия с заливкой под ней
+        void DrawVpnGraph()
+        {
+            Canvas c = E<Canvas>("VpnGraph");
+            c.Visibility = vpnRunning && vpnSpeeds.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+            c.Children.Clear();
+            double w = c.ActualWidth, h = c.Height;
+            if (c.Visibility != Visibility.Visible || w <= 0) return;
+            double max = Math.Max(1, vpnSpeeds.Max());
+            PointCollection pts = new PointCollection();
+            for (int i = 0; i < vpnSpeeds.Count; i++)
+                pts.Add(new Point(w * i / Math.Max(1, vpnSpeeds.Count - 1), h - 2 - vpnSpeeds[i] / max * (h - 16)));   // сверху место под подпись пика
+            PointCollection area = new PointCollection(pts) { new Point(w, h), new Point(0, h) };
+            Polygon fill = new Polygon { Points = area, Opacity = 0.18 };
+            fill.SetResourceReference(Shape.FillProperty, "Accent");
+            Polyline line = new Polyline { Points = pts, StrokeThickness = 1.6, StrokeLineJoin = PenLineJoin.Round };
+            line.SetResourceReference(Shape.StrokeProperty, "Accent");
+            c.Children.Add(fill);
+            c.Children.Add(line);
+            TextBlock peak = new TextBlock { Text = Mbps(max), FontSize = 10 };
+            peak.SetResourceReference(TextBlock.ForegroundProperty, "Faint");
+            Canvas.SetRight(peak, 0);
+            Canvas.SetTop(peak, -1);
+            c.Children.Add(peak);
+        }
+
+        static string Mbps(double v) { return (v < 10 ? v.ToString("0.0") : v.ToString("0")) + " " + T("Мбит/с"); }
+        static string Bytes(long b)
+        {
+            return b >= 1L << 30 ? (b / 1073741824.0).ToString("0.0") + " " + T("ГБ") : b >= 1L << 20 ? (b / 1048576.0).ToString("0") + " " + T("МБ") : Math.Max(1, b / 1024) + " " + T("КБ");
+        }
+
+        // Строка VPN на карточке-переключателе
+        void UpdatePowerVpn()
+        {
+            bool show = cfg.VpnOn || vpnRunning;
+            E<FrameworkElement>("PowerVpn").Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (!show) return;
+            VpnServer s = CurrentServer;
+            // на карточке места мало — только скорость загрузки
+            string speed = vpnSpeedText.Length > 0 ? " · " + vpnSpeedText.Split(new[] { "  ↑" }, StringSplitOptions.None)[0] : "";
+            Text("PowerVpnText").Text = "VPN · " + (s == null ? "" : Vpn.DisplayName(s.Name)) + (vpnRunning ? speed : " · " + T("подключается…"));
+            E<Ellipse>("PowerVpnDot").SetResourceReference(Shape.FillProperty, vpnRunning ? "Ok" : "Wait");
+        }
+
+        // ---------- Ключ из буфера обмена ----------
+        string clipLink;
+
+        void CheckClipboard()
+        {
+            string link = null;
+            try
+            {
+                if (Clipboard.ContainsText())
+                {
+                    string text = Clipboard.GetText().Trim();
+                    string first = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                    if (Vpn.IsLink(first) && !cfg.VpnServers.Any(s => s.Link == first)) link = text;
+                }
+            }
+            catch { }   // буфер обмена занят другой программой
+            clipLink = link;
+            E<FrameworkElement>("VpnClipBar").Visibility = link != null ? Visibility.Visible : Visibility.Collapsed;
+            if (link != null)
+            {
+                string first = link.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)[0];
+                int count = link.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Count(l => Vpn.IsLink(l.Trim()));
+                Text("VpnClipText").Text = T("В буфере обмена") + " " + (count > 1 ? count + " " + T("ключа VPN") : T("ключ VPN") + " «" + first.Substring(0, first.IndexOf("://")) + "»") + ". " + T("Добавить?");
+            }
+        }
+
+        // ---------- Ключ по QR-коду ----------
+        async Task AddFromQr(List<string> texts)
+        {
+            List<string> keys = texts.Where(t => Vpn.IsLink(t.Trim()) || t.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || t.StartsWith("https://", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (keys.Count == 0)
+            {
+                Text("VpnInfo").Text = T(texts.Count == 0 ? "QR-код не найден. Сделайте его крупнее на экране или откройте картинку получше" : "В QR-коде нет ключа VPN");
+                return;
+            }
+            E<TextBox>("VpnInput").Text = string.Join("\n", keys);
+            await AddVpnServers();
+        }
+
+        async Task QrFromFile()
+        {
+            Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = T("Картинка с QR-кодом ключа"), Filter = T("Картинки") + " (*.png;*.jpg;*.jpeg;*.bmp;*.gif)|*.png;*.jpg;*.jpeg;*.bmp;*.gif",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)
+            };
+            if (dlg.ShowDialog(window) != true) return;
+            List<string> texts;
+            try { texts = await Task.Run(() => Qr.FromFile(dlg.FileName)); }
+            catch (Exception e) { Text("VpnInfo").Text = T("Не удалось открыть картинку: ") + e.Message; return; }
+            await AddFromQr(texts);
+        }
+
+        // Окно лаунчера на мгновение прячется, чтобы не закрывать QR-код в другом окне
+        async Task QrFromScreen()
+        {
+            window.Hide();
+            List<string> texts;
+            try
+            {
+                await Task.Delay(400);
+                texts = await Task.Run(() => Qr.FromScreen());
+            }
+            finally { ShowWindow(); }
+            await AddFromQr(texts);
+        }
+
+        async Task AddFromClipboard()
+        {
+            if (clipLink == null) return;
+            E<TextBox>("VpnInput").Text = clipLink;
+            clipLink = null;
+            E<FrameworkElement>("VpnClipBar").Visibility = Visibility.Collapsed;
+            await AddVpnServers();
+        }
+
+        async Task StartVpn(bool quiet)
+        {
+            // автовыбор: перед подключением — самый быстрый сервер
+            if (cfg.VpnAutoBest && cfg.VpnServers.Count > 1 && !quiet)
+            {
+                await PingVpnServers();
+                int best = BestServer();
+                if (best >= 0) cfg.VpnSelected = best;
+            }
+            VpnServer server = CurrentServer;
+            if (server == null) throw new Exception("Сначала добавьте сервер: вставьте ключ или адрес подписки на странице VPN");
+            string other = Conflicts.ActiveVpn();
+            if (other != null) throw new Exception(T("Сейчас включён другой VPN") + " (" + other + "). " + T("Выключите его — два VPN одновременно мешают друг другу."));
+            vpnLastStart = DateTime.Now;
+            await Vpn.Start(server, cfg.VpnMode, cfg.VpnDomains, cfg.VpnApps);
+            vpnRunning = true;
+            vpnFails = 0;
+            vpnConnectedAt = DateTime.Now;
+            vpnSpeeds.Clear();
+            cfg.VpnHelpDone = true;   // подключились — подсказка «Как начать» больше не нужна
+            cfg.VpnOn = true;
+            cfg.Save();
+            if (!quiet) Log.Write("VPN подключён: " + server.Name + " (" + T(cfg.VpnMode == "all" ? "весь трафик" : "только выбранное") + ")");
+        }
+
+        async Task StopVpn()
+        {
+            cfg.VpnOn = false;
+            cfg.Save();
+            await Vpn.Stop();
+            vpnRunning = false;
+            Log.Write("VPN отключён");
+        }
+
+        async Task ToggleVpn()
+        {
+            bool wasOn = vpnRunning || Vpn.Running;
+            VpnBusy(true);
+            try
+            {
+                if (wasOn) await RunBusy(StopVpn, "VPN…");
+                else await RunBusy(() => StartVpn(false), "VPN…");
+            }
+            finally { VpnBusy(false); }
+            if (!wasOn && vpnRunning) VpnFlash();
+            RefreshVpnUi();
+        }
+
+        // Пока VPN подключается — по краю карточки бежит полоска
+        void VpnBusy(bool on)
+        {
+            Shape line = E<Shape>("VpnBusyLine");
+            if (on) line.BeginAnimation(Shape.StrokeDashOffsetProperty, new DoubleAnimation(0, -120, new Duration(TimeSpan.FromSeconds(1.2))) { RepeatBehavior = RepeatBehavior.Forever });
+            DoubleAnimation fade = new DoubleAnimation(on ? 1 : 0, new Duration(TimeSpan.FromMilliseconds(200)));
+            if (!on) fade.Completed += delegate { line.BeginAnimation(Shape.StrokeDashOffsetProperty, null); };
+            line.BeginAnimation(UIElement.OpacityProperty, fade);
+        }
+
+        // Подключился — карточка коротко вспыхивает цветом акцента
+        void VpnFlash()
+        {
+            E<UIElement>("VpnFlash").BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(0.35, 0, new Duration(TimeSpan.FromMilliseconds(700))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        }
+
+        // Изменились серверы, режим или списки — работающий VPN перезапускаем с новыми настройками
+        async Task ApplyVpnChanges()
+        {
+            cfg.Save();
+            RefreshVpnUi();
+            if (vpnRunning) { await RunBusy(() => StartVpn(true), "VPN…"); RefreshVpnUi(); }
+        }
+
+        // Ядро VPN упало, а VPN должен работать — перезапускаем (не чаще раза в 30 секунд, после двух неудач — сдаёмся)
+        async Task VpnGuard()
+        {
+            vpnRunning = Vpn.Running;
+            if (!cfg.VpnOn || vpnRunning || busy || CurrentServer == null || (DateTime.Now - vpnLastStart).TotalSeconds < 30) return;
+            Log.Write("VPN: ядро не работает — перезапускаю (" + Vpn.LastLogLine() + ")");
+            try { await StartVpn(true); }
+            catch (Exception e)
+            {
+                if (++vpnFails >= 2)
+                {
+                    cfg.VpnOn = false;
+                    cfg.Save();
+                    Notify("VPN не удалось перезапустить: " + e.Message);
+                }
+            }
+            RefreshVpnUi();
+        }
+
+        async Task AddVpnServers()
+        {
+            string text = E<TextBox>("VpnInput").Text.Trim();
+            if (text.Length == 0) return;
+            TextBlock info = Text("VpnInfo");
+            bool subscription = text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            info.Text = T(subscription ? "Загружаю подписку…" : "Проверяю ключ…");
+            List<VpnServer> found;
+            try { found = await Vpn.Parse(text); }
+            catch (Exception e) { info.Text = T(e.Message); return; }
+            if (subscription)
+            {
+                cfg.VpnSubscription = text;
+                cfg.VpnSubInfo = Vpn.LastUserInfo ?? "";
+                cfg.VpnSubUpdated = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                cfg.VpnServers = found;   // подписка заменяет список целиком
+                cfg.VpnSelected = 0;
+            }
+            else foreach (VpnServer s in found) if (!cfg.VpnServers.Any(x => x.Link == s.Link)) cfg.VpnServers.Add(s);
+            info.Text = T("Добавлено серверов") + ": " + found.Count + ". " + T("Ключи хранятся только на этом компьютере, в настройках лаунчера");
+            E<TextBox>("VpnInput").Text = "";
+            Log.Write("VPN: добавлено серверов — " + found.Count + (subscription ? " (из подписки)" : ""));
+            await ApplyVpnChanges();
+        }
+
+        async Task RefreshSubscription()
+        {
+            if (cfg.VpnSubscription.Length == 0) return;
+            try
+            {
+                List<VpnServer> found = await Vpn.Parse(cfg.VpnSubscription);
+                string current = CurrentServer == null ? null : CurrentServer.Link;
+                cfg.VpnServers = found;
+                cfg.VpnSubInfo = Vpn.LastUserInfo ?? "";
+                cfg.VpnSubUpdated = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                int keep = found.FindIndex(s => s.Link == current);
+                cfg.VpnSelected = keep >= 0 ? keep : 0;
+                Text("VpnInfo").Text = T("Подписка обновлена, серверов") + ": " + found.Count;
+                await ApplyVpnChanges();
+            }
+            catch (Exception e) { Text("VpnInfo").Text = T(e.Message); }
+        }
+
+        async Task AddVpnListItem()
+        {
+            string raw = E<TextBox>("VpnListInput").Text;
+            List<string> list = VpnSitesKind ? cfg.VpnDomains : cfg.VpnApps;
+            List<string> added = new List<string>(), bad = new List<string>();
+            foreach (string part in raw.Split(new[] { ' ', ',', ';', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string item = VpnSitesKind ? Zapret.NormalizeDomain(part) : NormalizeApp(part);
+                if (item == null) bad.Add(part);
+                else if (!list.Contains(item) && !added.Contains(item)) added.Add(item);
+            }
+            Text("VpnListInfo").Text = bad.Count > 0 ? T(VpnSitesKind ? "Не похоже на домен" : "Нужно имя программы, например Spotify.exe") + ": " + string.Join(", ", bad) : " ";
+            if (added.Count == 0) return;
+            list.AddRange(added);
+            E<TextBox>("VpnListInput").Text = "";
+            await ApplyVpnChanges();
+        }
+
+        // "C:\...\Spotify.exe" или "spotify" → Spotify.exe / spotify.exe
+        static string NormalizeApp(string s)
+        {
+            s = s.Trim().Trim('"');
+            if (s.Length == 0) return null;
+            s = System.IO.Path.GetFileName(s);
+            if (!s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) s += ".exe";
+            return s.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 ? null : s;
+        }
+
+        // Флаг страны картинкой; если страну не понять — значок глобуса
+        static FrameworkElement FlagElement(string code, double w, double h)
+        {
+            ImageSource img = Vpn.Flag(code);
+            if (img == null)
+            {
+                TextBlock globe = new TextBlock { Text = "", FontSize = h - 1, Width = w, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                globe.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
+                globe.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                return globe;
+            }
+            Border b = new Border { Width = w, Height = h, CornerRadius = new CornerRadius(3), VerticalAlignment = VerticalAlignment.Center, ClipToBounds = true,
+                                    Background = new ImageBrush(img) { Stretch = Stretch.UniformToFill }, BorderThickness = new Thickness(0.5) };
+            b.SetResourceReference(Border.BorderBrushProperty, "Line");
+            b.ToolTip = T(Vpn.CountryName(code) ?? code);
+            return b;
+        }
+
+        void ShowSettingsGroup(string group)
+        {
+            foreach (UIElement child in E<StackPanel>("SettingsRoot").Children)
+            {
+                FrameworkElement fe = child as FrameworkElement;
+                if (fe != null && fe.Tag is string) fe.Visibility = (string)fe.Tag == group ? Visibility.Visible : Visibility.Collapsed;
+            }
+            E<ScrollViewer>("PageSettings").ScrollToTop();
+        }
+
+        string vpnTab;   // открытая вкладка страны в списке серверов ("" — серверы без страны)
+
+        // Вкладка страны: флаг, название, число серверов; открытая подсвечена, у страны текущего сервера — точка
+        Border CountryTab(string code, int count, bool open, bool hasCurrent)
+        {
+            StackPanel content = new StackPanel { Orientation = Orientation.Horizontal };
+            FrameworkElement flag = FlagElement(code == "" ? null : code, 20, 14);
+            flag.Margin = new Thickness(0, 0, 7, 0);
+            content.Children.Add(flag);
+            TextBlock name = new TextBlock { Text = T(Vpn.CountryName(code == "" ? null : code) ?? "Другие"), FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            if (open) name.FontWeight = FontWeights.SemiBold;
+            content.Children.Add(name);
+            TextBlock n = new TextBlock { Text = " " + count, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 0, 0, 0) };
+            n.SetResourceReference(TextBlock.ForegroundProperty, "Faint");
+            content.Children.Add(n);
+            if (hasCurrent)
+            {
+                Ellipse dot = new Ellipse { Width = 6, Height = 6, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0), ToolTip = T("Здесь выбранный сервер") };
+                dot.SetResourceReference(Shape.FillProperty, "Accent");
+                content.Children.Add(dot);
+            }
+            Border tab = new Border { Child = content, CornerRadius = new CornerRadius(9), Padding = new Thickness(9, 5, 10, 5), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, BorderThickness = new Thickness(1) };
+            tab.SetResourceReference(Border.BackgroundProperty, open ? "AccentSoft" : "Card");
+            tab.SetResourceReference(Border.BorderBrushProperty, open ? "Accent" : "Line");
+            tab.MouseLeftButtonUp += delegate { if (vpnTab == code) return; vpnTab = code; RefreshVpnUi(); };
+            return tab;
+        }
+
+        Border ServerRow(VpnServer s, int index, string code)
+        {
+            bool selected = index == cfg.VpnSelected;
+            Grid row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            FrameworkElement flag = FlagElement(code, 24, 16);
+            flag.Margin = new Thickness(0, 0, 11, 0);
+            row.Children.Add(flag);
+            TextBlock name = new TextBlock { Text = Vpn.DisplayName(s.Name), FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+                                             ToolTip = s.Link.Substring(0, s.Link.IndexOf("://") + 3) + "…", Margin = new Thickness(0, 0, 70, 0) };
+            if (selected) name.FontWeight = FontWeights.SemiBold;
+            Grid.SetColumn(name, 1);
+            row.Children.Add(name);
+            // качество сервера «полосками сигнала», как у Wi-Fi: 3 — быстро, 1 — медленно, пустые и красный текст — не работает
+            int ms;
+            if (vpnPing.TryGetValue(s.Link, out ms))
+            {
+                StackPanel signal = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 4, 0),
+                                                     ToolTip = ms < 0 ? T("Сайт через этот сервер не открылся") : T("Сайт через сервер открылся за") + " " + ms + " " + T("мс") };
+                int level = ms < 0 ? 0 : ms < 400 ? 3 : ms < 900 ? 2 : 1;
+                string color = level == 3 ? "Ok" : level == 2 ? "Ok" : level == 1 ? "Wait" : "Fail";
+                TextBlock label = new TextBlock { Text = ms < 0 ? T("не работает") : ms + " " + T("мс"), FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
+                label.SetResourceReference(TextBlock.ForegroundProperty, ms < 0 ? "Fail" : "Muted");
+                signal.Children.Add(label);
+                for (int b = 0; b < 3; b++)
+                {
+                    Rectangle bar = new Rectangle { Width = 3.5, Height = 5 + b * 3.5, RadiusX = 1.2, RadiusY = 1.2, Margin = new Thickness(0, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom };
+                    bar.SetResourceReference(Shape.FillProperty, b < level ? color : "IconBg");
+                    signal.Children.Add(bar);
+                }
+                Grid.SetColumn(signal, 1);
+                row.Children.Add(signal);
+            }
+            Button del = new Button { Content = "", Width = 28, Height = 28, FontSize = 11, ToolTip = T("Удалить") };
+            del.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
+            del.Click += async (o, e) =>
+            {
+                e.Handled = true;
+                cfg.VpnServers.RemoveAt(index);
+                if (cfg.VpnSelected >= cfg.VpnServers.Count) cfg.VpnSelected = Math.Max(0, cfg.VpnServers.Count - 1);
+                if (cfg.VpnServers.Count == 0) { cfg.VpnSubscription = ""; cfg.VpnSubInfo = ""; if (vpnRunning) await RunBusy(StopVpn, "VPN…"); }
+                await ApplyVpnChanges();
+            };
+            Grid.SetColumn(del, 2);
+            row.Children.Add(del);
+            Border card = new Border { Child = row, CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6), Cursor = Cursors.Hand, BorderThickness = new Thickness(1.5) };
+            card.SetResourceReference(Border.BackgroundProperty, selected ? "AccentSoft" : "Card");
+            card.SetResourceReference(Border.BorderBrushProperty, selected ? "Accent" : "Card");
+            card.MouseLeftButtonUp += async delegate
+            {
+                if (cfg.VpnSelected == index) return;
+                cfg.VpnSelected = index;
+                await ApplyVpnChanges();
+            };
+            return card;
+        }
+
+        // Карточка подписки: сколько трафика использовано из скольких и до какого числа оплачено
+        void RenderSubscription()
+        {
+            Vpn.SubscriptionInfo info = cfg.VpnSubscription.Length > 0 ? Vpn.ParseUserInfo(cfg.VpnSubInfo) : null;
+            E<FrameworkElement>("VpnSubCard").Visibility = info != null ? Visibility.Visible : Visibility.Collapsed;
+            if (info == null) return;
+            Text("VpnSubText").Text = info.Total > 0
+                ? T("Использовано") + " " + Bytes(info.Used) + " " + T("из") + " " + Bytes(info.Total)
+                : T("Использовано") + " " + Bytes(info.Used) + " · " + T("без лимита");
+            TextBlock exp = Text("VpnSubExpire");
+            if (info.Expire.HasValue)
+            {
+                double days = (info.Expire.Value - DateTime.Now).TotalDays;
+                exp.Text = days < 0 ? T("подписка закончилась") : T("до") + " " + info.Expire.Value.ToString("dd.MM.yyyy") + (days < 7 ? " · " + T("осталось дней") + ": " + (int)Math.Ceiling(days) : "");
+                exp.SetResourceReference(TextBlock.ForegroundProperty, days < 0 ? "Fail" : days < 3 ? "Wait" : "Muted");
+            }
+            else exp.Text = T("бессрочно");
+            Border bar = E<Border>("VpnSubBar");
+            E<FrameworkElement>("VpnSubBarBg").Visibility = info.Total > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (info.Total > 0)
+            {
+                double ratio = Math.Min(1, (double)info.Used / info.Total);
+                subRatio = ratio;
+                bar.Width = Math.Max(0, E<FrameworkElement>("VpnSubBarBg").ActualWidth * ratio);
+                bar.SetResourceReference(Border.BackgroundProperty, ratio > 0.9 ? "Fail" : ratio > 0.75 ? "Wait" : "Accent");
+            }
+        }
+
+        double subRatio;   // доля использованного трафика подписки — для полоски
+
+        // ---------- Журнал соединений ----------
+        bool vpnConnShown;
+
+        async Task RefreshConnections()
+        {
+            StackPanel list = E<StackPanel>("VpnConnList");
+            if (!vpnConnShown) { list.Children.Clear(); return; }
+            if (!vpnRunning)
+            {
+                list.Children.Clear();
+                TextBlock off = new TextBlock { Text = T("VPN выключен — соединений нет"), FontSize = 12, Margin = new Thickness(2, 0, 0, 6) };
+                off.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                list.Children.Add(off);
+                return;
+            }
+            List<Vpn.Connection> conns = await Vpn.Connections();
+            list.Children.Clear();
+            // по сайтам: одна строка на сайт, сначала свежие
+            var bySite = conns.Where(c => !string.IsNullOrEmpty(c.Host)).GroupBy(c => c.Host)
+                .Select(g => new { Host = g.Key, ViaVpn = g.Any(c => c.ViaVpn), Process = g.Select(c => c.Process).FirstOrDefault(p => !string.IsNullOrEmpty(p)), Bytes = g.Sum(c => c.Bytes), Start = g.Max(c => c.Start), Count = g.Count() })
+                .OrderByDescending(x => x.Start).Take(40).ToList();
+            Text("VpnConnInfo").Text = T("Сейчас соединений") + ": " + conns.Count + " · " + T("через VPN") + ": " + conns.Count(c => c.ViaVpn) + " · " + T("напрямую") + ": " + conns.Count(c => !c.ViaVpn);
+            foreach (var c in bySite)
+            {
+                Grid row = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                Ellipse dot = new Ellipse { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 9, 0) };
+                dot.SetResourceReference(Shape.FillProperty, c.ViaVpn ? "Accent" : "Idle");
+                row.Children.Add(dot);
+                StackPanel text = new StackPanel { Orientation = Orientation.Horizontal };
+                text.Children.Add(new TextBlock { Text = c.Host + (c.Count > 1 ? " ×" + c.Count : ""), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
+                if (!string.IsNullOrEmpty(c.Process))
+                {
+                    TextBlock p = new TextBlock { Text = "  " + c.Process, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+                    p.SetResourceReference(TextBlock.ForegroundProperty, "Faint");
+                    text.Children.Add(p);
+                }
+                Grid.SetColumn(text, 1);
+                row.Children.Add(text);
+                TextBlock via = new TextBlock { Text = T(c.ViaVpn ? "VPN" : "напрямую") + " · " + Bytes(c.Bytes), FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+                via.SetResourceReference(TextBlock.ForegroundProperty, c.ViaVpn ? "AccentHover" : "Muted");
+                Grid.SetColumn(via, 2);
+                row.Children.Add(via);
+                list.Children.Add(row);
+            }
+        }
+
+        static string ModeName(string mode) { return mode == "all" ? "весь трафик" : mode == "ru" ? "Россия напрямую" : "только выбранное"; }
+
+        void RefreshVpnUi()
+        {
+            if (exiting) return;
+            bool on = vpnRunning;
+            VpnServer server = CurrentServer;
+            Text("VpnStatus").Text = T(on ? "VPN подключён" : cfg.VpnOn ? "VPN переподключается…" : "VPN выключен");
+            E<Ellipse>("VpnDot").SetResourceReference(Shape.FillProperty, on ? "Ok" : cfg.VpnOn ? "Wait" : "Idle");
+            Text("VpnSub").Text = server == null ? T("Добавьте сервер ниже") : Vpn.DisplayName(server.Name) + " · " + T(ModeName(cfg.VpnMode));
+            // карточка подключения: подсветка, переключатель, флаг страны текущего сервера
+            TimeSpan anim = TimeSpan.FromMilliseconds(260);
+            Fade(E<UIElement>("VpnCardOn"), on ? 1 : 0, anim);
+            Fade(E<UIElement>("VpnTrackOn"), on ? 1 : 0, anim);
+            Slide(E<Ellipse>("VpnKnob"), on ? 28 : 0, anim);
+            E<FrameworkElement>("VpnCard").Opacity = server != null ? 1 : 0.6;
+            E<FrameworkElement>("VpnCard").ToolTip = T(server == null ? "Сначала добавьте сервер" : on ? "Нажмите, чтобы отключить VPN" : "Нажмите, чтобы подключить VPN");
+            E<Border>("VpnFlagHost").Child = FlagElement(server == null ? null : Vpn.CountryCode(server.Name), 54, 36);
+            E<FrameworkElement>("VpnHelp").Visibility = !cfg.VpnHelpDone ? Visibility.Visible : Visibility.Collapsed;
+            UpdateVpnTimer();
+            filling = true;
+            E<ToggleButton>("ChipVpn").IsChecked = on;
+            E<RadioButton>(cfg.VpnMode == "all" ? "VpnModeAll" : cfg.VpnMode == "ru" ? "VpnModeRu" : "VpnModeSplit").IsChecked = true;
+            E<CheckBox>("SwVpnAuto").IsChecked = cfg.VpnAutoBest;
+            filling = false;
+            E<Button>("BtnVpnPing").IsEnabled = cfg.VpnServers.Count > 0 && !vpnPinging;
+            E<Button>("BtnVpnBest").IsEnabled = cfg.VpnServers.Count > 1 && !vpnPinging;
+            UpdatePowerVpn();
+            trayState = null;   // значок трея — с меткой VPN или без
+            Text("VpnModeText").Text = T(cfg.VpnMode == "all"
+                ? "Весь интернет идёт через сервер VPN. Обход zapret в это время не нужен."
+                : cfg.VpnMode == "ru"
+                ? "Российские сайты и адреса — напрямую, всё остальное — через VPN. Банки и Госуслуги работают как обычно. Ниже можно добавить сайты и программы, которым всегда нужен VPN."
+                : "Через VPN — только сайты и программы из списка ниже. Discord, YouTube и остальное идут напрямую и через обход, без потери скорости.");
+            E<FrameworkElement>("VpnSplitPanel").Visibility = cfg.VpnMode == "all" ? Visibility.Collapsed : Visibility.Visible;
+            E<Button>("BtnVpnRefresh").Visibility = cfg.VpnSubscription.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            Text("VpnListHint").Text = T(VpnSitesKind ? "Например: example.com" : "Например: Spotify.exe");
+            if (miVpn != null) { miVpn.Text = T(on ? "Выключить VPN" : "Включить VPN"); miVpn.Enabled = server != null; }
+            RenderSubscription();
+
+            // серверы по странам: сверху вкладки (флаг, страна, сколько серверов), ниже — серверы выбранной страны.
+            // При поиске вкладки не мешают: показываются совпадения по всем странам
+            E<FrameworkElement>("VpnSearchBox").Visibility = cfg.VpnServers.Count >= 6 ? Visibility.Visible : Visibility.Collapsed;
+            string query = cfg.VpnServers.Count >= 6 ? E<TextBox>("VpnSearch").Text.Trim() : "";
+            StackPanel servers = E<StackPanel>("VpnServerList");
+            servers.Children.Clear();
+            var all = cfg.VpnServers.Select((s, i) => new { s, i, code = Vpn.CountryCode(s.Name) }).ToList();
+            var groups = all.GroupBy(x => x.code ?? "").ToList();
+            WrapPanel tabs = E<WrapPanel>("VpnTabs");
+            tabs.Children.Clear();
+            bool useTabs = groups.Count > 1 && query.Length == 0;
+            tabs.Visibility = useTabs ? Visibility.Visible : Visibility.Collapsed;
+            if (useTabs)
+            {
+                // открытая вкладка: выбранная вручную, иначе страна текущего сервера
+                if (vpnTab == null || !groups.Any(g => g.Key == vpnTab))
+                    vpnTab = server != null ? (Vpn.CountryCode(server.Name) ?? "") : groups[0].Key;
+                foreach (var g in groups)
+                    tabs.Children.Add(CountryTab(g.Key, g.Count(), g.Key == vpnTab, g.Any(x => x.i == cfg.VpnSelected)));
+            }
+            var shown = all.Where(x => query.Length > 0
+                    ? x.s.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+                      || (Vpn.CountryName(x.code) ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+                      || T(Vpn.CountryName(x.code) ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+                    : !useTabs || (x.code ?? "") == vpnTab).ToList();
+            foreach (var x in shown) servers.Children.Add(ServerRow(x.s, x.i, x.code));
+            if (shown.Count == 0 && cfg.VpnServers.Count > 0)
+            {
+                TextBlock none = new TextBlock { Text = T("Ничего не найдено"), FontSize = 12, Margin = new Thickness(2, 2, 0, 6) };
+                none.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                servers.Children.Add(none);
+            }
+
+            // сайты или программы через VPN
+            StackPanel items = E<StackPanel>("VpnList");
+            items.Children.Clear();
+            List<string> list = VpnSitesKind ? cfg.VpnDomains : cfg.VpnApps;
+            if (list.Count == 0)
+            {
+                TextBlock empty = new TextBlock { Text = T(VpnSitesKind ? "Список пуст — добавьте сайты, которым нужен VPN" : "Список пуст — добавьте программы, которым нужен VPN"), FontSize = 12, Margin = new Thickness(2, 4, 0, 0) };
+                empty.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                items.Children.Add(empty);
+            }
+            foreach (string item in list)
+            {
+                string value = item;
+                Grid row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.Children.Add(new TextBlock { Text = value, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+                Button del = new Button { Content = "\uE711", Width = 28, Height = 28, FontSize = 11, ToolTip = T("Удалить") };
+                del.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
+                del.Click += async delegate { list.Remove(value); await ApplyVpnChanges(); };
+                Grid.SetColumn(del, 1);
+                row.Children.Add(del);
+                Border card = new Border { Child = row, CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6) };
+                card.SetResourceReference(Border.BackgroundProperty, "Card");
+                items.Children.Add(card);
+            }
+        }
+
+        // ---------- Что нового ----------
+        // Коротко о главном в каждой крупной версии; показывается один раз после обновления
+        static readonly Dictionary<string, string[]> WhatsNew = new Dictionary<string, string[]>
+        {
+            { "4.0.0", new[]
+                {
+                    "Встроенный VPN: вставьте ключ или подписку на странице VPN",
+                    "Через VPN — только выбранные сайты и программы, остальное идёт напрямую",
+                    "Пинг серверов, автовыбор самого быстрого и переход на другой, если сервер упал",
+                    "Скорость и трафик через VPN — на странице VPN и на главном экране",
+                    "Откат лаунчера на прошлую версию — в настройках",
+                    "Новый логотип",
+                } },
+        };
+
+        bool whatsNewPending;
+
+        void ShowWhatsNew()
+        {
+            whatsNewPending = false;
+            string[] items;
+            string key = WhatsNew.Keys.FirstOrDefault(v => v == Consts.Version) ?? WhatsNew.Keys.Where(v => !Util.TestNewer(v, Consts.Version)).OrderByDescending(v => new Version(v)).FirstOrDefault();
+            if (key != null && WhatsNew.TryGetValue(key, out items) && Util.TestNewer(key, cfg.LastSeenVersion))
+                Dialog.Show(window, T("Лаунчер обновлён до версии") + " " + Consts.Version + "\n\n" + string.Join("\n", items.Select(i => "•  " + T(i))),
+                    T("Что нового"), MessageBoxButton.OK, MessageBoxImage.Information);
+            cfg.LastSeenVersion = Consts.Version;
+            cfg.Save();
+        }
+
+        // ---------- Откат лаунчера ----------
+        // Прошлая версия — из локальной копии (сохраняется при самообновлении) или предыдущий релиз с GitHub
+        async Task RollbackLauncherUi()
+        {
+            Release remote = null;
+            string target = SelfUpdate.PreviousLocal();
+            if (target == null)
+            {
+                await RunBusy(async () => { remote = await SelfUpdate.PreviousRemote(cfg.LauncherRepo); }, "Проверка…");
+                if (remote == null) { Ask("Не нашёл версию лаунчера старше текущей ни локально, ни на GitHub."); return; }
+                target = remote.Version;
+            }
+            if (Ask(T("Вернуть лаунчер версии") + " " + target + " " + T("вместо") + " " + Consts.Version + "?\n\n" +
+                    T("Перед этим настройки сохранятся в резервную копию: старая версия может не знать новых настроек.") + "\n" +
+                    T("Автообновление выключится, иначе лаунчер сам обновится обратно. Включите его, когда захотите.") + "\n" +
+                    T("Обход продолжит работать, VPN выключится."),
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            bool done = false;
+            await RunBusy(async () =>
+            {
+                string backup = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(SettingsBackup.AutoFile), "before-rollback-" + Consts.Version + ".zlbackup");
+                cfg.AutoUpdate = false;
+                cfg.VpnOn = false;
+                cfg.Save();
+                SettingsBackup.Save(backup);
+                await Vpn.Stop();   // старые версии не умеют управлять встроенным VPN
+                await SelfUpdate.Rollback(remote);
+                Log.Write("Перед откатом настройки сохранены в " + backup);
+                done = true;
+            }, "Откат…");
+            if (done) Restart();   // откат прошёл — запускаем прошлую версию
         }
 
         // ---------- Резервная копия настроек ----------
@@ -464,6 +1242,18 @@ namespace ZapretLauncher
             if (changed || tick % (idle ? 30 : 10) == 2) { netChanged = false; await CheckNetworkAndApply(); }
             if (tick % (idle ? 60 : 15) == 3) await UpdateConflicts();
             if (tick % 60 == 4) CheckHosts();
+            if (tick % (idle ? 15 : 5) == 0)
+            {
+                bool was = vpnRunning;
+                await VpnGuard();
+                if (was != vpnRunning) RefreshVpnUi();
+                await VpnHealth();
+            }
+            if (vpnRunning && !idle && tick % 2 == 0) await UpdateVpnTraffic();
+            if (vpnConnShown && !idle && tick % 2 == 1 && E<FrameworkElement>("PageVpn").Visibility == Visibility.Visible) await RefreshConnections();
+            // подписка обновляется сама раз в сутки — новые серверы, остаток трафика и срок
+            DateTime subAt;
+            if (tick % 600 == 9 && cfg.VpnSubscription.Length > 0 && (!DateTime.TryParse(cfg.VpnSubUpdated, out subAt) || (DateTime.Now - subAt).TotalHours >= 24)) await RefreshSubscription();
             await CrashGuard();
             if (DateTime.Now >= healthDue)
             {
@@ -794,6 +1584,7 @@ namespace ZapretLauncher
                     // карточки сайтов показывают результат только что проверенной стратегии
                     siteResults = res;
                     BuildSitePanel();
+                    Text("PowerHint").Visibility = Visibility.Visible;   // во время подбора — лучшая стратегия на данный момент
                     Text("PowerHint").Text = best.Ok > 0
                         ? T("Лучшая пока") + ": " + T(Zapret.Title(best.File)) + " · " + best.Ok + "/" + best.Total
                         : T("Пока ни одна стратегия не открыла сайты");
@@ -1169,7 +1960,8 @@ namespace ZapretLauncher
                 conflictText = text;
                 foreach (Conflict c in conflicts) Log.Write("Внимание: " + c.Text);
             }
-            Text("ConflictText").Text = text;
+            Text("ConflictText").Text = text.Replace("\n", " · ");
+            E<Border>("ConflictBar").ToolTip = text.Length > 0 ? text : null;   // полный текст — при наведении
             E<Border>("ConflictBar").Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -1210,6 +2002,43 @@ namespace ZapretLauncher
             else if (!quiet) Log.Write("zapret: установлена последняя версия (" + local + ")");
 
             if (allowAuto && cfg.AutoUpdate) await AutoUpdateIpset();
+
+            // ядро VPN — только если оно уже установлено (то есть VPN хоть раз включали)
+            string sbLocal = Vpn.Version;
+            if (sbLocal != null)
+            {
+                try
+                {
+                    Release sb = await Vpn.Latest();
+                    if (Util.TestNewer(sb.Version, sbLocal) && allowAuto && cfg.AutoUpdate)
+                    {
+                        bool wasOn = vpnRunning;
+                        if (wasOn) await Vpn.Stop();
+                        await Vpn.Install(sb);
+                        if (wasOn) await StartVpn(true);
+                        Log.Write("Ядро VPN обновлено до версии " + sb.Version);
+                    }
+                    else if (!quiet) Log.Write("Ядро VPN: установлена версия " + sbLocal + (Util.TestNewer(sb.Version, sbLocal) ? ", доступна " + sb.Version : " (последняя)"));
+                }
+                catch (Exception e) { if (!quiet) Log.Write("Ядро VPN: не удалось проверить обновления: " + e.Message); }
+            }
+            // Xray — только если уже скачан (был сервер с транспортом xhttp)
+            string xrLocal = Vpn.XrayVersion;
+            if (xrLocal != null && allowAuto && cfg.AutoUpdate)
+            {
+                try
+                {
+                    Release xr = await Vpn.XrayLatest();
+                    if (Util.TestNewer(xr.Version.TrimStart('v'), xrLocal))
+                    {
+                        bool wasOn = vpnRunning && CurrentServer != null && Vpn.NeedsXray(CurrentServer.Link);
+                        if (wasOn) await Vpn.Stop();
+                        await Vpn.InstallXray(xr);
+                        if (wasOn) await StartVpn(true);
+                    }
+                }
+                catch (Exception e) { Log.Write("Ядро Xray: не удалось обновить: " + e.Message); }
+            }
 
             if (cfg.Telegram)
             {
@@ -1453,7 +2282,7 @@ namespace ZapretLauncher
             if (!window.IsVisible) return;
             Canvas bar = E<Canvas>("HistoryBar");
             bar.Children.Clear();
-            double width = bar.ActualWidth, height = 16;
+            double width = bar.ActualWidth, height = 10;
             if (width <= 0) return;
             DateTime now = DateTime.Now, from = now.AddHours(-24);
             List<KeyValuePair<DateTime, char>> points = StateHistory.Last24h();
@@ -1588,7 +2417,7 @@ namespace ZapretLauncher
                 if (pill == null || pill.IsFrozen) { pill = new TranslateTransform(); E<Border>("NavPill").RenderTransform = pill; }
                 pill.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(y, new Duration(TimeSpan.FromMilliseconds(260))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut } });
             }
-            foreach (string p in new[] { "Strategies", "Domains", "Settings", "Log" })
+            foreach (string p in new[] { "Strategies", "Domains", "Vpn", "Settings", "Log" })
             {
                 FrameworkElement page = E<FrameworkElement>("Page" + p);
                 page.Visibility = p == name ? Visibility.Visible : Visibility.Collapsed;
@@ -1602,6 +2431,12 @@ namespace ZapretLauncher
                 tr.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, d) { EasingFunction = ease });
             }
             if (name == "Domains") UpdateDomainUi();
+            if (name == "Vpn")
+            {
+                CheckClipboard();
+                RefreshVpnUi();
+                if (vpnPing.Count == 0 && cfg.VpnServers.Count > 0) { Task t = PingVpnServers(); }   // пинг — один раз при первом открытии
+            }
             if (name == "Settings") UpdateFilterUi();
         }
 
@@ -1612,6 +2447,8 @@ namespace ZapretLauncher
                 "Лаунчер включает zapret одной кнопкой, следит, чтобы Discord, YouTube и Telegram открывались, и сам обновляется.", "Пропустить", "Дальше" },
             new[] { "\uE7F4", "Работает в фоне",
                 "Закрытое окно сворачивается в трей. Клик по значку открывает мини-окно с переключателем и пингом. Включите «Автозапуск», чтобы обход запускался вместе с Windows.", "Пропустить", "Дальше" },
+            new[] { "", "Встроенный VPN",
+                "Есть свой VPN-сервер или подписка? Вставьте ключ на странице VPN: через него пойдут только выбранные сайты и программы, а Discord, YouTube и остальное — напрямую, на полной скорости.", "Пропустить", "Дальше" },
             new[] { "\uEC4A", "Найдём рабочую стратегию",
                 "У каждого провайдера свои блокировки. Лаунчер по очереди проверит все стратегии и выберет лучшую — это займёт пару минут. Если включён VPN, выключите его на время проверки.", "Позже", "Подобрать сейчас" },
         };
@@ -1694,6 +2531,7 @@ namespace ZapretLauncher
             if (I18n.English) F<Button>("FlyPing").Content = "Refresh";
             cardState = null;   // перекрасить мини-окно по состоянию
             F<Button>("FlyDiscord").Click += async delegate { HideFlyout(); await FixDiscordUi(); };
+            F<Grid>("FlyVpn").MouseLeftButtonUp += async delegate { await ToggleVpn(); UpdateFlyout(); };
             flyout.Deactivated += delegate { HideFlyout(); };
             flyout.KeyDown += (s, e) => { if (e.Key == Key.Escape) HideFlyout(); };
             F<Grid>("FlyToggle").MouseLeftButtonUp += async delegate { await ToggleBypass(); };
@@ -1712,6 +2550,15 @@ namespace ZapretLauncher
             Fade(F<UIElement>("FlyActive"), running ? 1 : 0, d);
             Fade(F<UIElement>("FlyTrackOn"), running ? 1 : 0, d);
             Slide(F<Ellipse>("FlyKnob"), running ? 22 : 0, d);
+            // переключатель VPN
+            VpnServer vs = CurrentServer;
+            F<FrameworkElement>("FlyVpn").Visibility = vs != null ? Visibility.Visible : Visibility.Collapsed;
+            if (vs != null)
+            {
+                F<TextBlock>("FlyVpnText").Text = vpnRunning ? "VPN · " + Vpn.DisplayName(vs.Name) : cfg.VpnOn ? T("VPN подключается…") : T("VPN выключен");
+                Fade(F<UIElement>("FlyVpnTrackOn"), vpnRunning ? 1 : 0, d);
+                Slide(F<Ellipse>("FlyVpnKnob"), vpnRunning ? 18 : 0, d);
+            }
             UniformGrid sites = F<UniformGrid>("FlySites");
             sites.Children.Clear();
             foreach (string site in VisibleSites())
@@ -1741,6 +2588,8 @@ namespace ZapretLauncher
             Text("TitleText").Text = Consts.Version + (v != null ? "  ·  zapret " + v : "");
             Text("LauncherVersionText").Text = "Zapret Launcher " + Consts.Version + " — " + T("проверить обновление");
             Text("LauncherRepoText").Text = T("Обновления лаунчера") + ": github.com/" + cfg.LauncherRepo;
+            string prev = SelfUpdate.PreviousLocal();
+            Text("LauncherRollbackTitle").Text = prev != null ? T("Вернуть лаунчер версии") + " " + prev : T("Вернуть прошлую версию лаунчера");
         }
 
         static readonly string[] GroupOrder = { "Избранное", "Основная", "ALT", "FAKE TLS", "SIMPLE FAKE", "Экспериментальные", "Другие" };
@@ -1851,18 +2700,21 @@ namespace ZapretLauncher
                     try { TimeSpan t = DateTime.Now - proc.StartTime; timer = ((int)t.TotalHours).ToString("00") + ":" + t.ToString(@"mm\:ss"); } catch { }
                     Text("PowerTimer").Text = T("Работает") + " " + timer + "  ·  " + T(Zapret.Title(cfg.Strategy));
                     Text("PowerHint").Text = T("Нажмите, чтобы выключить");
+                    Text("PowerHint").Visibility = Visibility.Collapsed;   // переключатель и так виден — подсказка лишняя
                 }
                 else if (pausedByVpn)
                 {
                     Text("PowerStatus").Text = T("Пауза: включён VPN");
                     Text("PowerTimer").Text = vpnName ?? " ";
                     Text("PowerHint").Text = T("Обход вернётся, когда VPN отключат");
+                    Text("PowerHint").Visibility = Visibility.Visible;
                 }
                 else
                 {
                     Text("PowerStatus").Text = T(local != null ? "Обход выключен" : "zapret не установлен");
                     Text("PowerTimer").Text = " ";
                     Text("PowerHint").Text = T("Нажмите, чтобы включить");
+                    Text("PowerHint").Visibility = Visibility.Collapsed;
                 }
             }
             SetActive(running);
@@ -1913,10 +2765,12 @@ namespace ZapretLauncher
             if (exiting) return;
             bool running = Zapret.Running;
             string state = TrayState(running);
-            if (state != trayState)
+            string iconKey = state + (vpnRunning ? "-vpn" : "");
+            if (iconKey != trayState)
             {
-                trayState = state;
-                tray.Icon = trayIcons[state];
+                trayState = iconKey;
+                tray.Icon = trayIcons[iconKey];
+                SetTaskbarBadge(state, vpnRunning);
                 window.Icon = windowIcons[state];
                 E<Image>("TitleIcon").Source = imageIcons[state];
                 if (flyout != null) F<Image>("FlyIcon").Source = imageIcons[state];
@@ -1931,7 +2785,28 @@ namespace ZapretLauncher
                 ? "Zapret: " + T(state == "error" ? "сайты не открываются" : "работает") + " · " + T(Zapret.Title(cfg.Strategy))
                 : pausedByVpn ? "Zapret: " + T("пауза (VPN)")
                 : state == "error" ? "Zapret: " + T("ошибка — обход не работает") : "Zapret: " + T("остановлен");
+            if (vpnRunning) trayText += " · VPN";
             tray.Text = trayText.Length > 63 ? trayText.Substring(0, 63) : trayText;
+        }
+
+        // Панель задач берёт значок из ярлыка, поэтому состояние показываем меткой в углу:
+        // жёлтая — пауза, красная — ошибка, серая — выключен, синяя — работает через VPN; без метки — обход работает
+        readonly Dictionary<string, ImageSource> badges = new Dictionary<string, ImageSource>();
+
+        void SetTaskbarBadge(string state, bool vpn)
+        {
+            string key = state == "on" ? (vpn ? "vpn" : null) : state;
+            if (window.TaskbarItemInfo == null) window.TaskbarItemInfo = new System.Windows.Shell.TaskbarItemInfo();
+            if (key == null) { window.TaskbarItemInfo.Overlay = null; return; }
+            ImageSource img;
+            if (!badges.TryGetValue(key, out img))
+            {
+                System.Drawing.Color c = key == "pause" ? System.Drawing.Color.FromArgb(240, 176, 48) : key == "error" ? System.Drawing.Color.FromArgb(232, 72, 72)
+                                       : key == "vpn" ? System.Drawing.Color.FromArgb(59, 130, 246) : System.Drawing.Color.FromArgb(128, 130, 140);
+                badges[key] = img = Icons.ToImageSource(Icons.Badge(c));
+            }
+            window.TaskbarItemInfo.Overlay = img;
+            window.TaskbarItemInfo.Description = tray.Text;
         }
 
         string DomainKind { get { return E<RadioButton>("DomGeneral").IsChecked == true ? "general" : "exclude"; } }
@@ -2119,7 +2994,7 @@ namespace ZapretLauncher
             ClickSync("BtnMaximize",() => { window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; });
             E<Canvas>("HistoryBar").SizeChanged += delegate { RenderHistory(); };
             ClickSync("BtnClose", () => window.Close());
-            foreach (string p in new[] { "Strategies", "Domains", "Settings", "Log" })
+            foreach (string p in new[] { "Strategies", "Domains", "Vpn", "Settings", "Log" })
             {
                 string page = p;
                 E<RadioButton>("Nav" + p).Checked += delegate { ShowPage(page); };
@@ -2173,8 +3048,57 @@ namespace ZapretLauncher
                 Process.Start(psi);
             });
             Click("BtnFixDiscord", FixDiscordUi);
+            // VPN
+
+            Click("ChipVpn", async () => { await ToggleVpn(); E<ToggleButton>("ChipVpn").IsChecked = vpnRunning; });
+            Click("BtnVpnAdd", AddVpnServers);
+            Click("BtnVpnRefresh", RefreshSubscription);
+            Click("BtnVpnPing", PingVpnServers);
+            Click("BtnVpnBest", SelectBestServer);
+            Click("BtnVpnClipAdd", AddFromClipboard);
+            Click("BtnVpnQrFile", QrFromFile);
+            Click("BtnVpnQrScreen", QrFromScreen);
+            ClickSync("SwVpnAuto", () => { cfg.VpnAutoBest = E<CheckBox>("SwVpnAuto").IsChecked == true; cfg.Save(); });
+            window.Activated += delegate { if (E<FrameworkElement>("PageVpn").Visibility == Visibility.Visible) CheckClipboard(); };
+            Click("BtnVpnListAdd", AddVpnListItem);
+            Click("VpnModeSplit", async () => { if (filling || cfg.VpnMode == "split") return; cfg.VpnMode = "split"; await ApplyVpnChanges(); });
+            Click("VpnModeAll", async () => { if (filling || cfg.VpnMode == "all") return; cfg.VpnMode = "all"; await ApplyVpnChanges(); });
+            Click("VpnModeRu", async () => { if (filling || cfg.VpnMode == "ru") return; cfg.VpnMode = "ru"; await ApplyVpnChanges(); });
+            TextBox vpnSearch = E<TextBox>("VpnSearch");
+            vpnSearch.TextChanged += delegate { Text("VpnSearchHint").Visibility = vpnSearch.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible; RefreshVpnUi(); };
+            E<FrameworkElement>("VpnSubBarBg").SizeChanged += (s, e) => { E<Border>("VpnSubBar").Width = Math.Max(0, e.NewSize.Width * subRatio); };
+            foreach (string pane in new[] { "Servers", "Routes", "Conn" })
+            {
+                string p = pane;
+                E<RadioButton>("VpnTab" + p).Checked += async delegate
+                {
+                    foreach (string q in new[] { "Servers", "Routes", "Conn" })
+                        E<FrameworkElement>("VpnPane" + q).Visibility = q == p ? Visibility.Visible : Visibility.Collapsed;
+                    vpnConnShown = p == "Conn";   // журнал обновляется, только пока открыта его вкладка
+                    await RefreshConnections();
+                };
+            }
+            // вкладки настроек: разделы помечены Tag с именем вкладки
+            foreach (string[] st in new[] { new[] { "SetTabMain", "main" }, new[] { "SetTabBypass", "bypass" }, new[] { "SetTabNet", "net" }, new[] { "SetTabLook", "look" }, new[] { "SetTabLauncher", "launcher" } })
+            {
+                string group = st[1];
+                E<RadioButton>(st[0]).Checked += delegate { ShowSettingsGroup(group); };
+            }
+            ShowSettingsGroup("main");
+            ClickSync("BtnVpnHelpOk",() => { cfg.VpnHelpDone = true; cfg.Save(); RefreshVpnUi(); });
+            E<FrameworkElement>("VpnCard").MouseLeftButtonUp += async delegate { if (CurrentServer != null && !busy) await ToggleVpn(); };
+            E<FrameworkElement>("VpnGraph").SizeChanged += delegate { DrawVpnGraph(); };
+            ClickSync("VpnKindSites", RefreshVpnUi);
+            ClickSync("VpnKindApps", RefreshVpnUi);
+            TextBox vpnInput = E<TextBox>("VpnInput"), vpnListInput = E<TextBox>("VpnListInput");
+            vpnInput.KeyDown += async (s, e) => { if (e.Key == Key.Return) await AddVpnServers(); };
+            vpnInput.TextChanged += delegate { Text("VpnHint").Visibility = vpnInput.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible; };
+            vpnListInput.KeyDown += async (s, e) => { if (e.Key == Key.Return) await AddVpnListItem(); };
+            vpnListInput.TextChanged += delegate { Text("VpnListHint").Visibility = vpnListInput.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible; };
+
             ClickSync("BtnBackupSave", BackupSave);
             ClickSync("BtnBackupRestore", BackupRestore);
+            Click("BtnLauncherRollback", RollbackLauncherUi);
             Click("BtnCheckDomain", CheckDomain);
             Click("SwSecureDns", () => SetSecureDns(E<CheckBox>("SwSecureDns").IsChecked == true, DnsChoice()));
             foreach (string key in SecureDns.Providers.Keys)
@@ -2341,8 +3265,9 @@ namespace ZapretLauncher
             miStrategies.DropDown.BackColor = menu.BackColor;
             miPick = new Forms.ToolStripMenuItem(T("Подобрать стратегию"));
             miFixDiscord = new Forms.ToolStripMenuItem(T("Починить Discord"));
+            miVpn = new Forms.ToolStripMenuItem(T("Включить VPN"));
             miExit = new Forms.ToolStripMenuItem(T("Выход"));
-            menu.Items.AddRange(new Forms.ToolStripItem[] { miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, new Forms.ToolStripSeparator(), miExit });
+            menu.Items.AddRange(new Forms.ToolStripItem[] { miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miVpn, new Forms.ToolStripSeparator(), miExit });
             tray.ContextMenuStrip = menu;
 
             miOpen.Click += delegate { ShowWindow(); };
@@ -2350,6 +3275,7 @@ namespace ZapretLauncher
             miStop.Click += async delegate { await StopBypassUi(); };
             miPick.Click += async delegate { ShowWindow(); await StartAutoPickUi(false); };
             miFixDiscord.Click += async delegate { await FixDiscordUi(); };
+            miVpn.Click += async delegate { await ToggleVpn(); };
             miExit.Click += async delegate { await QuitAndStop(); };
             // клик по значку — мини-окно, двойной клик — главное окно
             tray.MouseClick += (s, e) => { if (e.Button == Forms.MouseButtons.Left) window.Dispatcher.BeginInvoke(new Action(ToggleFlyout)); };
@@ -2374,7 +3300,11 @@ namespace ZapretLauncher
         {
             int size = Icons.TraySize();
             trayIcons = new Dictionary<string, System.Drawing.Icon>();
-            foreach (string state in new[] { "on", "off", "pause", "error" }) trayIcons[state] = Icons.ToIcon(Icons.Draw(size, state));
+            foreach (string state in new[] { "on", "off", "pause", "error" })
+            {
+                trayIcons[state] = Icons.ToIcon(Icons.Draw(size, state));
+                trayIcons[state + "-vpn"] = Icons.ToIcon(Icons.Draw(size, state, true));   // с синей меткой — включён встроенный VPN
+            }
         }
 
         // «Выход» из меню трея: обход и Telegram-прокси выключаются вместе с лаунчером.
@@ -2393,6 +3323,7 @@ namespace ZapretLauncher
             {
                 await Zapret.Stop(false);
                 await Telegram.StopProxy();
+                await Vpn.Stop();   // VPN тоже выключается вместе с лаунчером; при следующем запуске включится снова, если был включён
             }
             catch (Exception e) { Log.Write("Не удалось остановить обход при выходе: " + e.Message); }
             Log.Write("Лаунчер закрыт, обход выключен");

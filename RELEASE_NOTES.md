@@ -1,7 +1,37 @@
 **Download `ZapretLauncherSetup.exe`** — installs or updates the launcher (settings and zapret are kept). Installed launchers update themselves automatically.
 **Скачайте `ZapretLauncherSetup.exe`** — установит или обновит лаунчер (настройки и zapret сохранятся). Установленные лаунчеры обновятся сами.
 
-![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/main-dark-en.png)
+![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/vpn-en.png)
+
+### 4.0.0 — VPN right inside the launcher / VPN прямо в лаунчере
+
+The biggest update yet: zapret and a VPN now live in one window and work together. No separate VPN app needed.
+Самое большое обновление: zapret и VPN теперь в одном окне и работают вместе. Отдельное VPN-приложение больше не нужно.
+
+**🌍 Built-in VPN / Встроенный VPN**
+- Paste a vless / vmess / trojan / ss / hysteria2 / tuic key or a subscription URL — or just scan a QR code from an image or straight off the screen / Вставьте ключ vless / vmess / trojan / ss / hysteria2 / tuic или адрес подписки — или просто отсканируйте QR-код с картинки или прямо с экрана
+- Copied a key? The launcher notices it and offers to add it / Скопировали ключ? Лаунчер заметит и предложит добавить
+- Keys with the xhttp transport work too — the Xray core downloads itself when needed / Работают и ключи с транспортом xhttp — ядро Xray скачается само, когда понадобится
+
+**🧭 Smart routing / Умная маршрутизация**
+- Only the sites and apps you choose go through the VPN; everything else goes directly and through zapret / Через VPN идут только выбранные сайты и программы, остальное — напрямую и через zapret
+- “Russia direct”: Russian sites go directly, the rest through the VPN — banks and Gosuslugi keep working / «Россия напрямую»: российские сайты — напрямую, остальное — через VPN, банки и Госуслуги работают как обычно
+- Or send all traffic through the VPN with one click / Или весь трафик через VPN одной кнопкой
+
+**⚡ Servers / Серверы**
+- Honest check: a real page is opened through every server, not just a ping; signal bars show who's fast / Честная проверка: через каждый сервер открывается настоящая страница, а не просто пинг; полоски сигнала сразу показывают, кто быстрый
+- “Pick the fastest” and auto-choice: if a server goes down, the VPN hops to another one / «Выбрать самый быстрый» и автовыбор: если сервер упал, VPN сам перейдёт на другой
+- Servers grouped by country with flags and search; subscription traffic and expiry, auto-refresh once a day / Серверы по странам с флагами и поиском; трафик и срок подписки, автообновление раз в сутки
+- Live list of connections: see what goes through the VPN and what goes direct / Живой журнал соединений: видно, что идёт через VPN, а что напрямую
+
+**🎨 New look / Новый вид**
+- A big VPN card with the country flag, connection timer and speed graph — tap it to connect / Большая карточка VPN с флагом страны, временем подключения и графиком скорости — нажмите, чтобы подключиться
+- Settings split into tabs with icons, a tidier right panel, “How to start” hints for VPN newcomers / Настройки разложены по вкладкам со значками, правая панель стала аккуратнее, для новичков — подсказка «Как начать»
+- New logo — a shield with a Z — and a blue VPN mark on the tray icon; VPN switch in the tray mini window / Новый логотип — щит с буквой Z — и синяя метка VPN на значке трея; переключатель VPN в мини-окне у трея
+
+**🔙 Safety net / Подстраховка**
+- Didn't like an update? Roll the launcher back to the previous version in Settings → Launcher; your settings are backed up first / Не понравилось обновление? Верните прошлую версию лаунчера в Настройках → Лаунчер, настройки перед этим сохранятся
+- “What's new” window after every update / Окно «Что нового» после каждого обновления
 
 ### 3.4.0
 - Settings backup: save to / restore from a file; an automatic copy outside the launcher folder is offered back after reinstalling / Резервная копия настроек: сохранение в файл и восстановление; автокопия вне папки лаунчера — после переустановки лаунчер предложит её вернуть

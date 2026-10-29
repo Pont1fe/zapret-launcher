@@ -21,15 +21,16 @@ namespace ZapretLauncher
     {
         public static Bitmap Draw(int size, bool active) { return Draw(size, active ? "on" : "off"); }
 
-        // Щит в скруглённом квадрате (тот же рисунок в build.ps1). Цвет — состояние обхода:
-        // on — бирюзовый, pause — жёлтый (VPN), error — красный, off — серый
-        public static Bitmap Draw(int size, string state)
+        // Логотип: белый щит с буквой Z в скруглённом квадрате (тот же рисунок в build.ps1).
+        // Фигура рисуется линиями и выравнивается по своим границам — ровно по центру при любом размере.
+        // Цвет — состояние обхода: on — бирюзовый, pause — жёлтый (VPN), error — красный, off — серый; vpn — синяя метка в углу
+        public static Bitmap Draw(int size, string state, bool vpn = false)
         {
             Bitmap bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (Graphics g = Graphics.FromImage(bmp))
             {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 float pad = Math.Max(1f, size / 32f);
                 RectangleF rect = new RectangleF(pad, pad, size - 2 * pad, size - 2 * pad);
                 System.Drawing.Color c1, c2;
@@ -37,29 +38,100 @@ namespace ZapretLauncher
                 else if (state == "pause") { c1 = System.Drawing.Color.FromArgb(246, 190, 70); c2 = System.Drawing.Color.FromArgb(196, 128, 20); }
                 else if (state == "error") { c1 = System.Drawing.Color.FromArgb(240, 98, 98); c2 = System.Drawing.Color.FromArgb(168, 38, 48); }
                 else { c1 = System.Drawing.Color.FromArgb(110, 112, 122); c2 = System.Drawing.Color.FromArgb(58, 60, 68); }
-                float r = rect.Width * 0.28f;
-                using (GraphicsPath path = new GraphicsPath())
+                System.Drawing.Color mid = System.Drawing.Color.FromArgb((c1.R + c2.R) / 2, (c1.G + c2.G) / 2, (c1.B + c2.B) / 2);
+                using (GraphicsPath bg = RoundRect(rect, rect.Width * 0.28f))
+                using (System.Drawing.Drawing2D.LinearGradientBrush brush = new System.Drawing.Drawing2D.LinearGradientBrush(rect, c1, c2, 45f))
+                    g.FillPath(brush, bg);
+
+                using (GraphicsPath shield = Shield())
+                using (GraphicsPath z = new GraphicsPath())
                 {
-                    path.AddArc(rect.X, rect.Y, r * 2, r * 2, 180, 90);
-                    path.AddArc(rect.Right - r * 2, rect.Y, r * 2, r * 2, 270, 90);
-                    path.AddArc(rect.Right - r * 2, rect.Bottom - r * 2, r * 2, r * 2, 0, 90);
-                    path.AddArc(rect.X, rect.Bottom - r * 2, r * 2, r * 2, 90, 90);
-                    path.CloseFigure();
-                    using (System.Drawing.Drawing2D.LinearGradientBrush brush = new System.Drawing.Drawing2D.LinearGradientBrush(rect, c1, c2, 45f)) g.FillPath(brush, path);
+                    z.AddLines(new[] { new PointF(34, 32), new PointF(66, 32), new PointF(34, 68), new PointF(66, 68) });
+                    // щит занимает ~56% квадрата (на маленьких размерах — больше, иначе теряется в трее)
+                    RectangleF b = shield.GetBounds();
+                    float k = size * (size <= 24 ? 0.66f : 0.56f) / Math.Max(b.Width, b.Height);
+                    using (System.Drawing.Drawing2D.Matrix m = new System.Drawing.Drawing2D.Matrix())
+                    {
+                        m.Translate(size / 2f, size / 2f);
+                        m.Scale(k, k);
+                        m.Translate(-(b.X + b.Width / 2), -(b.Y + b.Height / 2));
+                        shield.Transform(m);
+                        z.Transform(m);
+                    }
+                    g.FillPath(System.Drawing.Brushes.White, shield);
+                    using (System.Drawing.Pen pen = new System.Drawing.Pen(mid, Math.Max(1.3f, size * 0.07f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+                        g.DrawPath(pen, z);
                 }
-                // на маленьких размерах щит чуть крупнее — иначе в трее он теряется
-                using (Font font = new Font("Segoe MDL2 Assets", size * (size <= 24 ? 0.6f : 0.5f), System.Drawing.FontStyle.Regular, GraphicsUnit.Pixel))
-                using (StringFormat f = new StringFormat())
+
+                if (vpn)
                 {
-                    f.Alignment = StringAlignment.Center;
-                    f.LineAlignment = StringAlignment.Center;
-                    g.DrawString("", font, System.Drawing.Brushes.White, rect, f);
+                    float d = size * 0.42f, x = size - d - pad * 0.5f, y = size - d - pad * 0.5f;
+                    using (System.Drawing.SolidBrush blue = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(59, 130, 246)))
+                    using (System.Drawing.Pen ring = new System.Drawing.Pen(System.Drawing.Color.White, Math.Max(1f, size * 0.06f)))
+                    {
+                        g.FillEllipse(blue, x, y, d, d);
+                        g.DrawEllipse(ring, x, y, d, d);
+                    }
                 }
             }
             return bmp;
         }
 
+        static GraphicsPath RoundRect(RectangleF r, float radius)
+        {
+            GraphicsPath p = new GraphicsPath();
+            p.AddArc(r.X, r.Y, radius * 2, radius * 2, 180, 90);
+            p.AddArc(r.Right - radius * 2, r.Y, radius * 2, radius * 2, 270, 90);
+            p.AddArc(r.Right - radius * 2, r.Bottom - radius * 2, radius * 2, radius * 2, 0, 90);
+            p.AddArc(r.X, r.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
+            p.CloseFigure();
+            return p;
+        }
+
+        // Контур щита в координатах 0..100
+        static GraphicsPath Shield()
+        {
+            GraphicsPath p = new GraphicsPath();
+            p.AddBezier(50, 8, 64, 16, 76, 18, 88, 18);
+            p.AddLine(88, 18, 88, 46);
+            p.AddBezier(88, 46, 88, 70, 72, 86, 50, 94);
+            p.AddBezier(50, 94, 28, 86, 12, 70, 12, 46);
+            p.AddLine(12, 46, 12, 18);
+            p.AddBezier(12, 18, 24, 18, 36, 16, 50, 8);
+            p.CloseFigure();
+            return p;
+        }
+
         public static Icon ToIcon(Bitmap bmp) { return Icon.FromHandle(bmp.GetHicon()); }
+
+        // Метка состояния в углу значка на панели задач: цветной кружок с белой обводкой
+        public static Bitmap Badge(System.Drawing.Color color)
+        {
+            Bitmap bmp = new Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (Graphics g = Graphics.FromImage(bmp))
+            using (System.Drawing.SolidBrush fill = new System.Drawing.SolidBrush(color))
+            using (System.Drawing.Pen ring = new System.Drawing.Pen(System.Drawing.Color.White, 4))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.FillEllipse(fill, 3, 3, 26, 26);
+                g.DrawEllipse(ring, 3, 3, 26, 26);
+            }
+            return bmp;
+        }
+
+        [DllImport("shell32.dll")] static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
+
+        // После обновления: Windows хранит значки программ в кэше и показывает старую картинку — просим перечитать
+        public static void RefreshShellIcons()
+        {
+            try { SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
+            try
+            {
+                System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo("ie4uinit.exe", "-show") { UseShellExecute = false, CreateNoWindow = true };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch { }
+        }
 
         [DllImport("user32.dll")] static extern int GetSystemMetricsForDpi(int index, uint dpi);
         [DllImport("user32.dll")] static extern uint GetDpiForSystem();
@@ -298,26 +370,102 @@ namespace ZapretLauncher
             try { if (File.Exists(Paths.Exe + ".old")) File.Delete(Paths.Exe + ".old"); } catch { }
         }
 
+        // Копия прошлой версии лаунчера — для отката одной кнопкой
+        public static readonly string PrevFile = Path.Combine(Paths.Root, "ZapretLauncher.prev.exe");
+
         // Скачивает новый exe и ставит его на место текущего (работающий exe можно переименовать, но не перезаписать)
         public static async Task Apply(Release release)
         {
             string tmp = Paths.Exe + ".new";
             await Util.Download(release, tmp);
+            Verify(tmp, release.Version, false);
+            try { File.Copy(Paths.Exe, PrevFile, true); } catch { }   // текущая версия станет «прошлой»
+            Replace(tmp);
+            Log.Write("Лаунчер обновлён до версии " + release.Version);
+        }
+
+        // Файл — действительно лаунчер нужной версии (exact — ровно эта версия, иначе не старее)
+        static void Verify(string file, string version, bool exact)
+        {
             AssemblyName name;
-            try { name = AssemblyName.GetAssemblyName(tmp); }
-            catch { File.Delete(tmp); throw new Exception("Скачанный файл обновления повреждён — обновление отменено"); }
+            try { name = AssemblyName.GetAssemblyName(file); }
+            catch { File.Delete(file); throw new Exception("Скачанный файл лаунчера повреждён — операция отменена"); }
             Version expected;
-            if (name.Name != "ZapretLauncher" || (Version.TryParse(release.Version, out expected) && name.Version < expected))
+            bool ok = name.Name == "ZapretLauncher" && (!Version.TryParse(version, out expected) || (exact ? VersionOf(name) == ShortVersion(expected) : name.Version >= expected));
+            if (!ok)
             {
-                File.Delete(tmp);
-                throw new Exception("Файл обновления не похож на лаунчер версии " + release.Version + " — обновление отменено");
+                File.Delete(file);
+                throw new Exception("Файл не похож на лаунчер версии " + version + " — операция отменена");
             }
+        }
+
+        static void Replace(string tmp)
+        {
             string old = Paths.Exe + ".old";
             if (File.Exists(old)) File.Delete(old);
             File.Move(Paths.Exe, old);
             try { File.Move(tmp, Paths.Exe); }
             catch { File.Move(old, Paths.Exe); throw; }
-            Log.Write("Лаунчер обновлён до версии " + release.Version);
+        }
+
+        static string ShortVersion(Version v) { return v.Major + "." + v.Minor + "." + Math.Max(0, v.Build); }
+        static string VersionOf(AssemblyName n) { return ShortVersion(n.Version); }
+
+        // Версия локальной копии прошлого лаунчера, если она старше текущего; иначе null
+        public static string PreviousLocal()
+        {
+            try
+            {
+                if (!File.Exists(PrevFile)) return null;
+                string v = VersionOf(AssemblyName.GetAssemblyName(PrevFile));
+                return Util.TestNewer(Consts.Version, v) ? v : null;
+            }
+            catch { return null; }
+        }
+
+        // Предыдущий опубликованный релиз: самая новая версия, которая старше текущей
+        public static async Task<Release> PreviousRemote(string repo)
+        {
+            string json = await Util.GetString("https://api.github.com/repos/" + repo + "/releases?per_page=50", 20);
+            Release best = null;
+            foreach (object o in (object[])new System.Web.Script.Serialization.JavaScriptSerializer().DeserializeObject(json))
+            {
+                System.Collections.Generic.Dictionary<string, object> r = (System.Collections.Generic.Dictionary<string, object>)o;
+                if (true.Equals(r["draft"]) || true.Equals(r["prerelease"])) continue;
+                string tag = ((string)r["tag_name"]).TrimStart('v');
+                if (!Util.TestNewer(Consts.Version, tag) || (best != null && !Util.TestNewer(tag, best.Version))) continue;
+                foreach (object a in (object[])r["assets"])
+                {
+                    System.Collections.Generic.Dictionary<string, object> asset = (System.Collections.Generic.Dictionary<string, object>)a;
+                    if (!Asset.Equals((string)asset["name"], StringComparison.OrdinalIgnoreCase)) continue;
+                    best = new Release { Version = tag, Name = Asset, Url = (string)asset["browser_download_url"] };
+                    object digest;
+                    if (asset.TryGetValue("digest", out digest) && digest is string && ((string)digest).StartsWith("sha256:")) best.Sha256 = ((string)digest).Substring(7);
+                }
+            }
+            return best;
+        }
+
+        // Откат: локальная копия (version == PreviousLocal()) или скачанный релиз; после — перезапуск лаунчера
+        public static async Task Rollback(Release remote)
+        {
+            string tmp = Paths.Exe + ".new";
+            string version;
+            if (remote == null)
+            {
+                version = PreviousLocal();
+                if (version == null) throw new Exception("Нет сохранённой прошлой версии лаунчера");
+                File.Copy(PrevFile, tmp, true);
+            }
+            else
+            {
+                version = remote.Version;
+                await Util.Download(remote, tmp);
+            }
+            Verify(tmp, version, true);
+            try { File.Copy(Paths.Exe, PrevFile, true); } catch { }   // откат можно отменить: текущая версия станет «прошлой»
+            Replace(tmp);
+            Log.Write("Лаунчер возвращён на версию " + version);
         }
     }
 

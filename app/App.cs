@@ -19,7 +19,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "3.4.0";
+        public const string Value = "4.0.0";
     }
 
     static class App
@@ -32,6 +32,7 @@ namespace ZapretLauncher
         [STAThread]
         static int Main(string[] args)
         {
+            Qr.RegisterResolver();   // до первого обращения к встроенной библиотеке QR
             bool autostart = args.Contains("--autostart");
             bool uninstall = args.Contains("--uninstall");
             bool restarted = args.Contains("--restarted");
@@ -184,6 +185,7 @@ namespace ZapretLauncher
         {
             await Zapret.Stop(true);
             await Telegram.StopProxy();
+            await Vpn.Stop();
             if (Zapret.Service() != null) await Zapret.RemoveService();
             Autostart.Set(false);
             try { Telegram.SetHosts(false); } catch (Exception e) { Log.Write(e.Message); }

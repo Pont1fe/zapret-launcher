@@ -43,6 +43,7 @@
       </Border>
       <StackPanel x:Name="NavPanel" HorizontalAlignment="Center" Margin="0,8,0,0">
         <RadioButton x:Name="NavStrategies" Style="{DynamicResource NavButton}" Content="&#xE774;" Tag="Обход" IsChecked="True"/>
+        <RadioButton x:Name="NavVpn" Style="{DynamicResource NavButton}" Content="&#xE909;" Tag="VPN"/>
         <RadioButton x:Name="NavDomains" Style="{DynamicResource NavButton}" Content="&#xE71B;" Tag="Домены"/>
         <RadioButton x:Name="NavSettings" Style="{DynamicResource NavButton}" Content="&#xE713;" Tag="Настройки"/>
         <RadioButton x:Name="NavLog" Style="{DynamicResource NavButton}" Content="&#xE8A5;" Tag="Журнал"/>
@@ -57,7 +58,7 @@
     <Grid x:Name="MidPanel" Grid.Row="1" Grid.Column="1" Background="{DynamicResource MidBg}">
 
       <!-- Стратегии -->
-      <Grid x:Name="PageStrategies" Margin="22,20,16,12">
+      <Grid x:Name="PageStrategies" Margin="22,20,20,14">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
@@ -161,7 +162,7 @@
       </Grid>
 
       <!-- Домены -->
-      <Grid x:Name="PageDomains" Visibility="Collapsed" Margin="22,20,22,12">
+      <Grid x:Name="PageDomains" Visibility="Collapsed" Margin="22,20,20,14">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
@@ -217,17 +218,208 @@
         </Grid>
       </Grid>
 
+      <!-- VPN -->
+      <ScrollViewer x:Name="PageVpn" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="22,20,20,14">
+          <TextBlock Text="VPN" Style="{DynamicResource PageTitle}"/>
+          <TextBlock Text="Через ваш сервер или подписку. Выбранные сайты и программы идут через VPN, остальное — напрямую и через обход" Style="{DynamicResource RowSub}" Margin="0,6,0,0"/>
+
+          <!-- Карточка подключения: флаг страны, состояние, время, скорость; клик — включить или выключить -->
+          <Grid x:Name="VpnCard" Margin="0,16,0,0" MinHeight="118" Cursor="Hand" Background="Transparent">
+            <Border CornerRadius="20" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Line}" BorderThickness="1"/>
+            <Border x:Name="VpnCardOn" CornerRadius="20" BorderBrush="{DynamicResource ActiveBorder}" BorderThickness="1" Opacity="0">
+              <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                  <GradientStop Color="{DynamicResource ActiveFromColor}" Offset="0"/>
+                  <GradientStop Color="{DynamicResource ActiveToColor}" Offset="1"/>
+                </LinearGradientBrush>
+              </Border.Background>
+            </Border>
+            <!-- вспышка после подключения и бегущая по краю полоска, пока VPN подключается -->
+            <Border x:Name="VpnFlash" CornerRadius="20" Background="{DynamicResource Accent}" Opacity="0" IsHitTestVisible="False"/>
+            <Rectangle x:Name="VpnBusyLine" RadiusX="20" RadiusY="20" StrokeThickness="2" Stroke="{DynamicResource Accent}" StrokeDashArray="24 96"
+                       StrokeDashCap="Round" Opacity="0" IsHitTestVisible="False"/>
+            <Grid Margin="20,16">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <Border x:Name="VpnFlagHost" Width="54" Height="38" VerticalAlignment="Center"/>
+              <StackPanel Grid.Column="1" Margin="16,0,12,0" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal">
+                  <Ellipse x:Name="VpnDot" Width="9" Height="9" Fill="{DynamicResource Idle}" VerticalAlignment="Center" Margin="0,0,9,0"/>
+                  <TextBlock x:Name="VpnStatus" Text="VPN выключен" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <TextBlock x:Name="VpnSub" Text=" " FontSize="12" Foreground="{DynamicResource TextSub}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="VpnTimer" Text=" " FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,3,0,0" Visibility="Collapsed"/>
+                <TextBlock x:Name="VpnTraffic" Text=" " FontSize="11" Foreground="{DynamicResource TextSub}" Margin="0,2,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
+              </StackPanel>
+              <Grid Grid.Column="2" Width="60" Height="32" VerticalAlignment="Center">
+                <Border CornerRadius="16" Background="{DynamicResource TrackOff}"/>
+                <Border x:Name="VpnTrackOn" CornerRadius="16" Background="{DynamicResource Accent}" Opacity="0"/>
+                <Ellipse x:Name="VpnKnob" Width="24" Height="24" Fill="White" HorizontalAlignment="Left" Margin="4,0">
+                  <Ellipse.RenderTransform>
+                    <TranslateTransform X="0"/>
+                  </Ellipse.RenderTransform>
+                </Ellipse>
+              </Grid>
+            </Grid>
+          </Grid>
+          <!-- скорость загрузки через VPN за последние минуты -->
+          <Canvas x:Name="VpnGraph" Height="38" Margin="6,8,6,0" Visibility="Collapsed" ClipToBounds="True"/>
+
+          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+            <RadioButton x:Name="VpnTabServers" Style="{DynamicResource Segment}" GroupName="vpntab" Content="Серверы" IsChecked="True"/>
+            <RadioButton x:Name="VpnTabRoutes" Style="{DynamicResource Segment}" GroupName="vpntab" Content="Маршруты"/>
+            <RadioButton x:Name="VpnTabConn" Style="{DynamicResource Segment}" GroupName="vpntab" Content="Соединения"/>
+          </StackPanel>
+
+          <!-- Вкладка «Серверы» -->
+          <StackPanel x:Name="VpnPaneServers" Margin="0,14,0,0">
+            <!-- Подсказка при первом открытии -->
+            <Border x:Name="VpnHelp" CornerRadius="14" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource AccentBorder}" BorderThickness="1"
+                    Padding="16,13" Margin="0,0,0,12" Visibility="Collapsed">
+              <StackPanel>
+                <Grid>
+                  <TextBlock Text="Как начать" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                  <Button x:Name="BtnVpnHelpOk" Style="{DynamicResource GhostButton}" Height="28" HorizontalAlignment="Right" Content="Понятно"/>
+                </Grid>
+                <TextBlock Text="1.  Вставьте ключ или адрес подписки ниже — или откройте QR-код" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="2.  Во вкладке «Маршруты» выберите, что пускать через VPN" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="3.  Нажмите на карточку VPN выше — и готово" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+              </StackPanel>
+            </Border>
+            <!-- В буфере обмена лежит ключ — предлагаем добавить -->
+            <Border x:Name="VpnClipBar" CornerRadius="10" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource AccentBorder}" BorderThickness="1"
+                    Padding="12,8" Margin="0,0,0,10" Visibility="Collapsed">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="VpnClipText" Text="В буфере обмена есть ключ VPN" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                <Button x:Name="BtnVpnClipAdd" Grid.Column="1" Style="{DynamicResource AccentButton}" Height="30" Margin="10,0,0,0" Content="Добавить"/>
+              </Grid>
+            </Border>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <Border CornerRadius="10" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Background="{DynamicResource Input}" Height="38">
+                <Grid Margin="12,0">
+                  <TextBlock x:Name="VpnHint" Text="Ключ vless://, vmess://, trojan://, ss://… или адрес подписки" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" IsHitTestVisible="False" TextTrimming="CharacterEllipsis"/>
+                  <TextBox x:Name="VpnInput" Style="{DynamicResource InputBox}" Margin="-2,0,0,0"/>
+                </Grid>
+              </Border>
+              <Button x:Name="BtnVpnAdd" Grid.Column="1" Style="{DynamicResource AccentButton}" Height="38" Margin="8,0,0,0" Content="Добавить"/>
+            </Grid>
+            <WrapPanel Margin="0,8,0,0">
+              <Button x:Name="BtnVpnQrFile" Style="{DynamicResource GhostButton}" Height="30" Margin="0,0,8,0" Content="QR из картинки…" ToolTip="Открыть картинку или скриншот с QR-кодом ключа"/>
+              <Button x:Name="BtnVpnQrScreen" Style="{DynamicResource GhostButton}" Height="30" Content="Найти QR на экране" ToolTip="Откройте QR-код ключа в любом окне и нажмите — лаунчер найдёт его на экране"/>
+            </WrapPanel>
+            <TextBlock x:Name="VpnInfo" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,10" TextWrapping="Wrap"
+                       Text="Ключи хранятся только на этом компьютере, в настройках лаунчера"/>
+            <!-- Подписка: сколько трафика осталось и до какого числа -->
+            <Border x:Name="VpnSubCard" CornerRadius="10" Background="{DynamicResource Card}" Padding="12,9" Margin="0,0,0,10" Visibility="Collapsed">
+              <StackPanel>
+                <Grid>
+                  <TextBlock x:Name="VpnSubText" Text=" " FontSize="12"/>
+                  <TextBlock x:Name="VpnSubExpire" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right"/>
+                </Grid>
+                <Border x:Name="VpnSubBarBg" CornerRadius="3" Background="{DynamicResource IconBg}" Height="6" Margin="0,7,0,0">
+                  <Border x:Name="VpnSubBar" CornerRadius="3" Background="{DynamicResource Accent}" HorizontalAlignment="Left" Width="0"/>
+                </Border>
+              </StackPanel>
+            </Border>
+            <!-- Поиск — когда серверов много -->
+            <Border x:Name="VpnSearchBox" CornerRadius="10" Background="{DynamicResource Input}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Height="34" Margin="0,0,0,10" Visibility="Collapsed">
+              <Grid Margin="12,0">
+                <TextBlock Text="&#xE721;" FontFamily="{DynamicResource Icons}" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                <TextBlock x:Name="VpnSearchHint" Text="Поиск сервера или страны" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" Margin="24,0,0,0" IsHitTestVisible="False"/>
+                <TextBox x:Name="VpnSearch" Style="{DynamicResource InputBox}" Margin="22,0,0,0"/>
+              </Grid>
+            </Border>
+            <WrapPanel x:Name="VpnTabs" Margin="0,0,0,4" Visibility="Collapsed"/>
+            <StackPanel x:Name="VpnServerList"/>
+            <WrapPanel Margin="0,4,0,0">
+              <Button x:Name="BtnVpnPing" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Проверить серверы" ToolTip="Открыть тестовую страницу через каждый сервер и замерить время"/>
+              <Button x:Name="BtnVpnBest" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Выбрать самый быстрый"/>
+              <Button x:Name="BtnVpnRefresh" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Обновить подписку" Visibility="Collapsed"/>
+            </WrapPanel>
+            <Border Style="{DynamicResource SettingsCard}" Margin="0,6,0,0">
+              <CheckBox x:Name="SwVpnAuto" Style="{DynamicResource Switch}" BorderThickness="0" Tag="&#xE8B1;">
+                <StackPanel>
+                  <TextBlock Text="Автовыбор сервера" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="При подключении — самый быстрый сервер; если он перестал отвечать, VPN сам перейдёт на другой" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </CheckBox>
+            </Border>
+          </StackPanel>
+
+          <!-- Вкладка «Маршруты» -->
+          <StackPanel x:Name="VpnPaneRoutes" Margin="0,14,0,0" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal">
+              <RadioButton x:Name="VpnModeSplit" Style="{DynamicResource Segment}" GroupName="vpnmode" Content="Только выбранное"/>
+              <RadioButton x:Name="VpnModeRu" Style="{DynamicResource Segment}" GroupName="vpnmode" Content="Россия напрямую"/>
+              <RadioButton x:Name="VpnModeAll" Style="{DynamicResource Segment}" GroupName="vpnmode" Content="Весь трафик"/>
+            </StackPanel>
+            <TextBlock x:Name="VpnModeText" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,0" TextWrapping="Wrap" Text=" "/>
+            <StackPanel x:Name="VpnSplitPanel" Margin="0,14,0,0">
+              <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="VpnKindSites" Style="{DynamicResource Segment}" GroupName="vpnkind" Content="Сайты" IsChecked="True"/>
+                <RadioButton x:Name="VpnKindApps" Style="{DynamicResource Segment}" GroupName="vpnkind" Content="Программы"/>
+              </StackPanel>
+              <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Border CornerRadius="10" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Background="{DynamicResource Input}" Height="38">
+                  <Grid Margin="12,0">
+                    <TextBlock x:Name="VpnListHint" Text="Например: example.com" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                    <TextBox x:Name="VpnListInput" Style="{DynamicResource InputBox}" Margin="-2,0,0,0"/>
+                  </Grid>
+                </Border>
+                <Button x:Name="BtnVpnListAdd" Grid.Column="1" Style="{DynamicResource AccentButton}" Height="38" Margin="8,0,0,0" Content="Добавить"/>
+              </Grid>
+              <TextBlock x:Name="VpnListInfo" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,8" TextWrapping="Wrap" Text=" "/>
+              <StackPanel x:Name="VpnList"/>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- Вкладка «Соединения» -->
+          <StackPanel x:Name="VpnPaneConn" Margin="0,14,0,0" Visibility="Collapsed">
+            <TextBlock x:Name="VpnConnInfo" Text="Какие сайты и программы сейчас идут через VPN, а какие напрямую. Видно, пока VPN подключён" Style="{DynamicResource RowSub}" Margin="2,0,0,10"/>
+            <StackPanel x:Name="VpnConnList"/>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+
       <!-- Настройки -->
       <ScrollViewer x:Name="PageSettings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="22,20,18,16">
+        <StackPanel x:Name="SettingsRoot" Margin="22,20,20,14">
           <TextBlock Text="Настройки" Style="{DynamicResource PageTitle}"/>
+          <!-- Вкладки настроек -->
+          <WrapPanel Margin="0,14,0,0">
+            <RadioButton x:Name="SetTabMain" Style="{DynamicResource Segment}" GroupName="settab" Content="Основные" IsChecked="True" Margin="0,0,4,4"/>
+            <RadioButton x:Name="SetTabBypass" Style="{DynamicResource Segment}" GroupName="settab" Content="Обход" IsChecked="False" Margin="0,0,4,4"/>
+            <RadioButton x:Name="SetTabNet" Style="{DynamicResource Segment}" GroupName="settab" Content="Сеть" IsChecked="False" Margin="0,0,4,4"/>
+            <RadioButton x:Name="SetTabLook" Style="{DynamicResource Segment}" GroupName="settab" Content="Вид" IsChecked="False" Margin="0,0,4,4"/>
+            <RadioButton x:Name="SetTabLauncher" Style="{DynamicResource Segment}" GroupName="settab" Content="Лаунчер" IsChecked="False" Margin="0,0,4,4"/>
+          </WrapPanel>
 
-          <TextBlock Text="ОФОРМЛЕНИЕ" Style="{DynamicResource SectionLabel}"/>
+          <StackPanel Tag="look">
+            <StackPanel Orientation="Horizontal" Margin="4,20,0,8">
+              <TextBlock Text="&#xE790;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="ОФОРМЛЕНИЕ" Style="{DynamicResource SectionLabel}" Margin="0" VerticalAlignment="Center"/>
+            </StackPanel>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
               <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
                 <StackPanel>
-                  <TextBlock Text="Тема" Style="{DynamicResource RowTitle}"/>
+                  <StackPanel Orientation="Horizontal"><TextBlock Style="{DynamicResource RowIcon}" Text="&#xE790;"/><TextBlock Text="Тема" Style="{DynamicResource RowTitle}"/></StackPanel>
                   <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                     <RadioButton x:Name="ThemeDark" Style="{DynamicResource Segment}" GroupName="theme" Content="Тёмная"/>
                     <RadioButton x:Name="ThemeLight" Style="{DynamicResource Segment}" GroupName="theme" Content="Светлая"/>
@@ -237,7 +429,7 @@
               </Border>
               <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
                 <StackPanel>
-                  <TextBlock Text="Цвет акцента" Style="{DynamicResource RowTitle}"/>
+                  <StackPanel Orientation="Horizontal"><TextBlock Style="{DynamicResource RowIcon}" Text="&#xE771;"/><TextBlock Text="Цвет акцента" Style="{DynamicResource RowTitle}"/></StackPanel>
                   <StackPanel Orientation="Horizontal" Margin="-5,8,0,0">
                     <RadioButton x:Name="AccentTeal" Style="{DynamicResource Swatch}" Background="#1FB89A" ToolTip="Бирюзовый"/>
                     <RadioButton x:Name="AccentBlue" Style="{DynamicResource Swatch}" Background="#3B82F6" ToolTip="Синий"/>
@@ -253,7 +445,7 @@
               </Border>
               <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
                 <StackPanel>
-                  <TextBlock Text="Масштаб интерфейса" Style="{DynamicResource RowTitle}"/>
+                  <StackPanel Orientation="Horizontal"><TextBlock Style="{DynamicResource RowIcon}" Text="&#xE8A3;"/><TextBlock Text="Масштаб интерфейса" Style="{DynamicResource RowTitle}"/></StackPanel>
                   <TextBlock Text="Крупнее — для больших мониторов, мельче — для небольших экранов" Style="{DynamicResource RowSub}"/>
                   <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                     <RadioButton x:Name="Scale90" Style="{DynamicResource Segment}" GroupName="scale" Content="90%"/>
@@ -263,7 +455,7 @@
                   </StackPanel>
                 </StackPanel>
               </Border>
-              <CheckBox x:Name="SwMica" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwMica" Style="{DynamicResource Switch}" Tag="&#xE7F4;">
                 <StackPanel>
                   <TextBlock Text="Прозрачный фон (Mica)" Style="{DynamicResource RowTitle}"/>
                   <TextBlock x:Name="MicaSub" Text="Как у приложений Windows 11: сквозь окно слегка видно цвет обоев" Style="{DynamicResource RowSub}"/>
@@ -271,7 +463,7 @@
               </CheckBox>
               <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
                 <StackPanel>
-                  <TextBlock Text="Язык интерфейса" Style="{DynamicResource RowTitle}"/>
+                  <StackPanel Orientation="Horizontal"><TextBlock Style="{DynamicResource RowIcon}" Text="&#xE8C1;"/><TextBlock Text="Язык интерфейса" Style="{DynamicResource RowTitle}"/></StackPanel>
                   <TextBlock Text="Лаунчер перезапустится, обход продолжит работать" Style="{DynamicResource RowSub}"/>
                   <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                     <RadioButton x:Name="LangRu" Style="{DynamicResource Segment}" GroupName="lang" Content="Русский"/>
@@ -279,7 +471,7 @@
                   </StackPanel>
                 </StackPanel>
               </Border>
-              <Button x:Name="BtnOnboarding" Style="{DynamicResource RowButton}">
+              <Button x:Name="BtnOnboarding" Style="{DynamicResource RowButton}" Tag="&#xE897;">
                 <StackPanel>
                   <TextBlock Text="Показать приветствие" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="Короткое знакомство с лаунчером из трёх шагов" Style="{DynamicResource RowSub}"/>
@@ -287,17 +479,22 @@
               </Button>
             </StackPanel>
           </Border>
+          </StackPanel>
 
-          <TextBlock Text="ЗАПУСК И ОБНОВЛЕНИЯ" Style="{DynamicResource SectionLabel}"/>
+          <StackPanel Tag="main">
+            <StackPanel Orientation="Horizontal" Margin="4,20,0,8">
+              <TextBlock Text="&#xE7E8;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="ЗАПУСК И ОБНОВЛЕНИЯ" Style="{DynamicResource SectionLabel}" Margin="0" VerticalAlignment="Center"/>
+            </StackPanel>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <CheckBox x:Name="SwAutostart" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwAutostart" Style="{DynamicResource Switch}" Tag="&#xE7E8;">
                 <StackPanel>
                   <TextBlock Text="Запускать вместе с Windows" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="Обход включится сам, лаунчер — в трее" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwWatchdog" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwWatchdog" Style="{DynamicResource Switch}" Tag="&#xE9D9;">
                 <StackPanel>
                   <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Сторож" Style="{DynamicResource RowTitle}"/>
@@ -307,7 +504,7 @@
                   <TextBlock Text="Перезапускает упавший обход и сам меняет стратегию, если сайты перестали открываться" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwVpnPause" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwVpnPause" Style="{DynamicResource Switch}" Tag="&#xE769;">
                 <StackPanel>
                   <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Пауза, пока включён VPN" Style="{DynamicResource RowTitle}"/>
@@ -317,19 +514,19 @@
                   <TextBlock Text="С VPN zapret не нужен: обход выключится сам и вернётся, когда VPN отключат" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwAutoUpdate" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwAutoUpdate" Style="{DynamicResource Switch}" Tag="&#xE895;">
                 <StackPanel>
                   <TextBlock Text="Обновлять автоматически" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="zapret, tg-ws-proxy и лаунчер — при запуске и каждые 6 часов" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwStartOnOpen" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwStartOnOpen" Style="{DynamicResource Switch}" Tag="&#xE768;">
                 <StackPanel>
                   <TextBlock Text="Включать обход при открытии лаунчера" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="Используется последняя выбранная стратегия" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <CheckBox x:Name="SwToasts" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwToasts" Style="{DynamicResource Switch}" Tag="&#xE8BD;">
                 <StackPanel>
                   <TextBlock Text="Уведомления Windows" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="О паузе при VPN, смене стратегии и обновлениях — с кнопками действий" Style="{DynamicResource RowSub}"/>
@@ -337,11 +534,16 @@
               </CheckBox>
             </StackPanel>
           </Border>
+          </StackPanel>
 
-          <TextBlock Text="СЕТИ" Style="{DynamicResource SectionLabel}"/>
+          <StackPanel Tag="net">
+            <StackPanel Orientation="Horizontal" Margin="4,20,0,8">
+              <TextBlock Text="&#xE968;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="СЕТИ" Style="{DynamicResource SectionLabel}" Margin="0" VerticalAlignment="Center"/>
+            </StackPanel>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <CheckBox x:Name="SwNetProfiles" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwNetProfiles" Style="{DynamicResource Switch}" Tag="&#xE968;">
                 <StackPanel>
                   <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Своя стратегия для каждой сети" Style="{DynamicResource RowTitle}"/>
@@ -354,11 +556,16 @@
               <StackPanel x:Name="NetListPanel"/>
             </StackPanel>
           </Border>
+          </StackPanel>
 
-          <TextBlock Text="DNS" Style="{DynamicResource SectionLabel}"/>
+          <StackPanel Tag="net">
+            <StackPanel Orientation="Horizontal" Margin="4,20,0,8">
+              <TextBlock Text="&#xE72E;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="DNS" Style="{DynamicResource SectionLabel}" Margin="0" VerticalAlignment="Center"/>
+            </StackPanel>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <CheckBox x:Name="SwSecureDns" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwSecureDns" Style="{DynamicResource Switch}" Tag="&#xE72E;">
                 <StackPanel>
                   <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Защищённый DNS" Style="{DynamicResource RowTitle}"/>
@@ -378,14 +585,19 @@
               </Border>
             </StackPanel>
           </Border>
+          </StackPanel>
 
-          <TextBlock Text="ФИЛЬТРЫ" Style="{DynamicResource SectionLabel}"/>
+          <StackPanel Tag="bypass">
+            <StackPanel Orientation="Horizontal" Margin="4,20,0,8">
+              <TextBlock Text="&#xE71C;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="ФИЛЬТРЫ" Style="{DynamicResource SectionLabel}" Margin="0" VerticalAlignment="Center"/>
+            </StackPanel>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
               <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,12">
                 <StackPanel>
                   <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Game Filter" Style="{DynamicResource RowTitle}"/>
+                    <StackPanel Orientation="Horizontal"><TextBlock Style="{DynamicResource RowIcon}" Text="&#xE7FC;"/><TextBlock Text="Game Filter" Style="{DynamicResource RowTitle}"/></StackPanel>
                     <TextBlock x:Name="HelpGf" Style="{DynamicResource HelpIcon}"
                                ToolTip="Обычно zapret обрабатывает только веб-порты 80 и 443. Game Filter добавляет порты 1024–65535 — это нужно некоторым играм и голосу в Discord. TCP — для игр по TCP, UDP — для голоса и большинства онлайн-игр. Может замедлить другие программы."/>
                   </StackPanel>
@@ -403,7 +615,7 @@
                   <Grid>
                     <StackPanel>
                       <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="IPSet" Style="{DynamicResource RowTitle}"/>
+                        <StackPanel Orientation="Horizontal"><TextBlock Style="{DynamicResource RowIcon}" Text="&#xE71C;"/><TextBlock Text="IPSet" Style="{DynamicResource RowTitle}"/></StackPanel>
                         <TextBlock x:Name="HelpIpset" Style="{DynamicResource HelpIcon}"
                                    ToolTip="Кроме списка доменов, zapret умеет обходить блокировки по IP-адресам. «По списку» — только адреса из ipset-all.txt (Discord, Cloudflare и другие). «Все IP» — весь трафик на портах обхода: помогает, когда домен неизвестен, но может сломать часть сайтов."/>
                       </StackPanel>
@@ -420,17 +632,22 @@
               </Border>
             </StackPanel>
           </Border>
+          </StackPanel>
 
-          <TextBlock Text="TELEGRAM" Style="{DynamicResource SectionLabel}"/>
+          <StackPanel Tag="bypass">
+            <StackPanel Orientation="Horizontal" Margin="4,20,0,8">
+              <TextBlock Text="&#xE724;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="TELEGRAM" Style="{DynamicResource SectionLabel}" Margin="0" VerticalAlignment="Center"/>
+            </StackPanel>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <CheckBox x:Name="SwTelegram" Style="{DynamicResource Switch}">
+              <CheckBox x:Name="SwTelegram" Style="{DynamicResource Switch}" Tag="&#xE724;">
                 <StackPanel>
                   <TextBlock Text="Telegram Desktop и Web вместе с обходом" Style="{DynamicResource RowTitle}"/>
                   <TextBlock x:Name="TgSub" Text="Desktop — прокси tg-ws-proxy, Web — через hosts" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </CheckBox>
-              <Button x:Name="BtnTgConnect" Style="{DynamicResource RowButton}">
+              <Button x:Name="BtnTgConnect" Style="{DynamicResource RowButton}" Tag="&#xE71B;">
                 <StackPanel>
                   <TextBlock Text="Подключить Telegram Desktop" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="Откроет Telegram — нажмите «Подключиться» в окне прокси" Style="{DynamicResource RowSub}"/>
@@ -438,29 +655,34 @@
               </Button>
             </StackPanel>
           </Border>
+          </StackPanel>
 
-          <TextBlock Text="ИНСТРУМЕНТЫ" Style="{DynamicResource SectionLabel}"/>
+          <StackPanel Tag="bypass">
+            <StackPanel Orientation="Horizontal" Margin="4,20,0,8">
+              <TextBlock Text="&#xE90F;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="ИНСТРУМЕНТЫ" Style="{DynamicResource SectionLabel}" Margin="0" VerticalAlignment="Center"/>
+            </StackPanel>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <Button x:Name="BtnFixDiscord" Style="{DynamicResource RowButton}">
+              <Button x:Name="BtnFixDiscord" Style="{DynamicResource RowButton}" Tag="&#xE90F;">
                 <StackPanel>
                   <TextBlock Text="Починить Discord" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="Закрыть Discord, очистить его кэш и открыть заново. Вход и настройки сохранятся" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnService" Style="{DynamicResource RowButton}">
+              <Button x:Name="BtnService" Style="{DynamicResource RowButton}" Tag="&#xE756;">
                 <StackPanel>
                   <TextBlock Text="service.bat" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="Ручные тесты и диагностика zapret в консоли" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnRollback" Style="{DynamicResource RowButton}" Visibility="Collapsed">
+              <Button x:Name="BtnRollback" Style="{DynamicResource RowButton}" Tag="&#xE7A7;" Visibility="Collapsed">
                 <StackPanel>
                   <TextBlock x:Name="RollbackTitle" Text="Откатить zapret" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="Если новая версия работает хуже — вернуть прошлую" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnRemoveService" Style="{DynamicResource RowButton}" Visibility="Collapsed">
+              <Button x:Name="BtnRemoveService" Style="{DynamicResource RowButton}" Tag="&#xE74D;" Visibility="Collapsed">
                 <StackPanel>
                   <TextBlock Text="Удалить службу zapret" Style="{DynamicResource RowTitle}" Foreground="{DynamicResource Danger}"/>
                   <TextBlock Text="Служба из service.bat мешает управлять обходом" Style="{DynamicResource RowSub}"/>
@@ -468,29 +690,40 @@
               </Button>
             </StackPanel>
           </Border>
+          </StackPanel>
 
-          <TextBlock Text="ЛАУНЧЕР" Style="{DynamicResource SectionLabel}"/>
+          <StackPanel Tag="launcher">
+            <StackPanel Orientation="Horizontal" Margin="4,20,0,8">
+              <TextBlock Text="&#xE946;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="ЛАУНЧЕР" Style="{DynamicResource SectionLabel}" Margin="0" VerticalAlignment="Center"/>
+            </StackPanel>
           <Border Style="{DynamicResource SettingsCard}">
             <StackPanel>
-              <Button x:Name="BtnLauncherUpdate" Style="{DynamicResource RowButton}">
+              <Button x:Name="BtnLauncherUpdate" Style="{DynamicResource RowButton}" Tag="&#xE896;">
                 <StackPanel>
                   <TextBlock x:Name="LauncherVersionText" Text="Zapret Launcher" Style="{DynamicResource RowTitle}"/>
                   <TextBlock x:Name="LauncherRepoText" Text="" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnBackupSave" Style="{DynamicResource RowButton}">
+              <Button x:Name="BtnLauncherRollback" Style="{DynamicResource RowButton}" Tag="&#xE7A7;">
+                <StackPanel>
+                  <TextBlock x:Name="LauncherRollbackTitle" Text="Вернуть прошлую версию лаунчера" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Если новая версия работает хуже. Настройки перед откатом сохранятся в резервную копию" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </Button>
+              <Button x:Name="BtnBackupSave" Style="{DynamicResource RowButton}" Tag="&#xE74E;">
                 <StackPanel>
                   <TextBlock Text="Сохранить настройки в файл" Style="{DynamicResource RowTitle}"/>
                   <TextBlock Text="Настройки, домены, избранное и профили сетей — для переустановки Windows или другого компьютера" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnBackupRestore" Style="{DynamicResource RowButton}">
+              <Button x:Name="BtnBackupRestore" Style="{DynamicResource RowButton}" Tag="&#xE777;">
                 <StackPanel>
                   <TextBlock Text="Восстановить настройки из файла" Style="{DynamicResource RowTitle}"/>
                   <TextBlock x:Name="BackupSub" Text="Лаунчер перезапустится, обход продолжит работать" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
-              <Button x:Name="BtnUninstall" Style="{DynamicResource RowButton}">
+              <Button x:Name="BtnUninstall" Style="{DynamicResource RowButton}" Tag="&#xE74D;">
                 <StackPanel>
                   <TextBlock Text="Удалить всё" Style="{DynamicResource RowTitle}" Foreground="{DynamicResource Danger}"/>
                   <TextBlock Text="Остановить обход, убрать автозапуск, драйвер, записи в hosts и ярлыки" Style="{DynamicResource RowSub}"/>
@@ -498,11 +731,12 @@
               </Button>
             </StackPanel>
           </Border>
+          </StackPanel>
         </StackPanel>
       </ScrollViewer>
 
       <!-- Журнал -->
-      <Grid x:Name="PageLog" Visibility="Collapsed" Margin="22,20,22,12">
+      <Grid x:Name="PageLog" Visibility="Collapsed" Margin="22,20,20,14">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition/>
@@ -526,7 +760,14 @@
         </Ellipse.Fill>
       </Ellipse>
 
-      <DockPanel Margin="24,20,24,20" LastChildFill="False">
+      <!-- Сверху — прокручиваемое содержимое (на маленьком окне ничего не уходит за край), снизу — кнопки-переключатели всегда на виду -->
+      <Grid Margin="24,20,24,20">
+        <Grid.RowDefinitions>
+          <RowDefinition/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,0,-12,0" Padding="0,0,12,0">
+        <StackPanel>
         <Grid DockPanel.Dock="Top">
           <TextBlock Text="СТАТУС ОБХОДА" Style="{DynamicResource Caption}" VerticalAlignment="Center"/>
           <Border HorizontalAlignment="Right" CornerRadius="12" Background="{DynamicResource Card}" Padding="10,4" MaxWidth="300">
@@ -537,11 +778,12 @@
           </Border>
         </Grid>
 
-        <Border x:Name="ConflictBar" DockPanel.Dock="Top" Margin="0,14,0,0" CornerRadius="10" Background="{DynamicResource WarnBg}"
-                BorderBrush="{DynamicResource WarnBorder}" BorderThickness="1" Padding="12,8" Visibility="Collapsed">
+        <!-- Предупреждение — одной тонкой строкой; полный текст во всплывающей подсказке -->
+        <Border x:Name="ConflictBar" DockPanel.Dock="Top" Margin="0,12,0,0" CornerRadius="9" Background="{DynamicResource WarnBg}"
+                BorderBrush="{DynamicResource WarnBorder}" BorderThickness="1" Padding="10,5" Visibility="Collapsed">
           <DockPanel>
-            <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="{DynamicResource Icons}" FontSize="14" Foreground="{DynamicResource WarnText}" Margin="0,1,10,0"/>
-            <TextBlock x:Name="ConflictText" Foreground="{DynamicResource WarnText}" FontSize="12" TextWrapping="Wrap"/>
+            <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource WarnText}" Margin="0,1,8,0" VerticalAlignment="Center"/>
+            <TextBlock x:Name="ConflictText" Foreground="{DynamicResource WarnText}" FontSize="11" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
           </DockPanel>
         </Border>
 
@@ -590,6 +832,15 @@
               <TextBlock x:Name="PowerStatus" Text="Обход выключен" FontSize="20" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
               <TextBlock x:Name="PowerTimer" Text=" " FontSize="12" Foreground="{DynamicResource TextSub}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
               <TextBlock x:Name="PowerHint" Text="Нажмите, чтобы включить" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,6,0,0"/>
+              <!-- Встроенный VPN: показывается, пока он включён -->
+              <StackPanel x:Name="PowerVpn" Orientation="Horizontal" Margin="0,7,0,0" Visibility="Collapsed">
+                <Border CornerRadius="6" Background="{DynamicResource AccentSoft}" Padding="7,2">
+                  <StackPanel Orientation="Horizontal">
+                    <Ellipse x:Name="PowerVpnDot" Width="6" Height="6" Fill="{DynamicResource Ok}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="PowerVpnText" Text="VPN" FontSize="11" Foreground="{DynamicResource AccentHover}" TextTrimming="CharacterEllipsis" MaxWidth="260"/>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
             </StackPanel>
             <Grid Grid.Column="2" Width="60" Height="32" VerticalAlignment="Center">
               <Border CornerRadius="16" Background="{DynamicResource TrackOff}"/>
@@ -651,26 +902,25 @@
           <TextBlock Text="ЗА СУТКИ" Style="{DynamicResource Caption}" VerticalAlignment="Center"/>
           <TextBlock x:Name="HistorySummary" Text="" FontSize="11" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
         </Grid>
-        <Border DockPanel.Dock="Top" CornerRadius="14" Background="{DynamicResource CardRaised}" Padding="14,12">
+        <!-- компактно: полоса за 24 часа (слева — сутки назад, справа — сейчас) и легенда -->
+        <Border DockPanel.Dock="Top" CornerRadius="14" Background="{DynamicResource CardRaised}" Padding="12,10" ToolTip="Слева — сутки назад, справа — сейчас. Наведите на отрезок, чтобы увидеть время">
           <StackPanel>
-            <Border CornerRadius="5" Background="{DynamicResource IconBg}" Height="16" ClipToBounds="True">
+            <Border CornerRadius="4" Background="{DynamicResource IconBg}" Height="10" ClipToBounds="True">
               <Canvas x:Name="HistoryBar"/>
             </Border>
-            <Grid Margin="0,7,0,0">
-              <TextBlock x:Name="HistoryFrom" Text="24 ч назад" FontSize="10" Foreground="{DynamicResource Faint}"/>
-              <TextBlock Text="12 ч" FontSize="10" Foreground="{DynamicResource Faint}" HorizontalAlignment="Center"/>
-              <TextBlock Text="сейчас" FontSize="10" Foreground="{DynamicResource Faint}" HorizontalAlignment="Right"/>
-            </Grid>
-            <WrapPanel x:Name="HistoryLegend" Margin="0,8,0,0"/>
+            <WrapPanel x:Name="HistoryLegend" Margin="0,7,0,0"/>
           </StackPanel>
         </Border>
 
-        <WrapPanel DockPanel.Dock="Bottom">
+        </StackPanel>
+        </ScrollViewer>
+        <WrapPanel Grid.Row="1" Margin="0,10,0,0">
           <ToggleButton x:Name="ChipAutostart" Style="{DynamicResource Chip}" Content="Автозапуск"/>
           <ToggleButton x:Name="ChipAutoUpdate" Style="{DynamicResource Chip}" Content="Автообновление"/>
           <ToggleButton x:Name="ChipTelegram" Style="{DynamicResource Chip}" Content="Telegram"/>
+          <ToggleButton x:Name="ChipVpn" Style="{DynamicResource Chip}" Content="VPN" ToolTip="Встроенный VPN: сайты и программы из списка на странице VPN"/>
         </WrapPanel>
-      </DockPanel>
+      </Grid>
     </Grid>
 
     <!-- Экран первого запуска -->

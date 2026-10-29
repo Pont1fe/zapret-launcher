@@ -97,6 +97,19 @@ namespace ZapretLauncher
         public string SecureDns { get; set; }  // "" — выключен; cloudflare / google / quad9 / adguard
         public List<string> DnsAdapters { get; set; }   // адаптеры, на которых лаунчер поменял DNS (чтобы вернуть как было)
         public string IpsetUpdated { get; set; }        // когда список IPSet обновлялся автоматически (yyyy-MM-dd)
+        // Встроенный VPN (sing-box)
+        public bool VpnOn { get; set; }                  // пользователь хочет, чтобы VPN был включён
+        public List<VpnServer> VpnServers { get; set; }
+        public int VpnSelected { get; set; }
+        public string VpnSubscription { get; set; }      // адрес подписки, если серверы добавлены из неё
+        public string VpnMode { get; set; }              // split — только выбранное, all — весь трафик
+        public List<string> VpnDomains { get; set; }     // сайты через VPN (режим split)
+        public List<string> VpnApps { get; set; }        // программы через VPN (режим split), например Spotify.exe
+        public string VpnSubInfo { get; set; }          // заголовок subscription-userinfo: трафик и срок подписки
+        public string VpnSubUpdated { get; set; }       // когда подписка обновлялась (yyyy-MM-dd HH:mm)
+        public bool VpnHelpDone { get; set; }           // подсказку «Как начать» на странице VPN закрыли
+        public bool VpnAutoBest { get; set; }            // при подключении выбирать самый быстрый сервер и уходить с упавшего
+        public string LastSeenVersion { get; set; }      // для окна «Что нового» после обновления
 
         // launcher.json не было — первая установка (или после удаления); не сохраняется в файл
         [ScriptIgnore] public static bool Fresh { get; private set; }
@@ -120,6 +133,7 @@ namespace ZapretLauncher
             PickScores = new Dictionary<string, string>();
             PickDetails = new Dictionary<string, string>();
             SecureDns = ""; DnsAdapters = new List<string>(); IpsetUpdated = "";
+            VpnServers = new List<VpnServer>(); VpnDomains = new List<string>(); VpnApps = new List<string>(); VpnMode = "split"; VpnSubscription = "";
         }
 
         public static Config Load()
@@ -146,6 +160,15 @@ namespace ZapretLauncher
             if (c.DnsAdapters == null) c.DnsAdapters = new List<string>();
             if (c.SecureDns == null) c.SecureDns = "";
             if (c.IpsetUpdated == null) c.IpsetUpdated = "";
+            if (c.VpnServers == null) c.VpnServers = new List<VpnServer>();
+            if (c.VpnDomains == null) c.VpnDomains = new List<string>();
+            if (c.VpnApps == null) c.VpnApps = new List<string>();
+            if (c.VpnMode != "all" && c.VpnMode != "ru") c.VpnMode = "split";
+            if (c.VpnSubscription == null) c.VpnSubscription = "";
+            if (c.VpnSelected < 0 || c.VpnSelected >= c.VpnServers.Count) c.VpnSelected = 0;
+            if (c.LastSeenVersion == null) c.LastSeenVersion = "";
+            if (c.VpnSubInfo == null) c.VpnSubInfo = "";
+            if (c.VpnSubUpdated == null) c.VpnSubUpdated = "";
             if (string.IsNullOrEmpty(c.Accent)) c.Accent = "teal";
             if (c.Scale != 90 && c.Scale != 115 && c.Scale != 130) c.Scale = 100;
             if (c.PickDate == null) c.PickDate = "";

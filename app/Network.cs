@@ -196,6 +196,7 @@ namespace ZapretLauncher
             int index;
             NetworkInterface ni = InternetAdapter(out index);
             if (ni == null || index < 0) return null;
+            if (ni.Name == Vpn.InterfaceName) return null;   // свой VPN лаунчера — не повод ставить обход на паузу
             return IsRealAdapter(ni, index) ? null : ni.Name;
         }
 

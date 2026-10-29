@@ -53,6 +53,30 @@
         </Grid>
       </Grid>
 
+      <!-- Встроенный VPN: виден, если добавлен хотя бы один сервер -->
+      <Grid x:Name="FlyVpn" Margin="0,8,0,0" Height="44" Cursor="Hand" Background="Transparent" Visibility="Collapsed">
+        <Border CornerRadius="12" Background="{DynamicResource Card}" BorderBrush="{DynamicResource Line}" BorderThickness="1"/>
+        <Grid Margin="14,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <TextBlock Text="&#xE909;" FontFamily="{DynamicResource Icons}" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,9,0"/>
+            <TextBlock x:Name="FlyVpnText" Text="VPN" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="220"/>
+          </StackPanel>
+          <Grid Grid.Column="1" Width="40" Height="22" VerticalAlignment="Center">
+            <Border CornerRadius="11" Background="{DynamicResource TrackOff}"/>
+            <Border x:Name="FlyVpnTrackOn" CornerRadius="11" Background="{DynamicResource Accent}" Opacity="0"/>
+            <Ellipse x:Name="FlyVpnKnob" Width="16" Height="16" Fill="White" HorizontalAlignment="Left" Margin="3,0">
+              <Ellipse.RenderTransform>
+                <TranslateTransform X="0"/>
+              </Ellipse.RenderTransform>
+            </Ellipse>
+          </Grid>
+        </Grid>
+      </Grid>
+
       <UniformGrid x:Name="FlySites" Rows="1" Margin="0,12,0,0"/>
 
       <Grid Margin="0,14,0,0">
