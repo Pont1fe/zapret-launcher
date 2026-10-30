@@ -118,6 +118,7 @@ namespace ZapretLauncher
         public Dictionary<string, string> PickScores { get; set; }   // стратегия -> "открылось/всего/среднее мс" из последнего подбора
         public Dictionary<string, string> PickDetails { get; set; }  // стратегия -> "Сайт=мс;Сайт=-1" (-1 — не открылся) из последнего подбора
         public string PickDate { get; set; }
+        public List<string> BlockedSites { get; set; }   // не открылись ни с одной стратегией: провайдер режет их по адресу, zapret не поможет
         public string SkipVersion { get; set; }
         public string LauncherRepo { get; set; }
         public Dictionary<string, NetProfile> NetworkProfiles { get; set; }
@@ -132,6 +133,7 @@ namespace ZapretLauncher
             CollapsedGroups = new List<string>();
             PickScores = new Dictionary<string, string>();
             PickDetails = new Dictionary<string, string>();
+            BlockedSites = new List<string>();
             SecureDns = ""; DnsAdapters = new List<string>(); IpsetUpdated = "";
             VpnServers = new List<VpnServer>(); VpnDomains = new List<string>(); VpnApps = new List<string>(); VpnMode = "split"; VpnSubscription = "";
         }
@@ -156,6 +158,7 @@ namespace ZapretLauncher
             if (c.Favorites == null) c.Favorites = new List<string>();
             if (c.PickScores == null) c.PickScores = new Dictionary<string, string>();
             if (c.PickDetails == null) c.PickDetails = new Dictionary<string, string>();
+            if (c.BlockedSites == null) c.BlockedSites = new List<string>();
             if (c.CollapsedGroups == null) c.CollapsedGroups = new List<string>();
             if (c.DnsAdapters == null) c.DnsAdapters = new List<string>();
             if (c.SecureDns == null) c.SecureDns = "";

@@ -366,6 +366,18 @@
               <RadioButton x:Name="VpnModeAll" Style="{DynamicResource Segment}" GroupName="vpnmode" Content="Весь трафик"/>
             </StackPanel>
             <TextBlock x:Name="VpnModeText" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,0" TextWrapping="Wrap" Text=" "/>
+            <!-- Сайты, которые провайдер режет по адресу: одной кнопкой — через VPN -->
+            <Border x:Name="VpnBlockedBar" CornerRadius="10" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource AccentBorder}" BorderThickness="1"
+                    Padding="12,8" Margin="0,12,0,0" Visibility="Collapsed">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="VpnBlockedText" Text=" " FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                <Button x:Name="BtnVpnAddBlocked" Grid.Column="1" Style="{DynamicResource AccentButton}" Height="30" Margin="10,0,0,0" Content="Через VPN"/>
+              </Grid>
+            </Border>
             <StackPanel x:Name="VpnSplitPanel" Margin="0,14,0,0">
               <StackPanel Orientation="Horizontal">
                 <RadioButton x:Name="VpnKindSites" Style="{DynamicResource Segment}" GroupName="vpnkind" Content="Сайты" IsChecked="True"/>
@@ -474,7 +486,7 @@
               <Button x:Name="BtnOnboarding" Style="{DynamicResource RowButton}" Tag="&#xE897;">
                 <StackPanel>
                   <TextBlock Text="Показать приветствие" Style="{DynamicResource RowTitle}"/>
-                  <TextBlock Text="Короткое знакомство с лаунчером из трёх шагов" Style="{DynamicResource RowSub}"/>
+                  <TextBlock Text="Короткое знакомство с лаунчером и VPN" Style="{DynamicResource RowSub}"/>
                 </StackPanel>
               </Button>
             </StackPanel>
@@ -783,6 +795,21 @@
                 BorderBrush="{DynamicResource WarnBorder}" BorderThickness="1" Padding="10,5" Visibility="Collapsed">
           <DockPanel>
             <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource WarnText}" Margin="0,1,8,0" VerticalAlignment="Center"/>
+            <Button x:Name="BtnFixConflict" DockPanel.Dock="Right" Content="Исправить" Cursor="Hand" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="Collapsed">
+              <Button.Template>
+                <ControlTemplate TargetType="Button">
+                  <Border x:Name="b" CornerRadius="6" Padding="9,2" Background="Transparent" BorderBrush="{DynamicResource WarnBorder}" BorderThickness="1"
+                          TextElement.Foreground="{DynamicResource WarnText}" TextElement.FontSize="11" TextElement.FontWeight="SemiBold">
+                    <ContentPresenter VerticalAlignment="Center"/>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="b" Property="Background" Value="{DynamicResource WarnBorder}"/>
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Button.Template>
+            </Button>
             <TextBlock x:Name="ConflictText" Foreground="{DynamicResource WarnText}" FontSize="11" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
           </DockPanel>
         </Border>
@@ -937,6 +964,8 @@
           </Border>
           <TextBlock x:Name="OnbTitle" Text="" FontSize="22" FontWeight="SemiBold" Margin="0,20,0,0" TextWrapping="Wrap"/>
           <TextBlock x:Name="OnbText" Text="" FontSize="13" Foreground="{DynamicResource TextSub}" Margin="0,10,0,0" TextWrapping="Wrap" LineHeight="20"/>
+          <!-- Картинка шага: рисуется кодом из элементов интерфейса, поэтому сама подстраивается под тему -->
+          <Border x:Name="OnbPicture" Margin="0,18,0,0" Visibility="Collapsed"/>
           <Grid Margin="0,26,0,0">
             <StackPanel x:Name="OnbDots" Orientation="Horizontal" VerticalAlignment="Center"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

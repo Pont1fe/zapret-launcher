@@ -3,6 +3,14 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/vpn-en.png)
 
+### 4.0.1 — smarter about blocks / Умнее с блокировками
+
+- 🚧 Sites your ISP blocks by address (zapret can't help there) are now detected: the card says “blocked by address — VPN will help”, and one “Via VPN” button on the Routes tab sends the whole service through the VPN / Сайты, которые провайдер блокирует по адресу (тут zapret бессилен), теперь распознаются: на карточке — «заблокирован по адресу — поможет VPN», а кнопка «Через VPN» на вкладке «Маршруты» пускает весь сервис через VPN
+- 🐕 The watchdog no longer keeps picking new strategies because of such sites / Сторож больше не гоняет подбор стратегий из-за таких сайтов
+- 🛠️ A “Fix” button on the warning bar: closes other bypass programs, stops their services and unloads a foreign WinDivert driver / Кнопка «Исправить» на жёлтой плашке: закроет другие программы обхода, остановит их службы и выгрузит чужой драйвер WinDivert
+- 📊 Connections grouped by app, with real app icons and traffic per app / Журнал соединений по программам — с настоящими значками и трафиком каждой
+- ✨ Smooth transitions between pages and tabs; a new welcome tour with pictures of the VPN and routing modes / Плавные переходы между страницами и вкладками; новое приветствие с картинками про VPN и режимы маршрутов
+
 ### 4.0.0 — VPN right inside the launcher / VPN прямо в лаунчере
 
 The biggest update yet: zapret and a VPN now live in one window and work together. No separate VPN app needed.

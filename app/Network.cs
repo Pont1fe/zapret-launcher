@@ -243,6 +243,34 @@ namespace ZapretLauncher
         }
 
         static Conflict Make(string kind, string text) { Conflict c = new Conflict(); c.Kind = kind; c.Text = text; return c; }
+
+        // Кнопка «Исправить»: закрывает чужие программы обхода и копии zapret, останавливает их службы и выгружает драйвер WinDivert.
+        // Свой winws к этому моменту уже остановлен — иначе драйвер занят
+        public static async Task Fix()
+        {
+            List<Process> procs = OtherDpiTools();
+            procs.AddRange(Zapret.Winws());
+            foreach (Process p in procs)
+            {
+                Log.Write("Закрываю " + p.ProcessName + " — он мешает обходу");
+                try { p.Kill(); p.WaitForExit(5000); } catch { }
+            }
+            // службы GoodbyeDPI и zapret из чужой папки иначе запустят всё снова
+            try
+            {
+                using (ManagementObjectSearcher q = new ManagementObjectSearcher("SELECT Name, PathName FROM Win32_Service WHERE Name LIKE 'GoodbyeDPI%' OR Name = 'zapret'"))
+                    foreach (ManagementObject s in q.Get())
+                    {
+                        string name = s["Name"] as string, path = s["PathName"] as string ?? "";
+                        if (path.IndexOf(Paths.Zapret, StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                        Log.Write("Останавливаю службу " + name + " (" + path + ") и отключаю её автозапуск");
+                        await Util.RunAsync("sc.exe", "stop " + name);
+                        await Util.RunAsync("sc.exe", "config " + name + " start= disabled");
+                    }
+            }
+            catch { }
+            await Zapret.UnloadDriver();
+        }
     }
 
     public class NetworkId

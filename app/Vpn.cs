@@ -710,7 +710,7 @@ namespace ZapretLauncher
         public static Task<int> CurrentDelay() { return apiPort == 0 ? Task.FromResult(-1) : Delay(apiPort, apiSecret, "proxy"); }
 
         // Текущие соединения через ядро: сайт, программа, через VPN или напрямую
-        public class Connection { public string Host, Process; public bool ViaVpn; public long Bytes; public DateTime Start; }
+        public class Connection { public string Host, Process, ProcessPath; public bool ViaVpn; public long Bytes; public DateTime Start; }
 
         public static async Task<List<Connection>> Connections()
         {
@@ -735,7 +735,7 @@ namespace ZapretLauncher
                     list.Add(new Connection
                     {
                         Host = host + (S(m, "destinationPort").Length > 0 && S(m, "destinationPort") != "443" && S(m, "destinationPort") != "80" ? ":" + S(m, "destinationPort") : ""),
-                        Process = proc, ViaVpn = chains != null && chains.Any(x => "proxy".Equals(x)),
+                        Process = proc, ProcessPath = S(m, "processPath"), ViaVpn = chains != null && chains.Any(x => "proxy".Equals(x)),
                         Bytes = Convert.ToInt64(c.ContainsKey("download") ? c["download"] : 0) + Convert.ToInt64(c.ContainsKey("upload") ? c["upload"] : 0),
                         Start = start,
                     });

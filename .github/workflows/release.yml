@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Build
         shell: powershell
@@ -29,7 +29,7 @@ jobs:
           $v = (Get-Item dist/ZapretLauncher.exe).VersionInfo.FileVersion -replace '\.0$', ''
           if ("v$v" -ne '${{ github.ref_name }}') { throw "AppVersion $v does not match tag ${{ github.ref_name }} - update app/App.cs" }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ZapretLauncher
           path: dist/*.exe

@@ -652,12 +652,22 @@ namespace ZapretLauncher
             return b;
         }
 
+        static readonly string[] SettingsGroups = { "main", "bypass", "net", "look", "launcher" };
+        string settingsGroup = "main";
+
         void ShowSettingsGroup(string group)
         {
+            double from = Array.IndexOf(SettingsGroups, group) >= Array.IndexOf(SettingsGroups, settingsGroup) ? 24 : -24;
+            bool changed = group != settingsGroup;
+            settingsGroup = group;
+            int n = 0;
             foreach (UIElement child in E<StackPanel>("SettingsRoot").Children)
             {
                 FrameworkElement fe = child as FrameworkElement;
-                if (fe != null && fe.Tag is string) fe.Visibility = (string)fe.Tag == group ? Visibility.Visible : Visibility.Collapsed;
+                if (fe == null || !(fe.Tag is string)) continue;
+                bool show = (string)fe.Tag == group;
+                fe.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+                if (show && changed) SlideIn(fe, from, 50 * n++);   // разделы вкладки въезжают по очереди
             }
             E<ScrollViewer>("PageSettings").ScrollToTop();
         }
@@ -795,37 +805,154 @@ namespace ZapretLauncher
                 return;
             }
             List<Vpn.Connection> conns = await Vpn.Connections();
+            RenderConnections(conns);
+        }
+
+        // Журнал по программам: значок, название, сколько соединений и трафика, под ней — её сайты (сначала свежие)
+        void RenderConnections(List<Vpn.Connection> conns)
+        {
+            StackPanel list = E<StackPanel>("VpnConnList");
             list.Children.Clear();
-            // по сайтам: одна строка на сайт, сначала свежие
-            var bySite = conns.Where(c => !string.IsNullOrEmpty(c.Host)).GroupBy(c => c.Host)
-                .Select(g => new { Host = g.Key, ViaVpn = g.Any(c => c.ViaVpn), Process = g.Select(c => c.Process).FirstOrDefault(p => !string.IsNullOrEmpty(p)), Bytes = g.Sum(c => c.Bytes), Start = g.Max(c => c.Start), Count = g.Count() })
-                .OrderByDescending(x => x.Start).Take(40).ToList();
             Text("VpnConnInfo").Text = T("Сейчас соединений") + ": " + conns.Count + " · " + T("через VPN") + ": " + conns.Count(c => c.ViaVpn) + " · " + T("напрямую") + ": " + conns.Count(c => !c.ViaVpn);
-            foreach (var c in bySite)
-            {
-                Grid row = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.ColumnDefinitions.Add(new ColumnDefinition());
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                Ellipse dot = new Ellipse { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 9, 0) };
-                dot.SetResourceReference(Shape.FillProperty, c.ViaVpn ? "Accent" : "Idle");
-                row.Children.Add(dot);
-                StackPanel text = new StackPanel { Orientation = Orientation.Horizontal };
-                text.Children.Add(new TextBlock { Text = c.Host + (c.Count > 1 ? " ×" + c.Count : ""), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
-                if (!string.IsNullOrEmpty(c.Process))
+            var byApp = conns.Where(c => !string.IsNullOrEmpty(c.Host))
+                .GroupBy(c => (c.Process ?? "").ToLowerInvariant())
+                .Select(g => new
                 {
-                    TextBlock p = new TextBlock { Text = "  " + c.Process, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
-                    p.SetResourceReference(TextBlock.ForegroundProperty, "Faint");
-                    text.Children.Add(p);
+                    Name = g.Select(c => c.Process).FirstOrDefault(p => !string.IsNullOrEmpty(p)) ?? "",
+                    Path = g.Select(c => c.ProcessPath).FirstOrDefault(p => !string.IsNullOrEmpty(p)),
+                    Bytes = g.Sum(c => c.Bytes), Vpn = g.Count(c => c.ViaVpn), Count = g.Count(),
+                    Sites = g.GroupBy(c => c.Host).Select(s => new { Host = s.Key, ViaVpn = s.Any(c => c.ViaVpn), Bytes = s.Sum(c => c.Bytes), Start = s.Max(c => c.Start), Count = s.Count() })
+                             .OrderByDescending(s => s.Start).ToList(),
+                })
+                .OrderByDescending(a => a.Bytes).Take(15).ToList();
+            foreach (var a in byApp)
+            {
+                StackPanel body = new StackPanel();
+                Grid head = new Grid();
+                head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                head.ColumnDefinitions.Add(new ColumnDefinition());
+                head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                head.Children.Add(AppIconElement(a.Path));
+                StackPanel title = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                title.Children.Add(new TextBlock { Text = AppTitle(a.Name, a.Path), FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+                TextBlock sub = new TextBlock { FontSize = 11, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis,
+                                                Text = T("соединений") + ": " + a.Count + (a.Vpn == a.Count ? " · " + T("все через VPN") : a.Vpn > 0 ? " · " + T("через VPN") + ": " + a.Vpn : " · " + T("напрямую")) };
+                sub.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                title.Children.Add(sub);
+                Grid.SetColumn(title, 1);
+                head.Children.Add(title);
+                TextBlock total = new TextBlock { Text = Bytes(a.Bytes), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+                total.SetResourceReference(TextBlock.ForegroundProperty, a.Vpn > 0 ? "AccentHover" : "TextSub");
+                Grid.SetColumn(total, 2);
+                head.Children.Add(total);
+                body.Children.Add(head);
+
+                const int shown = 4;
+                foreach (var s in a.Sites.Take(shown))
+                {
+                    Grid row = new Grid { Margin = new Thickness(32, 5, 0, 0) };
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    row.ColumnDefinitions.Add(new ColumnDefinition());
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    Ellipse dot = new Ellipse { Width = 6, Height = 6, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                    dot.SetResourceReference(Shape.FillProperty, s.ViaVpn ? "Accent" : "Idle");
+                    row.Children.Add(dot);
+                    TextBlock host = new TextBlock { Text = s.Host + (s.Count > 1 ? " ×" + s.Count : ""), FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis };
+                    Grid.SetColumn(host, 1);
+                    row.Children.Add(host);
+                    TextBlock via = new TextBlock { Text = T(s.ViaVpn ? "VPN" : "напрямую") + " · " + Bytes(s.Bytes), FontSize = 10.5, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                    via.SetResourceReference(TextBlock.ForegroundProperty, s.ViaVpn ? "AccentHover" : "Faint");
+                    Grid.SetColumn(via, 2);
+                    row.Children.Add(via);
+                    body.Children.Add(row);
                 }
-                Grid.SetColumn(text, 1);
-                row.Children.Add(text);
-                TextBlock via = new TextBlock { Text = T(c.ViaVpn ? "VPN" : "напрямую") + " · " + Bytes(c.Bytes), FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
-                via.SetResourceReference(TextBlock.ForegroundProperty, c.ViaVpn ? "AccentHover" : "Muted");
-                Grid.SetColumn(via, 2);
-                row.Children.Add(via);
-                list.Children.Add(row);
+                if (a.Sites.Count > shown)
+                {
+                    TextBlock more = new TextBlock { Text = T("и ещё сайтов") + ": " + (a.Sites.Count - shown), FontSize = 11, Margin = new Thickness(32, 5, 0, 0) };
+                    more.SetResourceReference(TextBlock.ForegroundProperty, "Faint");
+                    body.Children.Add(more);
+                }
+                Border card = new Border { Child = body, CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 9, 12, 9), Margin = new Thickness(0, 0, 0, 6) };
+                card.SetResourceReference(Border.BackgroundProperty, "Card");
+                list.Children.Add(card);
             }
+        }
+
+        readonly Dictionary<string, ImageSource> appIcons = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, string> appTitles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Значок программы из её exe; нет пути или не читается — общий значок приложения
+        FrameworkElement AppIconElement(string path)
+        {
+            ImageSource icon = null;
+            if (!string.IsNullOrEmpty(path) && !appIcons.TryGetValue(path, out icon))
+            {
+                try
+                {
+                    using (System.Drawing.Icon ico = System.Drawing.Icon.ExtractAssociatedIcon(path))
+                    {
+                        icon = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(ico.Handle, Int32Rect.Empty, System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+                        icon.Freeze();
+                    }
+                }
+                catch { icon = null; }
+                appIcons[path] = icon;
+            }
+            if (icon != null) return new Image { Source = icon, Width = 22, Height = 22, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+            Border b = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+            b.SetResourceReference(Border.BackgroundProperty, "IconBg");
+            TextBlock g = new TextBlock { Text = "", FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            g.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
+            g.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+            b.Child = g;
+            return b;
+        }
+
+        // Понятное название программы: описание из exe («Telegram Desktop»), иначе имя файла без .exe
+        string AppTitle(string name, string path)
+        {
+            if (name.Length == 0) return T("Система и службы");
+            string title;
+            if (path != null && appTitles.TryGetValue(path, out title)) return title;
+            title = System.IO.Path.GetFileNameWithoutExtension(name);
+            try
+            {
+                string desc = path != null ? FileVersionInfo.GetVersionInfo(path).FileDescription : null;
+                if (!string.IsNullOrWhiteSpace(desc) && desc.Length <= 40) title = desc.Trim();
+            }
+            catch { }
+            if (path != null) appTitles[path] = title;
+            return title;
+        }
+
+        // Домены и программы проверяемого сайта — чтобы целиком пустить его через VPN
+        static string[] BlockedDomains(string site)
+        {
+            if (site == "Telegram") return new[] { "telegram.org", "t.me", "telegram.me", "telesco.pe", "tdesktop.com", "telegra.ph" };
+            if (site == "Discord") return new[] { "discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media" };
+            if (site == "YouTube") return new[] { "youtube.com", "youtu.be", "ytimg.com", "ggpht.com", "googlevideo.com" };
+            if (site == "Видео") return new[] { "googlevideo.com" };
+            return new string[0];
+        }
+
+        static string BlockedApp(string site) { return site == "Telegram" ? "Telegram.exe" : site == "Discord" ? "Discord.exe" : null; }
+
+        List<string> UncoveredBlockedSites()
+        {
+            return cfg.BlockedSites.Where(s => BlockedDomains(s).Any(d => !cfg.VpnDomains.Contains(d, StringComparer.OrdinalIgnoreCase))).ToList();
+        }
+
+        async Task AddBlockedToVpn()
+        {
+            foreach (string site in UncoveredBlockedSites())
+            {
+                foreach (string d in BlockedDomains(site))
+                    if (!cfg.VpnDomains.Contains(d, StringComparer.OrdinalIgnoreCase)) cfg.VpnDomains.Add(d);
+                string app = BlockedApp(site);
+                if (app != null && !cfg.VpnApps.Contains(app, StringComparer.OrdinalIgnoreCase)) cfg.VpnApps.Add(app);
+                Log.Write(site + " теперь идёт через VPN");
+            }
+            await ApplyVpnChanges();
         }
 
         static string ModeName(string mode) { return mode == "all" ? "весь трафик" : mode == "ru" ? "Россия напрямую" : "только выбранное"; }
@@ -863,6 +990,11 @@ namespace ZapretLauncher
                 ? "Российские сайты и адреса — напрямую, всё остальное — через VPN. Банки и Госуслуги работают как обычно. Ниже можно добавить сайты и программы, которым всегда нужен VPN."
                 : "Через VPN — только сайты и программы из списка ниже. Discord, YouTube и остальное идут напрямую и через обход, без потери скорости.");
             E<FrameworkElement>("VpnSplitPanel").Visibility = cfg.VpnMode == "all" ? Visibility.Collapsed : Visibility.Visible;
+            // в режимах «Россия напрямую» и «Весь трафик» такие сайты и так идут через VPN
+            List<string> uncovered = cfg.VpnMode != "split" ? new List<string>() : UncoveredBlockedSites();
+            E<FrameworkElement>("VpnBlockedBar").Visibility = uncovered.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (uncovered.Count > 0)
+                Text("VpnBlockedText").Text = T("Провайдер блокирует по адресу") + ": " + string.Join(", ", uncovered.Select(T)) + ". " + T("zapret тут не поможет — пустите через VPN");
             E<Button>("BtnVpnRefresh").Visibility = cfg.VpnSubscription.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             Text("VpnListHint").Text = T(VpnSitesKind ? "Например: example.com" : "Например: Spotify.exe");
             if (miVpn != null) { miVpn.Text = T(on ? "Выключить VPN" : "Включить VPN"); miVpn.Enabled = server != null; }
@@ -941,6 +1073,15 @@ namespace ZapretLauncher
                     "Скорость и трафик через VPN — на странице VPN и на главном экране",
                     "Откат лаунчера на прошлую версию — в настройках",
                     "Новый логотип",
+                } },
+            { "4.0.1", new[]
+                {
+                    "Сайты, которые провайдер блокирует по адресу, отмечаются отдельно — одна кнопка пускает их через VPN",
+                    "Сторож больше не меняет стратегию из-за таких сайтов",
+                    "Кнопка «Исправить», если мешает другая программа обхода или чужой драйвер WinDivert",
+                    "Журнал соединений по программам — со значками",
+                    "Плавные переходы между страницами и вкладками",
+                    "Новое приветствие с картинками про VPN и режимы маршрутов",
                 } },
         };
 
@@ -1336,6 +1477,7 @@ namespace ZapretLauncher
                 else if (action == "launcher-update") await UpdateLauncherUi(false);
                 else if (action == "start") await StartBypassUi();
                 else if (action == "rollback") RollbackUi(true);
+                else if (action == "vpn") OpenVpnRoutes();
             }));
         }
 
@@ -1476,20 +1618,24 @@ namespace ZapretLauncher
                 h.Add(r.Ok ? r.Ms : -1);
                 if (h.Count > 16) h.RemoveAt(0);
             }
+            // заблокированный по адресу сайт открылся (провайдер снял блокировку или он пошёл через VPN) — снова обычный
+            if (siteResults.Where(r => r.Ok).ToList().Count(r => cfg.BlockedSites.Remove(r.Name)) > 0) cfg.Save();
             BuildSitePanel();
             if (control != null && control.Ok) CompareAfterUpdate();
             if (!health || busy || control == null || !control.Ok) return;   // нет интернета — менять стратегию бессмысленно
 
-            int ok = siteResults.Count(r => r.Ok);
-            int expected = baseline.HasValue ? Math.Min(baseline.Value, siteResults.Count) : siteResults.Count;
+            // сайты, которые режут по адресу, сторож не считает: новая стратегия их всё равно не откроет
+            List<SiteResult> watched = siteResults.Where(r => !cfg.BlockedSites.Contains(r.Name)).ToList();
+            int ok = watched.Count(r => r.Ok);
+            int expected = baseline.HasValue ? Math.Min(baseline.Value, watched.Count) : watched.Count;
             if (ok >= expected) { failStreak = 0; return; }
             failStreak++;
-            Log.Write("Сторож: не открывается " + string.Join(", ", siteResults.Where(r => !r.Ok).Select(r => r.Name)) + " (проверка " + failStreak + " из 2)");
+            Log.Write("Сторож: не открывается " + string.Join(", ", watched.Where(r => !r.Ok).Select(r => r.Name)) + " (проверка " + failStreak + " из 2)");
             if (failStreak < 2) { siteCheckDue = DateTime.Now.AddMinutes(1); return; }
             failStreak = 0;
             if (!cfg.Watchdog)
             {
-                Notify("Не открывается " + string.Join(", ", siteResults.Where(r => !r.Ok).Select(r => r.Name)), new[] { "Подобрать стратегию", "pick" });
+                Notify("Не открывается " + string.Join(", ", watched.Where(r => !r.Ok).Select(r => r.Name)), new[] { "Подобрать стратегию", "pick" });
                 return;
             }
             if (Conflicts.ActiveVpn() != null) { Log.Write("Сторож: включён VPN — стратегию не меняю"); return; }
@@ -1547,6 +1693,8 @@ namespace ZapretLauncher
             Log.Write("Подбор стратегии: проверяю " + strategies.Count + " шт. (" + string.Join(", ", Sites.Targets(cfg.Telegram, false).Select(t => t.Key)) + ")");
             Stopwatch total = Stopwatch.StartNew();
             ShowPickProgress(0, strategies.Count);
+            HashSet<string> seen = new HashSet<string>(), everOk = new HashSet<string>();   // для поиска сайтов, заблокированных по адресу
+            int tested = 0;
             try
             {
                 for (int i = 0; i < strategies.Count; i++)
@@ -1570,6 +1718,8 @@ namespace ZapretLauncher
                     }
                     finally { siteChecking = false; }
                     List<SiteResult> okRes = res.Where(r => r.Ok).ToList();
+                    tested++;
+                    foreach (SiteResult r in res) { seen.Add(r.Name); if (r.Ok) everOk.Add(r.Name); }
                     int avg = okRes.Count > 0 ? (int)okRes.Average(r => r.Ms) : 0;
                     cfg.PickScores[s] = okRes.Count + "/" + res.Count + "/" + avg;
                     cfg.PickDetails[s] = string.Join(";", res.Select(r => r.Name + "=" + (r.Ok ? r.Ms : -1)));
@@ -1589,11 +1739,13 @@ namespace ZapretLauncher
                         ? T("Лучшая пока") + ": " + T(Zapret.Title(best.File)) + " · " + best.Ok + "/" + best.Total
                         : T("Пока ни одна стратегия не открыла сайты");
                     ShowPickProgress(i + 1, strategies.Count);
-                    if (stopAtFirstPerfect && okRes.Count == res.Count) break;
+                    // «идеальная» — открылось всё, кроме того, что провайдер режет по адресу
+                    if (stopAtFirstPerfect && res.All(r => r.Ok || cfg.BlockedSites.Contains(r.Name))) break;
                 }
             }
             finally { picking = false; HidePickProgress(); }
             Log.Write("Подбор занял " + (int)total.Elapsed.TotalSeconds + " сек.");
+            UpdateBlockedSites(seen, everOk, tested);
             cfg.Strategy = best != null && best.Ok > 0 ? best.File : original;
             cfg.Save();
             await StartBypass(false);
@@ -1605,6 +1757,23 @@ namespace ZapretLauncher
             }
             else Log.Write("Ни одна стратегия не открыла проверочные сайты — оставляю прежнюю");
             return best;
+        }
+
+        // Сайт не открылся ни с одной из проверенных стратегий, хотя другие открывались, — провайдер блокирует его по адресу.
+        // Такие сайты не мешают выбору стратегии и не будят сторожа; открылся хоть раз — снова обычный сайт
+        void UpdateBlockedSites(HashSet<string> seen, HashSet<string> everOk, int tested)
+        {
+            List<string> fresh = new List<string>();
+            foreach (string site in seen)
+            {
+                if (everOk.Contains(site)) cfg.BlockedSites.Remove(site);
+                else if (tested >= 5 && everOk.Count > 0 && !cfg.BlockedSites.Contains(site)) { cfg.BlockedSites.Add(site); fresh.Add(site); }
+            }
+            cfg.Save();
+            if (fresh.Count == 0) return;
+            string names = string.Join(", ", fresh.Select(T));
+            Notify(T("Провайдер блокирует по адресу") + ": " + names + ". " + T("zapret тут не поможет — пустите через VPN"), new[] { "Открыть VPN", "vpn" });
+            BuildSitePanel();
         }
 
         // Полоска на карточке-переключателе и прогресс на значке в панели задач
@@ -1792,6 +1961,7 @@ namespace ZapretLauncher
                 string color, https, tcp;
                 SiteState(site, out color, out https, out tcp);
                 SiteResult r = siteResults == null ? null : siteResults.FirstOrDefault(x => x.Name == site);
+                bool blocked = r != null && !r.Ok && !siteChecking && cfg.BlockedSites.Contains(site);   // режут по адресу — zapret не поможет
                 StackPanel content = new StackPanel();
 
                 // значок сервиса, название и точка состояния
@@ -1819,15 +1989,15 @@ namespace ZapretLauncher
                 }
                 else
                 {
-                    big.Text = r != null && !r.Ok && !siteChecking ? T("недоступен") : https;
+                    big.Text = blocked ? T("заблокирован") : r != null && !r.Ok && !siteChecking ? T("недоступен") : https;
                     big.FontSize = 14;
                     big.FontWeight = FontWeights.SemiBold;
                     big.Margin = new Thickness(0, 14, 0, 6);
                     big.SetResourceReference(TextBlock.ForegroundProperty, color == "Fail" ? "Fail" : "TextSub");
                 }
                 content.Children.Add(big);
-                TextBlock t = new TextBlock { Text = tcp, FontSize = 11, Margin = new Thickness(0, 1, 0, 0) };
-                t.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                TextBlock t = new TextBlock { Text = blocked ? T("по адресу — поможет VPN") + " →" : tcp, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), TextWrapping = TextWrapping.Wrap };
+                t.SetResourceReference(TextBlock.ForegroundProperty, blocked ? "AccentHover" : "Muted");
                 content.Children.Add(t);
 
                 // график последних проверок — на всю ширину карточки
@@ -1845,7 +2015,9 @@ namespace ZapretLauncher
                 card.SetResourceReference(Border.BackgroundProperty, "CardRaised");
                 if (siteChecking) Shimmer(card);
                 else if (stagger) AppearLater(card, n);
-                panel.Children.Add(LiftOnHover(card, SiteUrl(site), site));
+                FrameworkElement item = LiftOnHover(card, SiteUrl(site), site, blocked ? (Action)OpenVpnRoutes : null);
+                if (blocked) item.ToolTip = T("Провайдер блокирует этот сайт по адресу — ни одна стратегия zapret его не открыла. Нажмите, чтобы пустить его через VPN");
+                panel.Children.Add(item);
                 n++;
             }
             UpdateFlyout();
@@ -1870,7 +2042,16 @@ namespace ZapretLauncher
 
         // Карточка приподнимается при наведении (тень и сдвиг вверх), клик открывает сайт в браузере.
         // Тень — у отдельной подложки: эффект на самой карточке размыл бы текст
-        FrameworkElement LiftOnHover(Border card, string url, string site)
+        // Страница VPN, вкладка «Маршруты» — туда ведут подсказки «поможет VPN»
+        void OpenVpnRoutes()
+        {
+            ShowWindow();
+            E<RadioButton>("NavVpn").IsChecked = true;
+            E<RadioButton>("VpnTabRoutes").IsChecked = true;
+        }
+
+        // onClick — своё действие по клику вместо открытия сайта
+        FrameworkElement LiftOnHover(Border card, string url, string site, Action onClick = null)
         {
             Grid wrap = new Grid { Margin = card.Margin };
             card.Margin = new Thickness(0);
@@ -1879,7 +2060,7 @@ namespace ZapretLauncher
             under.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Direction = 270, Opacity = Theme.Dark ? 0.5 : 0.18, Color = Colors.Black };
             wrap.Children.Add(under);
             wrap.Children.Add(card);
-            if (url == null) return wrap;
+            if (url == null && onClick == null) return wrap;
             wrap.Cursor = Cursors.Hand;
             wrap.ToolTip = T("Открыть") + " " + site;
             TranslateTransform tr = new TranslateTransform();
@@ -1893,7 +2074,11 @@ namespace ZapretLauncher
             wrap.MouseEnter += delegate { lift(true); };
             wrap.MouseLeave += delegate { lift(false); };
             // через explorer, чтобы браузер открылся без прав администратора
-            wrap.MouseLeftButtonUp += delegate { Process.Start("explorer.exe", "\"" + url + "\""); };
+            wrap.MouseLeftButtonUp += delegate
+            {
+                if (onClick != null) onClick();
+                else Process.Start("explorer.exe", "\"" + url + "\"");
+            };
             return wrap;
         }
 
@@ -1963,6 +2148,23 @@ namespace ZapretLauncher
             Text("ConflictText").Text = text.Replace("\n", " · ");
             E<Border>("ConflictBar").ToolTip = text.Length > 0 ? text : null;   // полный текст — при наведении
             E<Border>("ConflictBar").Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            // чужие программы обхода и драйвер лаунчер убирает сам; VPN — нет, это решает пользователь
+            E<Button>("BtnFixConflict").Visibility = conflicts.Any(c => c.Kind != "vpn") ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        async Task FixConflicts()
+        {
+            if (Dialog.Show(window, T("Закрыть мешающие программы обхода, остановить их службы и выгрузить чужой драйвер WinDivert? Обход лаунчера перезапустится."),
+                "Zapret Launcher", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            await RunBusy(async () =>
+            {
+                bool restart = Zapret.Running || wantRunning;
+                await Zapret.Stop(true);
+                await Conflicts.Fix();
+                if (restart) await StartBypass(true);
+                await UpdateConflicts();
+                Log.Write(E<Border>("ConflictBar").Visibility == Visibility.Visible ? "Не всё удалось исправить — подробности выше" : "Конфликт исправлен");
+            }, "Исправляю…");
         }
 
         // ---------- Обновления ----------
@@ -2398,6 +2600,22 @@ namespace ZapretLauncher
             e.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(to, new Duration(d)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
         }
 
+        int pageIndex;
+        string vpnPane = "Servers";
+
+        // Смена вкладки: содержимое въезжает сбоку (справа — если вкладка правее прежней) и проявляется; delay — для появления по очереди
+        static void SlideIn(FrameworkElement e, double fromX, int delayMs = 0)
+        {
+            Duration d = new Duration(TimeSpan.FromMilliseconds(240));
+            IEasingFunction ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            TimeSpan begin = TimeSpan.FromMilliseconds(delayMs);
+            TranslateTransform tr = new TranslateTransform(fromX, 0);
+            e.RenderTransform = tr;
+            e.Opacity = 0;
+            e.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, d) { EasingFunction = ease, BeginTime = begin });
+            tr.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(fromX, 0, d) { EasingFunction = ease, BeginTime = begin });
+        }
+
         static void Slide(FrameworkElement e, double x, TimeSpan d)
         {
             if (e == null) return;
@@ -2417,18 +2635,22 @@ namespace ZapretLauncher
                 if (pill == null || pill.IsFrozen) { pill = new TranslateTransform(); E<Border>("NavPill").RenderTransform = pill; }
                 pill.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(y, new Duration(TimeSpan.FromMilliseconds(260))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut } });
             }
-            foreach (string p in new[] { "Strategies", "Domains", "Vpn", "Settings", "Log" })
+            string[] pages = { "Strategies", "Vpn", "Domains", "Settings", "Log" };   // в порядке бокового меню
+            int index = Array.IndexOf(pages, name);
+            // страница въезжает с той стороны, куда двинулись по меню: ниже — снизу, выше — сверху
+            double from = index >= pageIndex ? 14 : -14;
+            pageIndex = index;
+            foreach (string p in pages)
             {
                 FrameworkElement page = E<FrameworkElement>("Page" + p);
                 page.Visibility = p == name ? Visibility.Visible : Visibility.Collapsed;
                 if (p != name) continue;
-                // смена страницы: лёгкое затухание и сдвиг снизу
-                TranslateTransform tr = new TranslateTransform(0, 10);
+                TranslateTransform tr = new TranslateTransform(0, from);
                 page.RenderTransform = tr;
-                Duration d = new Duration(TimeSpan.FromMilliseconds(220));
+                Duration d = new Duration(TimeSpan.FromMilliseconds(260));
                 IEasingFunction ease = new CubicEase { EasingMode = EasingMode.EaseOut };
                 page.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, d) { EasingFunction = ease });
-                tr.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, d) { EasingFunction = ease });
+                tr.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(from, 0, d) { EasingFunction = ease });
             }
             if (name == "Domains") UpdateDomainUi();
             if (name == "Vpn")
@@ -2441,17 +2663,194 @@ namespace ZapretLauncher
         }
 
         // ---------- Приветствие ----------
+        // значок, заголовок, текст, кнопки, картинка шага (рисуется в OnboardingPicture)
         static readonly string[][] OnboardingSteps =
         {
-            new[] { "\uEA18", "Добро пожаловать в Zapret Launcher",
-                "Лаунчер включает zapret одной кнопкой, следит, чтобы Discord, YouTube и Telegram открывались, и сам обновляется.", "Пропустить", "Дальше" },
-            new[] { "\uE7F4", "Работает в фоне",
-                "Закрытое окно сворачивается в трей. Клик по значку открывает мини-окно с переключателем и пингом. Включите «Автозапуск», чтобы обход запускался вместе с Windows.", "Пропустить", "Дальше" },
-            new[] { "", "Встроенный VPN",
-                "Есть свой VPN-сервер или подписка? Вставьте ключ на странице VPN: через него пойдут только выбранные сайты и программы, а Discord, YouTube и остальное — напрямую, на полной скорости.", "Пропустить", "Дальше" },
-            new[] { "\uEC4A", "Найдём рабочую стратегию",
-                "У каждого провайдера свои блокировки. Лаунчер по очереди проверит все стратегии и выберет лучшую — это займёт пару минут. Если включён VPN, выключите его на время проверки.", "Позже", "Подобрать сейчас" },
+            new[] { "", "Добро пожаловать в Zapret Launcher",
+                "Лаунчер включает zapret одной кнопкой, следит, чтобы Discord, YouTube и Telegram открывались, и сам обновляется.", "Пропустить", "Дальше", "welcome" },
+            new[] { "", "Работает в фоне",
+                "Закрытое окно сворачивается в трей. Клик по значку открывает мини-окно с переключателем и пингом. Включите «Автозапуск», чтобы обход запускался вместе с Windows.", "Пропустить", "Дальше", "" },
+            new[] { "", "Встроенный VPN",
+                "Есть свой VPN-сервер или подписка? Вставьте ключ или отсканируйте QR-код на странице VPN. Через VPN пойдёт только то, что нужно, остальное — напрямую и через обход, на полной скорости.", "Пропустить", "Дальше", "vpn" },
+            new[] { "", "Три режима маршрутов",
+                "Выберите на вкладке «Маршруты», что пускать через VPN. Режим можно поменять в любой момент — VPN переподключится сам.", "Пропустить", "Дальше", "modes" },
+            new[] { "", "Найдём рабочую стратегию",
+                "У каждого провайдера свои блокировки. Лаунчер по очереди проверит все стратегии и выберет лучшую — это займёт пару минут. Если включён VPN, выключите его на время проверки.", "Позже", "Подобрать сейчас", "pick" },
         };
+
+        // Картинки приветствия — из тех же элементов, что и в окне, поэтому сами подстраиваются под тему и цвет акцента
+        FrameworkElement OnboardingPicture(string kind)
+        {
+            if (kind == "welcome")
+            {
+                StackPanel p = new StackPanel();
+                Grid card = new Grid();
+                card.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                card.ColumnDefinitions.Add(new ColumnDefinition());
+                card.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                card.Children.Add(PicBadge("", "Accent", Brushes.White, 40));
+                StackPanel t = PicText(T("Обход работает"), T("Стратегия") + ": ALT2", 15);
+                Grid.SetColumn(t, 1);
+                card.Children.Add(t);
+                FrameworkElement toggle = PicToggle(true);
+                Grid.SetColumn(toggle, 2);
+                card.Children.Add(toggle);
+                p.Children.Add(PicCard(card, true));
+                UniformGrid sites = new UniformGrid { Columns = 3, Margin = new Thickness(0, 8, -8, 0) };
+                foreach (string[] s in new[] { new[] { "Discord", "742" }, new[] { "YouTube", "688" }, new[] { "Telegram", "455" } })
+                {
+                    string[] look = SiteLook(s[0]);
+                    Grid row = new Grid();
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    row.ColumnDefinitions.Add(new ColumnDefinition());
+                    row.Children.Add(PicBadge(look[0], null, Brushes.White, 22, look[1]));
+                    StackPanel st = PicText(s[0], s[1] + " " + T("мс"), 12);
+                    Grid.SetColumn(st, 1);
+                    row.Children.Add(st);
+                    Border c = PicCard(row, false);
+                    c.Margin = new Thickness(0, 0, 8, 0);
+                    sites.Children.Add(c);
+                }
+                p.Children.Add(sites);
+                return p;
+            }
+            if (kind == "vpn")
+            {
+                // компьютер → две дороги: нужное — через VPN, остальное — напрямую и через обход
+                Grid g = new Grid();
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                g.ColumnDefinitions.Add(new ColumnDefinition());
+                FrameworkElement pc = PicBadge("", "IconBg", null, 44);
+                g.Children.Add(pc);
+                TextBlock arrow = new TextBlock { Text = "", FontSize = 14, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
+                arrow.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
+                arrow.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                Grid.SetColumn(arrow, 1);
+                g.Children.Add(arrow);
+                StackPanel routes = new StackPanel();
+                routes.Children.Add(PicRoute("", T("Через VPN"), "chatgpt.com · Spotify · " + T("ваши сайты"), true));
+                Border direct = PicRoute("", T("Напрямую и через обход"), "Discord · YouTube · " + T("всё остальное"), false);
+                direct.Margin = new Thickness(0, 8, 0, 0);
+                routes.Children.Add(direct);
+                Grid.SetColumn(routes, 2);
+                g.Children.Add(routes);
+                return g;
+            }
+            if (kind == "modes")
+            {
+                UniformGrid g = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, -8, 0) };
+                g.Children.Add(PicMode("", null, "Только выбранное", "Ваши сайты и программы — через VPN", true));
+                g.Children.Add(PicMode(null, "ru", "Россия напрямую", "Российское — напрямую, остальное — через VPN", false));
+                g.Children.Add(PicMode("", null, "Весь трафик", "Весь интернет — через VPN", false));
+                return g;
+            }
+            if (kind == "pick")
+            {
+                StackPanel p = new StackPanel();
+                WrapPanel chips = new WrapPanel();
+                foreach (string[] s in new[] { new[] { "ALT", "" }, new[] { "ALT2", "742 " + T("мс") }, new[] { "ALT3", "" }, new[] { "FAKE TLS", "910 " + T("мс") } })
+                {
+                    bool ok = s[1].Length > 0;
+                    StackPanel c = new StackPanel { Orientation = Orientation.Horizontal };
+                    TextBlock mark = new TextBlock { Text = ok ? "" : "", FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+                    mark.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
+                    mark.SetResourceReference(TextBlock.ForegroundProperty, ok ? "Ok" : "Fail");
+                    c.Children.Add(mark);
+                    c.Children.Add(new TextBlock { Text = s[0], FontSize = 12, FontWeight = s[0] == "ALT2" ? FontWeights.SemiBold : FontWeights.Normal, VerticalAlignment = VerticalAlignment.Center });
+                    if (ok)
+                    {
+                        TextBlock ms = new TextBlock { Text = "  " + s[1], FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+                        ms.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                        c.Children.Add(ms);
+                    }
+                    Border chip = new Border { Child = c, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 6), BorderThickness = new Thickness(1) };
+                    chip.SetResourceReference(Border.BackgroundProperty, s[0] == "ALT2" ? "AccentSoft" : "Card");
+                    chip.SetResourceReference(Border.BorderBrushProperty, s[0] == "ALT2" ? "Accent" : "Line");
+                    chips.Children.Add(chip);
+                }
+                p.Children.Add(chips);
+                Grid bar = new Grid { Height = 6, Margin = new Thickness(0, 6, 0, 0) };
+                Border bg = new Border { CornerRadius = new CornerRadius(3) };
+                bg.SetResourceReference(Border.BackgroundProperty, "IconBg");
+                bar.Children.Add(bg);
+                Border fill = new Border { CornerRadius = new CornerRadius(3), HorizontalAlignment = HorizontalAlignment.Left, Width = 120 };
+                fill.SetResourceReference(Border.BackgroundProperty, "Accent");
+                bar.Children.Add(fill);
+                p.Children.Add(bar);
+                TextBlock note = new TextBlock { Text = T("Подбор") + " 5 / 19 · " + T("Лучшая пока") + ": ALT2", FontSize = 11, Margin = new Thickness(0, 6, 0, 0) };
+                note.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                p.Children.Add(note);
+                return p;
+            }
+            return null;
+        }
+
+        // Квадратный значок: глиф на фоне (ресурс темы или фирменный цвет сервиса)
+        static FrameworkElement PicBadge(string glyph, string bgKey, Brush fg, double size, string color = null)
+        {
+            Border b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size * 0.3), Margin = new Thickness(0, 0, size > 30 ? 12 : 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            if (color != null) b.Background = B(color); else b.SetResourceReference(Border.BackgroundProperty, bgKey);
+            TextBlock t = new TextBlock { Text = glyph, FontSize = size * 0.45, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            t.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
+            if (fg != null) t.Foreground = fg; else t.SetResourceReference(TextBlock.ForegroundProperty, "TextSub");
+            b.Child = t;
+            return b;
+        }
+
+        static StackPanel PicText(string title, string sub, double size)
+        {
+            StackPanel p = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            p.Children.Add(new TextBlock { Text = title, FontSize = size, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+            TextBlock s = new TextBlock { Text = sub, FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            s.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+            p.Children.Add(s);
+            return p;
+        }
+
+        static Border PicCard(UIElement child, bool accent)
+        {
+            Border b = new Border { Child = child, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10, 12, 10), BorderThickness = new Thickness(1) };
+            b.SetResourceReference(Border.BackgroundProperty, accent ? "AccentSoft" : "Card");
+            b.SetResourceReference(Border.BorderBrushProperty, accent ? "AccentBorder" : "Line");
+            return b;
+        }
+
+        static FrameworkElement PicToggle(bool on)
+        {
+            Border track = new Border { Width = 40, Height = 22, CornerRadius = new CornerRadius(11), VerticalAlignment = VerticalAlignment.Center };
+            track.SetResourceReference(Border.BackgroundProperty, on ? "Accent" : "TrackOff");
+            track.Child = new Ellipse { Width = 16, Height = 16, Fill = Brushes.White, HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left, Margin = new Thickness(3, 0, 3, 0) };
+            return track;
+        }
+
+        static Border PicRoute(string glyph, string title, string sub, bool vpn)
+        {
+            Grid g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition());
+            g.Children.Add(PicBadge(glyph, vpn ? "Accent" : "IconBg", vpn ? Brushes.White : null, 28));
+            StackPanel t = PicText(title, sub, 12.5);
+            Grid.SetColumn(t, 1);
+            g.Children.Add(t);
+            return PicCard(g, vpn);
+        }
+
+        static Border PicMode(string glyph, string flag, string title, string sub, bool selected)
+        {
+            StackPanel p = new StackPanel();
+            FrameworkElement icon = flag != null ? FlagElement(flag, 28, 20) : PicBadge(glyph, selected ? "Accent" : "IconBg", selected ? Brushes.White : null, 28);
+            icon.HorizontalAlignment = HorizontalAlignment.Left;
+            icon.Margin = new Thickness(0, 0, 0, 8);
+            p.Children.Add(icon);
+            p.Children.Add(new TextBlock { Text = T(title), FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            TextBlock s = new TextBlock { Text = T(sub), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
+            s.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+            p.Children.Add(s);
+            Border b = PicCard(p, selected);
+            b.Margin = new Thickness(0, 0, 8, 0);
+            return b;
+        }
 
         void ShowOnboarding()
         {
@@ -2471,6 +2870,10 @@ namespace ZapretLauncher
             Text("OnbText").Text = T(s[2]);
             E<Button>("OnbSkip").Content = T(s[3]);
             E<Button>("OnbNext").Content = T(s[4]);
+            FrameworkElement picture = OnboardingPicture(s[5]);
+            Border host = E<Border>("OnbPicture");
+            host.Child = picture;
+            host.Visibility = picture != null ? Visibility.Visible : Visibility.Collapsed;
             StackPanel dots = E<StackPanel>("OnbDots");
             dots.Children.Clear();
             for (int i = 0; i < OnboardingSteps.Length; i++)
@@ -3056,6 +3459,8 @@ namespace ZapretLauncher
             Click("BtnVpnPing", PingVpnServers);
             Click("BtnVpnBest", SelectBestServer);
             Click("BtnVpnClipAdd", AddFromClipboard);
+            Click("BtnVpnAddBlocked", AddBlockedToVpn);
+            Click("BtnFixConflict", FixConflicts);
             Click("BtnVpnQrFile", QrFromFile);
             Click("BtnVpnQrScreen", QrFromScreen);
             ClickSync("SwVpnAuto", () => { cfg.VpnAutoBest = E<CheckBox>("SwVpnAuto").IsChecked == true; cfg.Save(); });
@@ -3072,8 +3477,12 @@ namespace ZapretLauncher
                 string p = pane;
                 E<RadioButton>("VpnTab" + p).Checked += async delegate
                 {
-                    foreach (string q in new[] { "Servers", "Routes", "Conn" })
+                    string[] tabs = { "Servers", "Routes", "Conn" };
+                    double from = Array.IndexOf(tabs, p) >= Array.IndexOf(tabs, vpnPane) ? 24 : -24;
+                    vpnPane = p;
+                    foreach (string q in tabs)
                         E<FrameworkElement>("VpnPane" + q).Visibility = q == p ? Visibility.Visible : Visibility.Collapsed;
+                    SlideIn(E<FrameworkElement>("VpnPane" + p), from);
                     vpnConnShown = p == "Conn";   // журнал обновляется, только пока открыта его вкладка
                     await RefreshConnections();
                 };
