@@ -22,6 +22,15 @@ using Forms = System.Windows.Forms;
 
 namespace ZapretLauncher
 {
+    // Строка журнала на странице «Журнал»: время, текст и вид — err / trace / warn / ok / обычная
+    public class LogLine
+    {
+        public string Raw { get; set; }
+        public string Time { get; set; }
+        public string Text { get; set; }
+        public string Kind { get; set; }
+    }
+
     public class StrategyItem
     {
         public string File { get; set; }
@@ -95,13 +104,9 @@ namespace ZapretLauncher
             Toasts.Init();
             BuildTray();
             WireEvents();
-            Log.Line += line => window.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                TextBox box = E<TextBox>("LogBox");
-                box.AppendText(line + "\r\n");
-                box.ScrollToEnd();
-            }));
-            try { foreach (string line in File.ReadLines(Paths.Log).Reverse().Take(200).Reverse()) E<TextBox>("LogBox").AppendText(line + "\r\n"); } catch { }
+            E<ListBox>("LogList").ItemsSource = logView;
+            Log.Line += line => window.Dispatcher.BeginInvoke(new Action(() => AddLogLine(line)));
+            try { foreach (string line in File.ReadLines(Paths.Log).Reverse().Take(600).Reverse()) AddLogLine(line); } catch { }
 
             windowIcons = new Dictionary<string, ImageSource>();
             imageIcons = new Dictionary<string, ImageSource>();
@@ -541,7 +546,8 @@ namespace ZapretLauncher
         {
             cfg.Save();
             RefreshVpnUi();
-            if (vpnRunning) { await RunBusy(() => StartVpn(true), "VPN…"); RefreshVpnUi(); }
+            if (vpnRunning && busy) vpnRestartPending = true;
+            else if (vpnRunning) { await RunBusy(() => StartVpn(true), "VPN…"); RefreshVpnUi(); }
         }
 
         // Ядро VPN упало, а VPN должен работать — перезапускаем (не чаще раза в 30 секунд, после двух неудач — сдаёмся)
@@ -608,20 +614,56 @@ namespace ZapretLauncher
 
         async Task AddVpnListItem()
         {
-            string raw = E<TextBox>("VpnListInput").Text;
+            if (await AddVpnListItems(E<TextBox>("VpnListInput").Text)) E<TextBox>("VpnListInput").Text = "";
+        }
+
+        async Task<bool> AddVpnListItems(string raw)
+        {
             List<string> list = VpnSitesKind ? cfg.VpnDomains : cfg.VpnApps;
             List<string> added = new List<string>(), bad = new List<string>();
-            foreach (string part in raw.Split(new[] { ' ', ',', ';', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            int found = 0;
+            IEnumerable<string> parts = SitePresets.SplitItems(raw, VpnSitesKind);
+            // путь («C:\Program Files\…») — целиком, а имена программ через пробел — по одному: «Spotify Discord»
+            if (!VpnSitesKind)
+                parts = parts.SelectMany(t => t.IndexOfAny(new[] { '\\', '/' }) >= 0 ? new[] { t } : t.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+            foreach (string part in parts)
             {
                 string item = VpnSitesKind ? Zapret.NormalizeDomain(part) : NormalizeApp(part);
-                if (item == null) bad.Add(part);
-                else if (!list.Contains(item) && !added.Contains(item)) added.Add(item);
+                if (item == null) { bad.Add(part); continue; }
+                found++;
+                if (!list.Contains(item, StringComparer.OrdinalIgnoreCase) && !added.Contains(item, StringComparer.OrdinalIgnoreCase)) added.Add(item);
             }
-            Text("VpnListInfo").Text = bad.Count > 0 ? T(VpnSitesKind ? "Не похоже на домен" : "Нужно имя программы, например Spotify.exe") + ": " + string.Join(", ", bad) : " ";
-            if (added.Count == 0) return;
+            Text("VpnListInfo").Text = AddedInfo(added.Count, found, bad, VpnSitesKind ? "Не похоже на домен" : "Нужно имя программы, например Spotify.exe",
+                                                 "Уже есть в списке", " ");
+            if (added.Count == 0) return false;
             list.AddRange(added);
-            E<TextBox>("VpnListInput").Text = "";
             await ApplyVpnChanges();
+            return true;
+        }
+
+        async Task ToggleVpnPreset(SitePreset p)
+        {
+            if (SitePresets.IsOn(p, cfg.VpnDomains))
+            {
+                HashSet<string> domains = SitePresets.RemovalSet(p, cfg.VpnDomains, false), apps = SitePresets.RemovalSet(p, cfg.VpnDomains, true);
+                cfg.VpnDomains.RemoveAll(domains.Contains);
+                cfg.VpnApps.RemoveAll(apps.Contains);
+                Log.Write("VPN: набор «" + p.Name + "» убран из маршрутов");
+            }
+            else
+            {
+                AddPresetToVpn(p);
+                Log.Write("VPN: набор «" + p.Name + "» теперь идёт через VPN");
+            }
+            await ApplyVpnChanges();
+        }
+
+        void AddPresetToVpn(SitePreset p)
+        {
+            foreach (string d in p.Domains)
+                if (!cfg.VpnDomains.Contains(d, StringComparer.OrdinalIgnoreCase)) cfg.VpnDomains.Add(d);
+            foreach (string app in p.Apps)
+                if (!cfg.VpnApps.Contains(app, StringComparer.OrdinalIgnoreCase)) cfg.VpnApps.Add(app);
         }
 
         // "C:\...\Spotify.exe" или "spotify" → Spotify.exe / spotify.exe
@@ -925,31 +967,22 @@ namespace ZapretLauncher
             return title;
         }
 
-        // Домены и программы проверяемого сайта — чтобы целиком пустить его через VPN
-        static string[] BlockedDomains(string site)
+        // Набор проверяемого сайта (домены и программа) — чтобы целиком пустить его через VPN
+        static SitePreset BlockedPreset(string site)
         {
-            if (site == "Telegram") return new[] { "telegram.org", "t.me", "telegram.me", "telesco.pe", "tdesktop.com", "telegra.ph" };
-            if (site == "Discord") return new[] { "discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media" };
-            if (site == "YouTube") return new[] { "youtube.com", "youtu.be", "ytimg.com", "ggpht.com", "googlevideo.com" };
-            if (site == "Видео") return new[] { "googlevideo.com" };
-            return new string[0];
+            return site == "Видео" ? new SitePreset { Name = site, Domains = new[] { "googlevideo.com" } } : SitePresets.Find(site);
         }
-
-        static string BlockedApp(string site) { return site == "Telegram" ? "Telegram.exe" : site == "Discord" ? "Discord.exe" : null; }
 
         List<string> UncoveredBlockedSites()
         {
-            return cfg.BlockedSites.Where(s => BlockedDomains(s).Any(d => !cfg.VpnDomains.Contains(d, StringComparer.OrdinalIgnoreCase))).ToList();
+            return cfg.BlockedSites.Where(s => BlockedPreset(s) != null && !SitePresets.IsOn(BlockedPreset(s), cfg.VpnDomains)).ToList();
         }
 
         async Task AddBlockedToVpn()
         {
             foreach (string site in UncoveredBlockedSites())
             {
-                foreach (string d in BlockedDomains(site))
-                    if (!cfg.VpnDomains.Contains(d, StringComparer.OrdinalIgnoreCase)) cfg.VpnDomains.Add(d);
-                string app = BlockedApp(site);
-                if (app != null && !cfg.VpnApps.Contains(app, StringComparer.OrdinalIgnoreCase)) cfg.VpnApps.Add(app);
+                AddPresetToVpn(BlockedPreset(site));
                 Log.Write(site + " теперь идёт через VPN");
             }
             await ApplyVpnChanges();
@@ -1033,31 +1066,25 @@ namespace ZapretLauncher
                 servers.Children.Add(none);
             }
 
-            // сайты или программы через VPN
+            FillPresets(E<StackPanel>("VpnPresets"), cfg.VpnDomains, ToggleVpnPreset);
+
+            RenderVpnList();
+        }
+
+        // Сайты или программы через VPN: наборы — карточкой, остальное — по строке; при длинном списке — поиск
+        void RenderVpnList()
+        {
             StackPanel items = E<StackPanel>("VpnList");
-            items.Children.Clear();
             List<string> list = VpnSitesKind ? cfg.VpnDomains : cfg.VpnApps;
+            E<FrameworkElement>("VpnListSearchBox").Visibility = list.Count > 8 ? Visibility.Visible : Visibility.Collapsed;
+            string query = list.Count > 8 ? E<TextBox>("VpnListSearch").Text.Trim() : "";
+            FillItemList(items, list, query, true, async value => { list.Remove(value); await ApplyVpnChanges(); },
+                         VpnSitesKind ? (Func<SitePreset, Task>)ToggleVpnPreset : null);
             if (list.Count == 0)
             {
                 TextBlock empty = new TextBlock { Text = T(VpnSitesKind ? "Список пуст — добавьте сайты, которым нужен VPN" : "Список пуст — добавьте программы, которым нужен VPN"), FontSize = 12, Margin = new Thickness(2, 4, 0, 0) };
                 empty.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
                 items.Children.Add(empty);
-            }
-            foreach (string item in list)
-            {
-                string value = item;
-                Grid row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition());
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.Children.Add(new TextBlock { Text = value, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
-                Button del = new Button { Content = "\uE711", Width = 28, Height = 28, FontSize = 11, ToolTip = T("Удалить") };
-                del.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
-                del.Click += async delegate { list.Remove(value); await ApplyVpnChanges(); };
-                Grid.SetColumn(del, 1);
-                row.Children.Add(del);
-                Border card = new Border { Child = row, CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6) };
-                card.SetResourceReference(Border.BackgroundProperty, "Card");
-                items.Children.Add(card);
             }
         }
 
@@ -1082,6 +1109,16 @@ namespace ZapretLauncher
                     "Журнал соединений по программам — со значками",
                     "Плавные переходы между страницами и вкладками",
                     "Новое приветствие с картинками про VPN и режимы маршрутов",
+                } },
+            { "4.0.2", new[]
+                {
+                    "Готовые наборы сайтов в доменах и маршрутах VPN: YouTube, Instagram, Spotify, ChatGPT и другие — одной кнопкой",
+                    "Домены можно добавлять сразу списком: вставить несколько строк или загрузить из файла .txt",
+                    "Наборы в списках — одной карточкой со значком сервиса, поиск по длинному списку",
+                    "Журнал: ошибки и предупреждения выделены цветом, есть поиск, фильтр «Только важное» и кнопка «Копировать»",
+                    "Если сторож сменил стратегию — её можно вернуть одной кнопкой; сайты, идущие через VPN, он больше не считает",
+                    "Сторож спокойнее: из-за одного сайта ждёт около 8 минут, сначала перезапускает стратегию и не перебирает их чаще раза в полчаса",
+                    "Уведомления Windows теперь показываются — в том числе с кнопками",
                 } },
         };
 
@@ -1412,6 +1449,7 @@ namespace ZapretLauncher
             Log.Write("Компьютер вышел из сна — проверяю обход");
             netChanged = true;
             failStreak = 0;
+            watchdogRestarted = false;
             lastRestart = DateTime.MinValue;
             if (wantRunning) siteCheckDue = DateTime.Now.AddSeconds(8);
         }
@@ -1451,6 +1489,71 @@ namespace ZapretLauncher
             }
         }
 
+        // ---------- Журнал ----------
+        // В памяти — последние строки; на странице — с фильтром «только важное» и поиском, новые строки дописываются на лету
+        readonly List<LogLine> logLines = new List<LogLine>();
+        readonly System.Collections.ObjectModel.ObservableCollection<LogLine> logView = new System.Collections.ObjectModel.ObservableCollection<LogLine>();
+        static readonly string[] LogErrors = { "ошибка", "Ошибка", "Не удалось", "не удалось", "Exception", "не работает", "упал", "остановилось",
+                                               "error", "Error", "failed", "Could not", "Couldn't", "isn't working", "stopped right" };
+        static readonly string[] LogWarnings = { "Сторож", "Внимание", "не отвечает", "не открывается", "перестала", "блокирует",
+                                                 "Watchdog", "Warning", "not responding", "doesn't open", "stopped working", "blocks" };
+        static readonly string[] LogGood = { "Запущена стратегия", "Лучшая стратегия", "Новая стратегия", "VPN подключён", "обновлён до",
+                                             "Started strategy", "Best strategy", "New strategy", "VPN connected", "updated to" };
+
+        static LogLine ParseLog(string line)
+        {
+            LogLine l = new LogLine { Raw = line, Time = "", Text = line, Kind = "" };
+            if (line.StartsWith("[") && line.IndexOf("] ") > 0)
+            {
+                int end = line.IndexOf("] ");
+                l.Time = line.Substring(1, end - 1);
+                l.Text = line.Substring(end + 2);
+            }
+            else if (line.StartsWith("   ") || line.StartsWith("\t")) { l.Kind = "trace"; l.Text = line.Trim(); return l; }   // строки стека после ошибки
+            l.Kind = LogErrors.Any(k => l.Text.Contains(k)) ? "err" : LogWarnings.Any(k => l.Text.Contains(k)) ? "warn" : LogGood.Any(k => l.Text.Contains(k)) ? "ok" : "";
+            return l;
+        }
+
+        bool LogShown(LogLine l)
+        {
+            string query = E<TextBox>("LogSearch").Text.Trim();
+            if (E<ToggleButton>("LogImportant").IsChecked == true && l.Kind != "err" && l.Kind != "warn" && l.Kind != "trace") return false;
+            return query.Length == 0 || l.Raw.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        void AddLogLine(string text)
+        {
+            foreach (string part in text.Replace("\r", "").Split('\n'))
+            {
+                if (part.Trim().Length == 0) continue;
+                LogLine l = ParseLog(part);
+                logLines.Add(l);
+                if (LogShown(l)) logView.Add(l);
+            }
+            if (logLines.Count > 3000) { logLines.RemoveRange(0, 1000); FilterLog(); return; }
+            ListBox list = E<ListBox>("LogList");
+            if (list.IsVisible && logView.Count > 0) list.ScrollIntoView(logView[logView.Count - 1]);
+            E<FrameworkElement>("LogEmpty").Visibility = logView.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        void FilterLog()
+        {
+            logView.Clear();
+            foreach (LogLine l in logLines) if (LogShown(l)) logView.Add(l);
+            E<FrameworkElement>("LogEmpty").Visibility = logView.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (logView.Count > 0) E<ListBox>("LogList").ScrollIntoView(logView[logView.Count - 1]);
+        }
+
+        async Task CopyLog()
+        {
+            Button b = E<Button>("BtnLogCopy");
+            try { Clipboard.SetText(string.Join("\r\n", logView.Select(l => l.Raw))); }
+            catch (Exception e) { Log.Write("Не удалось скопировать журнал: " + e.Message); return; }
+            b.Content = T("Скопировано") + " ✓";
+            await Task.Delay(1500);
+            b.Content = T("Копировать");
+        }
+
         // ---------- Диалоги и уведомления ----------
         MessageBoxResult Ask(string text, MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage icon = MessageBoxImage.Information)
         {
@@ -1478,6 +1581,7 @@ namespace ZapretLauncher
                 else if (action == "start") await StartBypassUi();
                 else if (action == "rollback") RollbackUi(true);
                 else if (action == "vpn") OpenVpnRoutes();
+                else if (action == "revert") await RevertStrategy();
             }));
         }
 
@@ -1532,7 +1636,26 @@ namespace ZapretLauncher
 
         Task StartBypassUi() { return RunBusy(() => StartBypass(false), "Подключение…"); }
         Task StopBypassUi() { return RunBusy(StopBypass, "Отключение…"); }
-        Task RestartIfRunning() { return Zapret.Running ? RunBusy(() => StartBypass(false), "Применяю…") : Task.FromResult(0); }
+        // Лаунчер занят (идёт другой перезапуск) — не теряем изменение: перезапустим, как только он освободится
+        bool bypassRestartPending, vpnRestartPending;
+
+        Task RestartIfRunning()
+        {
+            if (!Zapret.Running) return Task.FromResult(0);
+            if (busy) { bypassRestartPending = true; return Task.FromResult(0); }
+            return RunBusy(() => StartBypass(false), "Применяю…");
+        }
+
+        void RunPendingRestarts()
+        {
+            if (!bypassRestartPending && !vpnRestartPending) return;
+            window.Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                if (busy) return;   // снова занят — выполнится после следующего RunBusy
+                if (bypassRestartPending) { bypassRestartPending = false; await RestartIfRunning(); }
+                if (vpnRestartPending) { vpnRestartPending = false; if (vpnRunning) { await RunBusy(() => StartVpn(true), "VPN…"); RefreshVpnUi(); } }
+            }));
+        }
 
         async Task ToggleBypass()
         {
@@ -1561,6 +1684,7 @@ namespace ZapretLauncher
                 window.Cursor = null;
                 BusyRing(false);
                 UpdateUi();
+                RunPendingRestarts();
             }
         }
 
@@ -1597,7 +1721,7 @@ namespace ZapretLauncher
             await SiteCheck(false);
         }
 
-        // Проверка сайтов: обновляет карточки; health — ещё и сторож (две неудачи подряд — подбор новой стратегии)
+        // Проверка сайтов: обновляет карточки; health — ещё и сторож (серия неудач — перезапуск, потом подбор новой стратегии)
         async Task SiteCheck(bool health)
         {
             siteCheckDue = DateTime.MaxValue;
@@ -1624,27 +1748,82 @@ namespace ZapretLauncher
             if (control != null && control.Ok) CompareAfterUpdate();
             if (!health || busy || control == null || !control.Ok) return;   // нет интернета — менять стратегию бессмысленно
 
-            // сайты, которые режут по адресу, сторож не считает: новая стратегия их всё равно не откроет
-            List<SiteResult> watched = siteResults.Where(r => !cfg.BlockedSites.Contains(r.Name)).ToList();
+            // сайты, которые режут по адресу, сторож не считает: новая стратегия их всё равно не откроет.
+            // Не считает и сайты, которые сейчас идут через VPN: обход на них не влияет
+            List<SiteResult> watched = siteResults.Where(r => !cfg.BlockedSites.Contains(r.Name) && !SiteViaVpn(r.Name)).ToList();
             int ok = watched.Count(r => r.Ok);
             int expected = baseline.HasValue ? Math.Min(baseline.Value, watched.Count) : watched.Count;
-            if (ok >= expected) { failStreak = 0; return; }
+            if (ok >= expected) { failStreak = 0; watchdogRestarted = false; return; }
+            // Сторож не дёргается из-за разовых сбоев: перепроверяет раз в 2 минуты; если не открывается один сайт — ждёт 5 неудач
+            // подряд (~8 минут), если несколько — 3 (~4 минуты). Сначала просто перезапускает текущую стратегию и только потом подбирает новую
+            List<string> failing = watched.Where(r => !r.Ok).Select(r => r.Name).ToList();
+            int needed = failing.Count > 1 ? 3 : 5;
             failStreak++;
-            Log.Write("Сторож: не открывается " + string.Join(", ", watched.Where(r => !r.Ok).Select(r => r.Name)) + " (проверка " + failStreak + " из 2)");
-            if (failStreak < 2) { siteCheckDue = DateTime.Now.AddMinutes(1); return; }
-            failStreak = 0;
+            Log.Write("Сторож: не открывается " + string.Join(", ", failing) + " (проверка " + failStreak + " из " + needed + ")");
+            if (failStreak < needed) { siteCheckDue = DateTime.Now.AddMinutes(2); return; }
             if (!cfg.Watchdog)
             {
-                Notify("Не открывается " + string.Join(", ", watched.Where(r => !r.Ok).Select(r => r.Name)), new[] { "Подобрать стратегию", "pick" });
+                failStreak = 0;
+                Notify("Не открывается " + string.Join(", ", failing), new[] { "Подобрать стратегию", "pick" });
                 return;
             }
-            if (Conflicts.ActiveVpn() != null) { Log.Write("Сторож: включён VPN — стратегию не меняю"); return; }
+            if (Conflicts.ActiveVpn() != null) { failStreak = 0; Log.Write("Сторож: включён VPN — стратегию не меняю"); return; }
+            if (!watchdogRestarted)
+            {
+                // часто хватает перезапуска: winws мог «залипнуть» после смены сети или сна
+                watchdogRestarted = true;
+                Log.Write("Сторож: перезапускаю текущую стратегию — проверю ещё раз через минуту");
+                await RestartIfRunning();
+                siteCheckDue = DateTime.Now.AddMinutes(1);
+                return;
+            }
+            failStreak = 0;
+            watchdogRestarted = false;
+            if ((DateTime.Now - lastWatchdogPick).TotalMinutes < 30)
+            {
+                // подбор уже был недавно — второй раз подряд перебирать стратегии (и отключать обход на минуту) не будем
+                Notify("Не открывается " + string.Join(", ", failing) + ". " + T("Стратегию недавно уже меняли — подберите вручную, если нужно"), new[] { "Подобрать стратегию", "pick" });
+                return;
+            }
+            lastWatchdogPick = DateTime.Now;
             Notify("Стратегия перестала работать — подбираю новую");
+            string before = cfg.Strategy;
             await RunBusy(async () =>
             {
                 PickBest best = await AutoPick(true);
-                if (best != null && best.Ok > 0) Notify("Новая стратегия: " + Zapret.Title(best.File));
+                if (best == null || best.Ok == 0) return;
+                if (best.File == before) { Notify("Новая стратегия: " + Zapret.Title(best.File)); return; }
+                strategyBeforeWatchdog = before;
+                string change = T("Сторож сменил стратегию") + ": " + T(Zapret.Title(before)) + " → " + T(Zapret.Title(best.File));
+                Text("StrategyChangedText").Text = change;
+                Text("StrategyChangedText").ToolTip = change;
+                E<FrameworkElement>("StrategyChangedBar").Visibility = Visibility.Visible;
+                Notify(change, new[] { "Вернуть прежнюю", "revert" });
             }, "Подбор…");
+        }
+
+        string strategyBeforeWatchdog;   // стратегия до замены сторожем — для кнопки «Вернуть прежнюю»
+        bool watchdogRestarted;          // сторож уже перезапустил текущую стратегию в этой серии неудач
+        DateTime lastWatchdogPick = DateTime.MinValue;
+
+        async Task RevertStrategy()
+        {
+            E<FrameworkElement>("StrategyChangedBar").Visibility = Visibility.Collapsed;
+            string prev = strategyBeforeWatchdog;
+            strategyBeforeWatchdog = null;
+            if (prev == null || !File.Exists(Paths.InZapret(prev))) return;
+            Log.Write("Возвращаю стратегию " + Zapret.Title(prev) + " по просьбе пользователя");
+            await SelectStrategy(prev);
+        }
+
+        // Сайт сейчас идёт через встроенный VPN: в режимах «Россия напрямую» и «Весь трафик» — любой из проверяемых (они не российские),
+        // в режиме «Только выбранное» — если его набор целиком в маршрутах
+        bool SiteViaVpn(string site)
+        {
+            if (!vpnRunning) return false;
+            if (cfg.VpnMode != "split") return true;
+            SitePreset p = BlockedPreset(site);
+            return p != null && SitePresets.IsOn(p, cfg.VpnDomains);
         }
 
         // После автообновления zapret: если сайтов открывается меньше, чем до него, — предлагаем вернуть прошлую версию
@@ -2430,7 +2609,7 @@ namespace ZapretLauncher
             root.ColumnDefinitions[1].Width = on ? new GridLength(0) : new GridLength(5, GridUnitType.Star);
             E<FrameworkElement>("Sidebar").Visibility = on ? Visibility.Collapsed : Visibility.Visible;
             E<FrameworkElement>("MidPanel").Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-            window.MinWidth = (on ? 460 : 900) * k;
+            window.MinWidth = (on ? 460 : MinFullWidth) * k;
             if (resize)
             {
                 double right = window.Left + window.Width;
@@ -2443,11 +2622,14 @@ namespace ZapretLauncher
             cfg.Save();
         }
 
+        // полный вид: боковое меню 76 + колонки 400 и 440 из ui.xaml и запас на рамку окна
+        const double MinFullWidth = 940;
+
         void ApplyScale()
         {
             double k = cfg.Scale / 100.0;
             E<Grid>("Root").LayoutTransform = k == 1 ? Transform.Identity : new ScaleTransform(k, k);
-            window.MinWidth = (cfg.Compact ? 460 : 900) * k;
+            window.MinWidth = (cfg.Compact ? 460 : MinFullWidth) * k;
             window.MinHeight = 620 * k;
             if (flyout != null) F<FrameworkElement>("FlyCard").LayoutTransform = k == 1 ? Transform.Identity : new ScaleTransform(k, k);
         }
@@ -2929,7 +3111,8 @@ namespace ZapretLauncher
         void CreateFlyout()
         {
             flyout = LoadWindow("flyout.xaml");
-            F<Image>("FlyIcon").Source = imageIcons[trayState ?? "off"];
+            // в trayState может быть метка VPN («on-vpn»), а картинки значка — только по состоянию обхода
+            F<Image>("FlyIcon").Source = imageIcons[(trayState ?? "off").Replace("-vpn", "")];
             ApplyScale();
             if (I18n.English) F<Button>("FlyPing").Content = "Refresh";
             cardState = null;   // перекрасить мини-окно по состоянию
@@ -3134,6 +3317,7 @@ namespace ZapretLauncher
             lt.SetResourceReference(TextBlock.ForegroundProperty, hasUpdate ? "AccentHover" : "Muted");
             Text("CardSubtitle").Text = "· " + (lastCheck.HasValue ? T("проверено") + " " + lastCheck.Value.ToString("dd.MM HH:mm") : T("не проверялось")) +
                 (cfg.AutoUpdate ? " · " + T("автообновление") : "");
+            Text("CardSubtitle").ToolTip = Text("CardSubtitle").Text.TrimStart('·', ' ');
             E<Button>("BtnInstallUpdate").Visibility = hasUpdate ? Visibility.Visible : Visibility.Collapsed;
             if (!picking) E<Button>("BtnMain").Content = T("Подобрать стратегию");
             E<Button>("BtnRemoveService").Visibility = Zapret.Service() != null ? Visibility.Visible : Visibility.Collapsed;
@@ -3218,35 +3402,251 @@ namespace ZapretLauncher
         {
             if (!Directory.Exists(Paths.Zapret)) return;
             List<string> domains = Zapret.UserDomains(DomainKind);
-            E<ListBox>("DomainList").ItemsSource = domains;
+            E<FrameworkElement>("DomainSearchBox").Visibility = domains.Count > 8 ? Visibility.Visible : Visibility.Collapsed;
+            string query = domains.Count > 8 ? E<TextBox>("DomainSearch").Text.Trim() : "";
+            // наборы — только в «Обходить»; в исключениях домены идут по одному
+            FillItemList(E<StackPanel>("DomainItems"), domains, query, false, RemoveDomain, DomainKind == "general" ? (Func<SitePreset, Task>)RemoveDomainPreset : null);
             E<FrameworkElement>("DomainEmpty").Visibility = domains.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
-            Text("DomainEmptyText").Text = T(DomainKind == "general" ? "Своих доменов пока нет — добавьте сайт, который нужно разблокировать"
+            Text("DomainEmptyText").Text = T(DomainKind == "general" ? "Своих доменов пока нет — добавьте сайт, который нужно разблокировать, или выберите готовый набор"
                                                                       : "Исключений нет — сюда добавляют сайты, которые ломаются от обхода");
+            // наборы — только для списка «Обходить»: исключать целые сервисы незачем
+            E<FrameworkElement>("DomainPresetBox").Visibility = DomainKind == "general" ? Visibility.Visible : Visibility.Collapsed;
+            if (DomainKind == "general") FillPresets(E<StackPanel>("DomainPresets"), domains, ToggleDomainPreset);
         }
 
         async Task AddDomain()
         {
-            string raw = E<TextBox>("DomainInput").Text;
-            if (raw.Trim().Length == 0) return;
+            if (await AddDomains(E<TextBox>("DomainInput").Text)) E<TextBox>("DomainInput").Text = "";
+        }
+
+        async Task<bool> AddDomains(string raw)
+        {
             List<string> added = new List<string>(), bad = new List<string>();
-            foreach (string part in raw.Split(new[] { ' ', ',', ';', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (string part in SitePresets.SplitItems(raw))
             {
                 string d = Zapret.NormalizeDomain(part);
                 if (d != null) added.Add(d); else bad.Add(part);
             }
+            if (added.Count == 0 && bad.Count == 0) return false;
             List<string> current = Zapret.UserDomains(DomainKind);
             List<string> fresh = added.Where(d => !current.Contains(d)).Distinct().ToList();
-            TextBlock info = Text("DomainInfo");
-            info.Text = bad.Count > 0 ? T("Не похоже на домен") + ": " + string.Join(", ", bad)
-                      : fresh.Count == 0 && added.Count > 0 ? T("Этот домен уже есть в списке")
-                      : T("Поддомены учитываются автоматически. Изменения применяются сразу.");
-            if (fresh.Count == 0) return;
+            Text("DomainInfo").Text = AddedInfo(fresh.Count, added.Count, bad, "Не похоже на домен", "Этот домен уже есть в списке",
+                                                "Можно сразу несколько — через пробел, запятую или вставить списком. Поддомены учитываются автоматически.");
+            if (fresh.Count == 0) return false;
             Zapret.SaveUserDomains(DomainKind, current.Concat(fresh));
             Log.Write("Добавлено в «" + (DomainKind == "general" ? "Обходить" : "Не трогать") + "»: " + string.Join(", ", fresh));
-            E<TextBox>("DomainInput").Text = "";
             UpdateDomainUi();
             AutoBackup();
             await RestartIfRunning();
+            return true;
+        }
+
+        // Итог добавления: сколько добавлено, что уже было, что не распознано (первые несколько)
+        static string AddedInfo(int fresh, int found, List<string> bad, string badText, string dupText, string normalText)
+        {
+            string s = fresh > 1 ? T("Добавлено") + ": " + fresh : fresh == 0 && found > 0 ? T(dupText) : "";
+            if (bad.Count > 0)
+                s += (s.Length > 0 ? ". " : "") + T(badText) + ": " + string.Join(", ", bad.Take(5)) + (bad.Count > 5 ? " (+" + (bad.Count - 5) + ")" : "");
+            return s.Length > 0 ? s : T(normalText);
+        }
+
+        async Task ToggleDomainPreset(SitePreset p)
+        {
+            List<string> current = Zapret.UserDomains("general");
+            if (SitePresets.IsOn(p, current))
+            {
+                HashSet<string> remove = SitePresets.RemovalSet(p, current, false);
+                Zapret.SaveUserDomains("general", current.Where(d => !remove.Contains(d)));
+                Log.Write("Набор «" + p.Name + "» убран из «Обходить»");
+            }
+            else
+            {
+                Zapret.SaveUserDomains("general", current.Concat(p.Domains.Where(d => !current.Contains(d))));
+                Log.Write("Набор «" + p.Name + "» добавлен в «Обходить»");
+            }
+            UpdateDomainUi();
+            AutoBackup();
+            await RestartIfRunning();
+        }
+
+        async Task RemoveDomainPreset(SitePreset p)
+        {
+            if (SitePresets.IsOn(p, Zapret.UserDomains("general"))) await ToggleDomainPreset(p);
+        }
+
+        // Список доменов или программ: включённые наборы — одной карточкой (значок, название, домены мелко), остальное — по строке.
+        // query — поиск по названию набора, доменам и программам
+        void FillItemList(StackPanel host, List<string> items, string query, bool vpn, Func<string, Task> removeOne, Func<SitePreset, Task> removeSet)
+        {
+            host.Children.Clear();
+            Func<string, bool> match = s => query.Length == 0 || s.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+            List<SitePreset> sets = removeSet == null ? new List<SitePreset>()
+                : SitePresets.All.Where(p => (vpn || !p.VpnOnly) && SitePresets.IsOn(p, items)).ToList();
+            HashSet<string> grouped = new HashSet<string>(sets.SelectMany(p => p.Domains), StringComparer.OrdinalIgnoreCase);
+            int shown = 0;
+            foreach (SitePreset preset in sets)
+            {
+                SitePreset p = preset;
+                if (!match(p.Name) && !p.Domains.Any(match) && !(vpn && p.Apps.Any(match))) continue;
+                Grid row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.Children.Add(PresetBadge(p, 28));
+                StackPanel text = new StackPanel { Margin = new Thickness(12, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+                text.Children.Add(new TextBlock { Text = p.Name, FontSize = 13, FontWeight = FontWeights.SemiBold });
+                TextBlock sub = new TextBlock
+                {
+                    Text = string.Join(", ", p.Domains) + (vpn && p.Apps.Length > 0 ? "  ·  " + string.Join(", ", p.Apps) : ""),
+                    FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0)
+                };
+                sub.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                text.Children.Add(sub);
+                Grid.SetColumn(text, 1);
+                row.Children.Add(text);
+                Button del = new Button { Content = "", Width = 28, Height = 28, FontSize = 11, ToolTip = T("Убрать набор"), VerticalAlignment = VerticalAlignment.Center };
+                del.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
+                del.Click += async delegate { await removeSet(p); };
+                Grid.SetColumn(del, 2);
+                row.Children.Add(del);
+                Border card = new Border { Child = row, CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 9, 8, 9), Margin = new Thickness(0, 0, 0, 6) };
+                card.SetResourceReference(Border.BackgroundProperty, "Card");
+                host.Children.Add(card);
+                shown++;
+            }
+            List<string> singles = items.Where(d => !grouped.Contains(d) && match(d)).ToList();
+            const int MaxRows = 300;   // после импорта большого списка тысячи строк подвесили бы окно — остальное находится поиском
+            foreach (string item in singles.Take(MaxRows))
+            {
+                string value = item;
+                Grid row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.Children.Add(new TextBlock { Text = value, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+                Button del = new Button { Content = "", Width = 28, Height = 28, FontSize = 11, ToolTip = T("Удалить") };
+                del.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
+                del.Click += async delegate { await removeOne(value); };
+                Grid.SetColumn(del, 1);
+                row.Children.Add(del);
+                Border card = new Border { Child = row, CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6) };
+                card.SetResourceReference(Border.BackgroundProperty, "Card");
+                host.Children.Add(card);
+                shown++;
+            }
+            if (singles.Count > MaxRows)
+            {
+                TextBlock more = new TextBlock { Text = T("Всего в списке") + ": " + singles.Count + ". " + T("Показаны первые 300 — остальные найдёт поиск"), FontSize = 12, Margin = new Thickness(2, 2, 0, 6), TextWrapping = TextWrapping.Wrap };
+                more.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                host.Children.Add(more);
+            }
+            if (shown == 0 && query.Length > 0)
+            {
+                TextBlock none = new TextBlock { Text = T("Ничего не найдено"), FontSize = 12, Margin = new Thickness(2, 2, 0, 6) };
+                none.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                host.Children.Add(none);
+            }
+        }
+
+        readonly Dictionary<string, string> presetTabs = new Dictionary<string, string>();   // открытая вкладка наборов на каждой странице
+
+        // Готовые наборы: сверху вкладки (Общение, Медиа…) с числом добавленных, ниже — кнопки наборов открытой вкладки.
+        // Кнопка подсвечена, если домены набора уже все в списке; клик добавляет набор или убирает его
+        void FillPresets(StackPanel host, ICollection<string> domains, Func<SitePreset, Task> toggle)
+        {
+            bool vpn = host.Name == "VpnPresets";
+            List<SitePreset> all = SitePresets.All.Where(x => !x.VpnOnly || vpn).ToList();
+            List<string> groups = SitePresets.Groups.Where(g => all.Any(p => p.Group == g)).ToList();
+            string open;
+            if (!presetTabs.TryGetValue(host.Name, out open) || !groups.Contains(open))
+                presetTabs[host.Name] = open = groups.FirstOrDefault(g => all.Any(p => p.Group == g && SitePresets.IsOn(p, domains))) ?? groups[0];
+            host.Children.Clear();
+            WrapPanel tabs = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+            foreach (string group in groups)
+            {
+                string g = group;
+                int count = all.Count(p => p.Group == g && SitePresets.IsOn(p, domains));
+                StackPanel label = new StackPanel { Orientation = Orientation.Horizontal };
+                label.Children.Add(new TextBlock { Text = T(g) });
+                if (count > 0) label.Children.Add(new TextBlock { Text = " " + count, Opacity = 0.65 });
+                RadioButton tab = new RadioButton { Content = label, GroupName = host.Name + "Tabs", IsChecked = g == open, Margin = new Thickness(0, 0, 4, 4) };
+                tab.SetResourceReference(FrameworkElement.StyleProperty, "Segment");
+                tab.Click += delegate { presetTabs[host.Name] = g; FillPresets(host, domains, toggle); };
+                tabs.Children.Add(tab);
+            }
+            host.Children.Add(tabs);
+            WrapPanel panel = new WrapPanel();
+            host.Children.Add(panel);
+            foreach (SitePreset preset in all.Where(p => p.Group == open))
+            {
+                SitePreset p = preset;
+                bool on = SitePresets.IsOn(p, domains);
+                StackPanel content = new StackPanel { Orientation = Orientation.Horizontal };
+                content.Children.Add(PresetBadge(p, 18));
+                content.Children.Add(new TextBlock { Text = p.Name, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7, 0, 0, 0) });
+                ToggleButton chip = new ToggleButton { Content = content, IsChecked = on };
+                chip.SetResourceReference(FrameworkElement.StyleProperty, "PresetChip");
+                chip.ToolTip = string.Join(", ", p.Domains) + (p.Apps.Length > 0 && vpn ? ", " + string.Join(", ", p.Apps) : "") +
+                               "\n" + T(on ? "Нажмите, чтобы убрать набор" : "Нажмите, чтобы добавить набор");
+                chip.Click += async delegate { chip.IsChecked = !on; await toggle(p); };
+                panel.Children.Add(chip);
+            }
+        }
+
+        // Значок сервиса: буква на скруглённой плашке его фирменного цвета
+        static Border PresetBadge(SitePreset p, double size)
+        {
+            TextBlock mark = new TextBlock
+            {
+                Text = p.Mark ?? p.Name.Substring(0, 1), Foreground = Brushes.White, FontWeight = FontWeights.Bold,
+                FontSize = size * (p.Mark != null && p.Mark.Length > 1 ? 0.48 : 0.58),
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+            };
+            Border b = new Border
+            {
+                Width = size, Height = size, CornerRadius = new CornerRadius(size * 0.3), Child = mark, VerticalAlignment = VerticalAlignment.Center,
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(p.Color ?? "#808080"))
+            };
+            return b;
+        }
+
+        // Список из текстового файла: по элементу на строку, комментарии после # пропускаются
+        string ReadListFile()
+        {
+            Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = T("Добавить списком из файла"), Filter = T("Текстовые списки") + " (*.txt;*.lst)|*.txt;*.lst|" + T("Все файлы") + " (*.*)|*.*"
+            };
+            if (dlg.ShowDialog(window) != true) return null;
+            try { return File.ReadAllText(dlg.FileName); }
+            catch (Exception e) { Ask(T("Не удалось прочитать файл: ") + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); return null; }
+        }
+
+        // Поле поиска: подсказка прячется, пока есть текст; список перерисовывается на каждый символ
+        void SearchBox(string box, string hint, Action refresh)
+        {
+            TextBox input = E<TextBox>(box);
+            input.TextChanged += delegate
+            {
+                Text(hint).Visibility = input.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible;
+                refresh();
+            };
+        }
+
+        // Вставка нескольких строк в однострочное поле: строки склеиваются через запятую, а не обрезаются до первой.
+        // Комментарии после # убираются сразу — в одной строке они съели бы всё, что после них
+        static void PasteAsOneLine(TextBox box)
+        {
+            DataObject.AddPastingHandler(box, (s, e) =>
+            {
+                string text = e.DataObject.GetData(DataFormats.UnicodeText) as string;
+                if (text == null || text.IndexOfAny(new[] { '\r', '\n' }) < 0) return;
+                IEnumerable<string> lines = text.Split('\n')
+                    .Select(l => { int c = l.IndexOf('#'); return (c >= 0 ? l.Substring(0, c) : l).Trim(); })
+                    .Where(l => l.Length > 0);
+                DataObject one = new DataObject();
+                one.SetData(DataFormats.UnicodeText, string.Join(", ", lines));
+                e.DataObject = one;
+            });
         }
 
         async Task RemoveDomain(string domain)
@@ -3380,6 +3780,9 @@ namespace ZapretLauncher
         async Task SelectStrategy(string file)
         {
             if (file == cfg.Strategy) return;
+            // выбрали стратегию сами — предложение сторожа вернуть прежнюю больше не нужно
+            E<FrameworkElement>("StrategyChangedBar").Visibility = Visibility.Collapsed;
+            strategyBeforeWatchdog = null;
             cfg.Strategy = file;
             cfg.Save();
             UpdateStrategyList();
@@ -3466,6 +3869,7 @@ namespace ZapretLauncher
             ClickSync("SwVpnAuto", () => { cfg.VpnAutoBest = E<CheckBox>("SwVpnAuto").IsChecked == true; cfg.Save(); });
             window.Activated += delegate { if (E<FrameworkElement>("PageVpn").Visibility == Visibility.Visible) CheckClipboard(); };
             Click("BtnVpnListAdd", AddVpnListItem);
+            Click("BtnVpnListFile", async () => { string text = ReadListFile(); if (text != null) await AddVpnListItems(text); });
             Click("VpnModeSplit", async () => { if (filling || cfg.VpnMode == "split") return; cfg.VpnMode = "split"; await ApplyVpnChanges(); });
             Click("VpnModeAll", async () => { if (filling || cfg.VpnMode == "all") return; cfg.VpnMode = "all"; await ApplyVpnChanges(); });
             Click("VpnModeRu", async () => { if (filling || cfg.VpnMode == "ru") return; cfg.VpnMode = "ru"; await ApplyVpnChanges(); });
@@ -3503,6 +3907,7 @@ namespace ZapretLauncher
             vpnInput.KeyDown += async (s, e) => { if (e.Key == Key.Return) await AddVpnServers(); };
             vpnInput.TextChanged += delegate { Text("VpnHint").Visibility = vpnInput.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible; };
             vpnListInput.KeyDown += async (s, e) => { if (e.Key == Key.Return) await AddVpnListItem(); };
+            PasteAsOneLine(vpnListInput);
             vpnListInput.TextChanged += delegate { Text("VpnListHint").Visibility = vpnListInput.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible; };
 
             ClickSync("BtnBackupSave", BackupSave);
@@ -3546,14 +3951,25 @@ namespace ZapretLauncher
             ClickSync("DomGeneral", UpdateDomainUi);
             ClickSync("DomExclude", UpdateDomainUi);
             Click("BtnAddDomain", AddDomain);
+            Click("BtnDomainFile", async () => { string text = ReadListFile(); if (text != null) await AddDomains(text); });
             TextBox input = E<TextBox>("DomainInput");
             input.KeyDown += async (s, e) => { if (e.Key == Key.Return) await AddDomain(); };
+            PasteAsOneLine(input);
             input.TextChanged += delegate { Text("DomainHint").Visibility = input.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible; };
-            E<ListBox>("DomainList").AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler(async (s, e) =>
+            Click("BtnRevertStrategy", RevertStrategy);
+            ClickSync("BtnStrategyChangedClose", () => E<FrameworkElement>("StrategyChangedBar").Visibility = Visibility.Collapsed);
+
+            // журнал
+            SearchBox("LogSearch", "LogSearchHint", FilterLog);
+            ClickSync("LogImportant", FilterLog);
+            Click("BtnLogCopy", CopyLog);
+            ClickSync("BtnLogOpen", () => { try { Process.Start("notepad.exe", "\"" + Paths.Log + "\""); } catch (Exception e) { Log.Write(e.Message); } });
+            E<ListBox>("LogList").IsVisibleChanged += (s, e) =>
             {
-                Button b = e.OriginalSource as Button;
-                if (b != null && b.Tag is string) await RemoveDomain((string)b.Tag);
-            }));
+                if ((bool)e.NewValue && logView.Count > 0) E<ListBox>("LogList").ScrollIntoView(logView[logView.Count - 1]);
+            };
+            SearchBox("DomainSearch", "DomainSearchHint", UpdateDomainUi);
+            SearchBox("VpnListSearch", "VpnListSearchHint", RenderVpnList);
 
             // оформление
             ClickSync("ThemeDark", () => SetTheme("dark"));

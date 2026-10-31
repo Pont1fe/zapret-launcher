@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Security;
 
 namespace ZapretLauncher
@@ -93,9 +94,13 @@ namespace ZapretLauncher
                 object toast = Activator.CreateInstance(toastType, doc);
                 if (onAction != null)
                 {
+                    // ev.AddEventHandler на событиях WinRT в .NET Framework не работает — подписываемся через WindowsRuntimeMarshal
                     EventInfo ev = toastType.GetEvent("Activated");
                     Delegate handler = Delegate.CreateDelegate(ev.EventHandlerType, new Activation(onAction), typeof(Activation).GetMethod("Handle"));
-                    ev.AddEventHandler(toast, handler);
+                    Type token = typeof(EventRegistrationToken);
+                    Delegate add = Delegate.CreateDelegate(typeof(Func<,>).MakeGenericType(ev.EventHandlerType, token), toast, ev.GetAddMethod());
+                    Delegate remove = Delegate.CreateDelegate(typeof(Action<>).MakeGenericType(token), toast, ev.GetRemoveMethod());
+                    typeof(WindowsRuntimeMarshal).GetMethod("AddEventHandler").MakeGenericMethod(ev.EventHandlerType).Invoke(null, new object[] { add, remove, handler });
                 }
                 object notifier = managerType.GetMethod("CreateToastNotifier", new[] { typeof(string) }).Invoke(null, new object[] { AppId });
                 notifier.GetType().GetMethod("Show").Invoke(notifier, new[] { toast });

@@ -183,7 +183,8 @@ namespace ZapretLauncher
             d = d.TrimEnd('.');
             if (d.Length == 0) return null;
             try { d = new IdnMapping().GetAscii(d); } catch { return null; }
-            if (!Regex.IsMatch(d, @"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$")) return null;
+            // зона — не из одних цифр, чтобы IP-адреса из списков вроде hosts не принимались за домены
+            if (!Regex.IsMatch(d, @"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+(?=[a-z0-9-]*[a-z])[a-z0-9-]{2,63}$")) return null;
             return d;
         }
 

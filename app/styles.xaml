@@ -291,6 +291,38 @@
     </Setter>
   </Style>
 
+  <!-- Кнопка готового набора: значок сервиса, название, галочка — когда набор добавлен -->
+  <Style x:Key="PresetChip" TargetType="ToggleButton">
+    <Setter Property="Foreground" Value="{DynamicResource TextSub}"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Margin" Value="0,0,6,6"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ToggleButton">
+          <Border x:Name="bg" CornerRadius="14" Background="{DynamicResource Card}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="5,4,10,4">
+            <StackPanel Orientation="Horizontal">
+              <ContentPresenter VerticalAlignment="Center"/>
+              <TextBlock x:Name="check" Text="&#xE73E;" FontFamily="{DynamicResource Icons}" FontSize="10" Foreground="{DynamicResource AccentHover}"
+                         VerticalAlignment="Center" Margin="7,1,0,0" Visibility="Collapsed"/>
+            </StackPanel>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="bg" Property="Background" Value="{DynamicResource AccentSoft}"/>
+              <Setter TargetName="bg" Property="BorderBrush" Value="{DynamicResource AccentBorder}"/>
+              <Setter TargetName="check" Property="Visibility" Value="Visible"/>
+              <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="bg" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <Style x:Key="Segment" TargetType="RadioButton">
     <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
     <Setter Property="FontSize" Value="12"/>
