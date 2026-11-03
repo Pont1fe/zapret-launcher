@@ -50,6 +50,7 @@
 - **Real server check**: a real page is opened through every server, not just a ping. “Pick the fastest” and automatic failover to another server.
 - Servers grouped by country with flags, subscription traffic and expiry, a speed graph and a live list of connections.
 - Keys with the **xhttp** transport work through the Xray core, downloaded automatically.
+- **AmneziaWG** servers, Amnezia Premium included: add the file from the Amnezia app (“Configuration files”) with the “AmneziaWG file…” button; the AmneziaWG core downloads itself.
 
 ### 💬 Telegram
 - Desktop through the local [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy), Web through hosts entries — one switch.
@@ -70,16 +71,23 @@ Only Windows 10/11 is required — the C# compiler of .NET Framework 4.8 that sh
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-`ZapretLauncher.exe` and `ZapretLauncherSetup.exe` appear in `dist`. Releases are built by GitHub Actions: bump `AppVersion` in `app/App.cs`, update `RELEASE_NOTES.md` and push a tag `vX.Y.Z`.
+`ZapretLauncher.exe` and `ZapretLauncherSetup.exe` appear in `dist`. Logic tests (VPN key parsing, domains, sets, hosts, translation) run after the build; they don't open the window or touch the bypass and VPN:
 
-- `app/` — the launcher (WPF): `Launcher.cs` window and logic, `Zapret.cs` zapret handling, `Vpn.cs` VPN (sing-box and Xray), `Telegram.cs`, `Network.cs` site and network checks, `Toast.cs` notifications, `I18n.cs` translation, `Shell.cs` icons, shortcuts, self-update, `ui.xaml` layout.
+```
+powershell -ExecutionPolicy Bypass -File tests\run.ps1
+```
+
+Releases are built by GitHub Actions: bump `AppVersion` in `app/App.cs`, update `RELEASE_NOTES.md` and push a tag `vX.Y.Z`. If the tests fail, the release is not published.
+
+- `app/` — the launcher (WPF): `Launcher.cs` main window, the rest in `Launcher.*.cs` by area (`Bypass`, `Watchdog`, `Vpn`, `VpnRoutes`, `Lists`, `Network`, `Updates`, `Pages` and others), `Watchdog.cs` when the watchdog waits, restarts and picks a strategy, `Zapret.cs` zapret handling, `Vpn.cs` VPN (sing-box and Xray), `AmneziaWG.cs` AmneziaWG servers, `Telegram.cs`, `Network.cs` site and network checks, `Toast.cs` notifications, `I18n.cs` translation, `Shell.cs` icons, shortcuts, self-update, `ui.xaml` layout.
 - `installer/` — the installer (WinForms).
+- `tests/` — logic tests.
 
 ## Credits
 
 - [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) and [bol-van/zapret](https://github.com/bol-van/zapret) — the bypass itself.
 - [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — the Telegram Desktop proxy.
-- [SagerNet/sing-box](https://github.com/SagerNet/sing-box) and [XTLS/Xray-core](https://github.com/XTLS/Xray-core) — the VPN cores.
+- [SagerNet/sing-box](https://github.com/SagerNet/sing-box), [XTLS/Xray-core](https://github.com/XTLS/Xray-core) and [AmneziaWG](https://github.com/amnezia-vpn/amneziawg-windows-client) — the VPN cores.
 - [ZXing.Net](https://github.com/micjahn/ZXing.Net) — QR code reading, [flagcdn.com](https://flagcdn.com) — country flags.
 
-This is an unofficial wrapper; zapret, tg-ws-proxy, sing-box and Xray are downloaded directly from their authors' releases.
+This is an unofficial wrapper; zapret, tg-ws-proxy, sing-box, Xray and AmneziaWG are downloaded directly from their authors' releases.

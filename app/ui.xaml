@@ -330,7 +330,8 @@
             </Grid>
             <WrapPanel Margin="0,8,0,0">
               <Button x:Name="BtnVpnQrFile" Style="{DynamicResource GhostButton}" Height="30" Margin="0,0,8,0" Content="QR из картинки…" ToolTip="Открыть картинку или скриншот с QR-кодом ключа"/>
-              <Button x:Name="BtnVpnQrScreen" Style="{DynamicResource GhostButton}" Height="30" Content="Найти QR на экране" ToolTip="Откройте QR-код ключа в любом окне и нажмите — лаунчер найдёт его на экране"/>
+              <Button x:Name="BtnVpnQrScreen" Style="{DynamicResource GhostButton}" Height="30" Margin="0,0,8,0" Content="Найти QR на экране" ToolTip="Откройте QR-код ключа в любом окне и нажмите — лаунчер найдёт его на экране"/>
+              <Button x:Name="BtnVpnAwgFile" Style="{DynamicResource GhostButton}" Height="30" Content="Файл AmneziaWG…" ToolTip="Файл .conf из приложения Amnezia (подписка → «Файлы конфигурации») или от своего сервера AmneziaWG"/>
             </WrapPanel>
             <TextBlock x:Name="VpnInfo" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,10" TextWrapping="Wrap"
                        Text="Ключи хранятся только на этом компьютере, в настройках лаунчера"/>

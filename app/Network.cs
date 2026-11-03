@@ -43,7 +43,19 @@ namespace ZapretLauncher
         static readonly string[] ControlUrls = { "https://vk.com/", "https://ya.ru/", "http://www.msftconnecttest.com/connecttest.txt" };
 
         // Любой HTTP-ответ — значит до сервера достучались; блокировка DPI даёт сброс соединения или таймаут
-        public static async Task<List<SiteResult>> Test(bool telegram, bool control, int timeoutSec = 6)
+        public static Task<List<SiteResult>> Test(bool telegram, bool control, int timeoutSec = 6)
+        {
+            return Run(Targets(telegram, control), timeoutSec);
+        }
+
+        // Повторная проверка только не открывшихся сайтов, с запасом по времени: из-за разового сбоя (медленный ответ,
+        // оборванное соединение) сторож не должен начинать отсчёт
+        public static Task<List<SiteResult>> Retest(ICollection<string> names, bool telegram, int timeoutSec = 10)
+        {
+            return Run(Targets(telegram, false).Where(t => names.Contains(t.Key)).ToList(), timeoutSec);
+        }
+
+        static async Task<List<SiteResult>> Run(List<KeyValuePair<string, string>> targets, int timeoutSec)
         {
             HttpClientHandler handler = new HttpClientHandler();
             handler.AllowAutoRedirect = false;
@@ -52,7 +64,6 @@ namespace ZapretLauncher
                 client.Timeout = TimeSpan.FromSeconds(timeoutSec);
                 client.DefaultRequestHeaders.ConnectionClose = true;   // без соединений, оставшихся от прошлой стратегии
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-                List<KeyValuePair<string, string>> targets = Targets(telegram, control);
                 Task<SiteResult>[] tasks = targets.Select(t => One(client, t.Key, t.Value)).ToArray();
                 SiteResult[] all = await Task.WhenAll(tasks);
                 List<SiteResult> results = all.Where(r => r.Name != Control).ToList();

@@ -50,6 +50,7 @@
 - **Честная проверка серверов**: через каждый открывается настоящая страница, а не просто пинг. «Выбрать самый быстрый» и автовыбор с переключением, если сервер упал.
 - Серверы по странам с флагами, трафик и срок подписки, график скорости и живой журнал соединений.
 - Ключи с транспортом **xhttp** работают через ядро Xray — оно скачается само.
+- Серверы **AmneziaWG**, в том числе Amnezia Premium: файл из приложения Amnezia («Файлы конфигурации») добавляется кнопкой «Файл AmneziaWG…», ядро AmneziaWG скачается само.
 
 ### 💬 Telegram
 - Desktop работает через локальный [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy), Web — через записи в hosts. Всё включается одним переключателем.
@@ -70,16 +71,23 @@
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-Готовые `ZapretLauncher.exe` и `ZapretLauncherSetup.exe` появятся в папке `dist`. Релизы собирает GitHub Actions: поменяйте `AppVersion` в `app/App.cs`, обновите `RELEASE_NOTES.md` и отправьте тег `vX.Y.Z`.
+Готовые `ZapretLauncher.exe` и `ZapretLauncherSetup.exe` появятся в папке `dist`. Тесты логики (разбор ключей VPN, домены, наборы, hosts, перевод) — после сборки; окно они не открывают и обход с VPN не трогают:
 
-- `app/` — лаунчер (WPF): `Launcher.cs` — окно и логика, `Zapret.cs` — работа с zapret, `Vpn.cs` — VPN (sing-box и Xray), `Telegram.cs`, `Network.cs` — проверки сайтов и сети, `Toast.cs` — уведомления, `I18n.cs` — перевод, `Shell.cs` — значки, ярлыки, самообновление, `ui.xaml` — интерфейс.
+```
+powershell -ExecutionPolicy Bypass -File tests\run.ps1
+```
+
+Релизы собирает GitHub Actions: поменяйте `AppVersion` в `app/App.cs`, обновите `RELEASE_NOTES.md` и отправьте тег `vX.Y.Z`. Если тесты не прошли, релиз не публикуется.
+
+- `app/` — лаунчер (WPF): `Launcher.cs` — главное окно, остальное в `Launcher.*.cs` по разделам (`Bypass`, `Watchdog`, `Vpn`, `VpnRoutes`, `Lists`, `Network`, `Updates`, `Pages` и другие), `Watchdog.cs` — когда сторож ждёт, перезапускает и подбирает стратегию, `Zapret.cs` — работа с zapret, `Vpn.cs` — VPN (sing-box и Xray), `AmneziaWG.cs` — серверы AmneziaWG, `Telegram.cs`, `Network.cs` — проверки сайтов и сети, `Toast.cs` — уведомления, `I18n.cs` — перевод, `Shell.cs` — значки, ярлыки, самообновление, `ui.xaml` — интерфейс.
 - `installer/` — установщик (WinForms).
+- `tests/` — тесты логики.
 
 ## Благодарности
 
 - [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) и [bol-van/zapret](https://github.com/bol-van/zapret) — сам обход.
 - [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — прокси для Telegram Desktop.
-- [SagerNet/sing-box](https://github.com/SagerNet/sing-box) и [XTLS/Xray-core](https://github.com/XTLS/Xray-core) — ядра VPN.
+- [SagerNet/sing-box](https://github.com/SagerNet/sing-box), [XTLS/Xray-core](https://github.com/XTLS/Xray-core) и [AmneziaWG](https://github.com/amnezia-vpn/amneziawg-windows-client) — ядра VPN.
 - [ZXing.Net](https://github.com/micjahn/ZXing.Net) — чтение QR-кодов, [flagcdn.com](https://flagcdn.com) — флаги стран.
 
-Лаунчер — неофициальная оболочка; zapret, tg-ws-proxy, sing-box и Xray скачиваются напрямую из релизов их авторов.
+Лаунчер — неофициальная оболочка; zapret, tg-ws-proxy, sing-box, Xray и AmneziaWG скачиваются напрямую из релизов их авторов.
