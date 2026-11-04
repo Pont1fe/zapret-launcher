@@ -3,6 +3,13 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/vpn-en.png)
 
+### 4.0.4 — VPN without leaks / VPN без утечек
+
+- 🔒 “Never bypass the VPN” on the Routes tab: if the VPN goes down and won't come back, the launcher blocks the listed sites and apps instead of letting them go directly (in “All traffic” and “Russia direct” — everything that went through the VPN). The VPN card shows the blocking; it lifts by itself once the VPN works again / «Не пускать мимо VPN» на вкладке «Маршруты»: если VPN упал и не поднимается, лаунчер не пускает сайты и программы из списка напрямую (в режимах «Весь трафик» и «Россия напрямую» — всё, что шло через VPN). Карточка VPN показывает блокировку, а когда VPN заработает, она снимется сама
+- 📶 Server list: after a check working servers go on top, fastest first; dead ones can be hidden with one button — the selected server always stays visible / Список серверов: после проверки работающие — наверху, самые быстрые первыми; неработающие можно скрыть одной кнопкой — выбранный сервер виден всегда
+- 🧾 “Save report” on the Log page: logs and system info in one archive on the desktop, to send when something doesn't work. VPN keys, the subscription URL, settings files and your Windows user name are left out / Кнопка «Собрать отчёт» в журнале: журналы и сведения о системе одним архивом на рабочий стол — чтобы отправить, если что-то не работает. Ключи VPN, адрес подписки, файлы настроек и имя пользователя Windows в него не попадают
+- 📸 Fresh screenshots in the README / Свежие скриншоты в README
+
 ### 4.0.3 — AmneziaWG / AmneziaWG
 
 - 🛡️ AmneziaWG servers, Amnezia Premium included: in the Amnezia app open your subscription → “Configuration files”, download the file for a country and add it with the new “AmneziaWG file…” button (or just copy its text — the launcher offers to add it). The official AmneziaWG core downloads itself, is checked by its checksum and is updated together with the other cores / Серверы AmneziaWG, в том числе Amnezia Premium: в приложении Amnezia откройте подписку → «Файлы конфигурации», скачайте файл нужной страны и добавьте его новой кнопкой «Файл AmneziaWG…» (или просто скопируйте его текст — лаунчер предложит добавить). Официальное ядро AmneziaWG скачивается само, проверяется по контрольной сумме и обновляется вместе с остальными ядрами

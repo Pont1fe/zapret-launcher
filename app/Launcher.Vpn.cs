@@ -192,8 +192,9 @@ namespace ZapretLauncher
             // на карточке места мало — только скорость загрузки
             string speed = vpnSpeedText.Length > 0 ? " · " + vpnSpeedText.Split(new[] { "  ↑" }, StringSplitOptions.None)[0] : "";
             bool ready = vpnRunning && !VpnSwitching;   // пока подключён не выбранный сервер — «подключается», а не его скорость
-            Text("PowerVpnText").Text = "VPN · " + (s == null ? "" : Vpn.DisplayName(s.Name)) + (ready ? speed : " · " + T("подключается…"));
-            E<Ellipse>("PowerVpnDot").SetResourceReference(Shape.FillProperty, ready ? "Ok" : "Wait");
+            Text("PowerVpnText").Text = "VPN · " + (s == null ? "" : Vpn.DisplayName(s.Name)) +
+                                        (ready ? speed : " · " + T(vpnLocked ? "не работает — блокировка" : "подключается…"));
+            E<Ellipse>("PowerVpnDot").SetResourceReference(Shape.FillProperty, ready ? "Ok" : vpnLocked ? "Fail" : "Wait");
         }
 
         // ---------- Ключ из буфера обмена ----------
@@ -329,6 +330,8 @@ namespace ZapretLauncher
             await Vpn.Start(server, cfg.VpnMode, cfg.VpnDomains, cfg.VpnApps);
             vpnActive = key;
             vpnRunning = true;
+            vpnLocked = false;
+            vpnLockShown = false;
             vpnFails = 0;
             vpnConnectedAt = DateTime.Now;
             vpnSpeeds.Clear();
@@ -371,12 +374,14 @@ namespace ZapretLauncher
             await Vpn.Stop();
             vpnRunning = false;
             vpnActive = null;
+            vpnLocked = false;   // выключили сами — блокировка тоже снимается
+            vpnLockShown = false;
             Log.Write("VPN отключён");
         }
 
         async Task ToggleVpn()
         {
-            bool wasOn = vpnRunning || Vpn.Running;
+            bool wasOn = vpnRunning || Vpn.Running || vpnLocked;   // при блокировке нажатие выключает VPN вместе с ней
             VpnBusy(true);
             try
             {
@@ -413,13 +418,14 @@ namespace ZapretLauncher
             // по cfg.VpnOn, а не vpnRunning: пока VPN переподключается, vpnRunning на мгновение false — и смена сервера терялась
             if (!cfg.VpnOn) return;
             if (busy) vpnRestartPending = true;
-            else { await RunBusy(() => StartVpn(true), "VPN…"); RefreshVpnUi(); }
+            else { await RunBusy(StartVpnOrLock, "VPN…"); RefreshVpnUi(); }
         }
 
         // Ядро VPN упало, а VPN должен работать — перезапускаем (не чаще раза в 30 секунд, после двух неудач — сдаёмся)
         async Task VpnGuard()
         {
             vpnRunning = Vpn.Running;
+            vpnLocked = !vpnRunning && Vpn.Locked;
             if (cfg.VpnOn && VpnSwitching && !busy && !vpnRestartPending)
             {
                 // подключён не тот сервер или режим, что выбран (смену не успели применить) — переподключаемся
@@ -428,19 +434,64 @@ namespace ZapretLauncher
                 RefreshVpnUi();
                 return;
             }
-            if (!cfg.VpnOn || vpnRunning || busy || CurrentServer == null || (DateTime.Now - vpnLastStart).TotalSeconds < 30) return;
-            Log.Write("VPN: ядро не работает — перезапускаю (" + Vpn.LastLogLine() + ")");
+            // при блокировке пробуем подключиться реже — каждая попытка ненадолго её снимает
+            if (!cfg.VpnOn || vpnRunning || busy || CurrentServer == null || (DateTime.Now - vpnLastStart).TotalSeconds < (vpnLocked ? 120 : 30)) return;
+            bool wasLocked = vpnLocked;
+            if (!wasLocked) Log.Write("VPN: ядро не работает — перезапускаю (" + Vpn.LastLogLine() + ")");
+            Exception error = null;
             try { await StartVpn(true); }
-            catch (Exception e)
+            catch (Exception e) { error = e; }
+            if (error == null) { if (wasLocked) Notify("VPN снова работает — блокировка снята"); }
+            else if (cfg.VpnKillSwitch) await LockVpn(error.Message);
+            else if (++vpnFails >= 2)
             {
-                if (++vpnFails >= 2)
-                {
-                    cfg.VpnOn = false;
-                    cfg.Save();
-                    Notify("VPN не удалось перезапустить: " + e.Message);
-                }
+                cfg.VpnOn = false;
+                cfg.Save();
+                Notify("VPN не удалось перезапустить: " + error.Message);
             }
             RefreshVpnUi();
+        }
+
+        // Переподключение после смены сервера, режима или списков: не вышло, а включено «не пускать мимо VPN» — блокировка
+        async Task StartVpnOrLock()
+        {
+            Exception error = null;
+            try { await StartVpn(true); }
+            catch (Exception e) { error = e; }
+            if (error == null) return;
+            if (!cfg.VpnKillSwitch) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            await LockVpn(error.Message);
+        }
+
+        // ---------- «Не пускать мимо VPN» ----------
+        bool vpnLocked;      // вместо VPN работает блокировка (Vpn.StartLock)
+        bool vpnLockShown;   // о блокировке уже сообщили — при каждой новой попытке подключиться не повторяем
+
+        // VPN не поднимается — вместо него ядро-блокировка: сайты и программы из списка не уходят напрямую
+        async Task LockVpn(string reason)
+        {
+            try { await Vpn.StartLock(cfg.VpnMode, cfg.VpnDomains, cfg.VpnApps); }
+            catch (Exception e)
+            {
+                // без блокировки остаётся только выключить VPN, как раньше, и честно сказать об этом
+                Log.Write("VPN: не удалось включить блокировку — " + e.Message);
+                cfg.VpnOn = false;
+                cfg.Save();
+                Notify("VPN не удалось перезапустить: " + reason);
+                return;
+            }
+            vpnRunning = false;
+            vpnLocked = true;
+            if (vpnLockShown) return;
+            vpnLockShown = true;
+            Log.Write("VPN не работает (" + reason + ") — " + LockText());
+            Notify(T("VPN не работает") + " — " + T(LockText()));
+        }
+
+        string LockText()
+        {
+            return cfg.VpnMode == "split" ? "сайты и программы из списка заблокированы, пока VPN не заработает"
+                                          : "всё, что шло через VPN, заблокировано, пока он не заработает";
         }
 
         async Task AddVpnServers()

@@ -40,7 +40,7 @@ namespace ZapretLauncher
         }
 
         // sing-box работает (а если его выход — туннель AmneziaWG, то и туннель) или туннель AmneziaWG «весь трафик»
-        public static bool Running { get { return (Processes().Length > 0 && !Awg.ChainBroken) || Awg.Running; } }
+        public static bool Running { get { return (Processes().Length > 0 && !Awg.ChainBroken && !File.Exists(LockMarker)) || Awg.Running; } }
 
         // Когда запущено ядро — для «Подключено 1:23:45» после перезапуска лаунчера
         public static DateTime? StartedAt()
@@ -827,9 +827,17 @@ namespace ZapretLauncher
         const string RuleSetBase = "https://raw.githubusercontent.com/SagerNet/";
         static readonly string[] RuSuffixes = { ".ru", ".su", ".xn--p1ai" };   // .рф
 
-        public static string BuildConfig(VpnServer server, string mode, IList<string> domains, IList<string> apps)
+        public static string BuildConfig(VpnServer server, string mode, IList<string> domains, IList<string> apps) { return Build(server, mode, domains, apps); }
+
+        // Блокировка («не пускать мимо VPN»): VPN не работает, а пользователь хочет, чтобы работал. Всё, что шло бы через VPN,
+        // отклоняется, а не уходит напрямую: сайты и программы из списка, а в режимах «Весь трафик» и «Россия напрямую» — и остальное
+        public static string BuildLockConfig(string mode, IList<string> domains, IList<string> apps) { return Build(null, mode, domains, apps); }
+
+        // server == null — блокировка вместо VPN
+        static string Build(VpnServer server, string mode, IList<string> domains, IList<string> apps)
         {
-            bool all = mode == "all", ru = mode == "ru";
+            bool all = mode == "all", ru = mode == "ru", locked = server == null;
+            Func<Dictionary<string, object>, Dictionary<string, object>> viaVpn = r => { if (locked) r["action"] = "reject"; else r["outbound"] = "proxy"; return r; };
             List<object> routeRules = new List<object>
             {
                 new Dictionary<string, object> { { "action", "sniff" } },
@@ -839,7 +847,7 @@ namespace ZapretLauncher
                 new Dictionary<string, object> { { "ip_is_private", true }, { "outbound", "direct" } },
             };
             // служба AmneziaWG — системная, её имя процесса sing-box может и не узнать: сервер туннеля — напрямую ещё и по адресу
-            string[] awgServer = Awg.IsAwg(server.Link) ? Awg.EndpointIps(Awg.ConfOf(server.Link)) : new string[0];
+            string[] awgServer = !locked && Awg.IsAwg(server.Link) ? Awg.EndpointIps(Awg.ConfOf(server.Link)) : new string[0];
             if (awgServer.Length > 0) routeRules.Insert(3, new Dictionary<string, object> { { "ip_cidr", awgServer.Select(ip => ip + "/32").ToArray() }, { "outbound", "direct" } });
             List<object> dnsRules = new List<object>();
             if (!all)
@@ -847,10 +855,10 @@ namespace ZapretLauncher
                 // списки «через VPN» работают и в режиме «Россия напрямую» — например, для российского сайта, которому нужен VPN
                 if (domains.Count > 0)
                 {
-                    routeRules.Add(new Dictionary<string, object> { { "domain_suffix", domains.ToArray() }, { "outbound", "proxy" } });
-                    dnsRules.Add(new Dictionary<string, object> { { "domain_suffix", domains.ToArray() }, { "server", "remote" } });   // адреса этих сайтов — через VPN, чтобы сайт видел страну сервера
+                    routeRules.Add(viaVpn(new Dictionary<string, object> { { "domain_suffix", domains.ToArray() } }));
+                    if (!locked) dnsRules.Add(new Dictionary<string, object> { { "domain_suffix", domains.ToArray() }, { "server", "remote" } });   // адреса этих сайтов — через VPN, чтобы сайт видел страну сервера
                 }
-                if (apps.Count > 0) routeRules.Add(new Dictionary<string, object> { { "process_name", apps.ToArray() }, { "outbound", "proxy" } });
+                if (apps.Count > 0) routeRules.Add(viaVpn(new Dictionary<string, object> { { "process_name", apps.ToArray() } }));
             }
             List<object> ruleSets = new List<object>();
             if (ru)
@@ -864,10 +872,12 @@ namespace ZapretLauncher
                 dnsRules.Add(new Dictionary<string, object> { { "rule_set", new[] { "geosite-ru" } }, { "server", "local" } });
             }
 
+            // при блокировке «всё остальное» в режимах «Весь трафик» и «Россия напрямую» тоже отклоняется (локальная сеть — по правилу выше)
+            if (locked && (all || ru)) routeRules.Add(new Dictionary<string, object> { { "inbound", new[] { "tun-in" } }, { "action", "reject" } });
             Dictionary<string, object> route = new Dictionary<string, object>
             {
                 { "rules", routeRules.ToArray() },
-                { "final", all || ru ? "proxy" : "direct" },
+                { "final", (all || ru) && !locked ? "proxy" : "direct" },
                 { "auto_detect_interface", true },
                 { "find_process", true },   // имя программы у каждого соединения — для журнала соединений
                 { "default_domain_resolver", "local" },
@@ -882,24 +892,26 @@ namespace ZapretLauncher
             // туннель AmneziaWG выбирает сеть для своих пакетов по маршруту «для всего» (0.0.0.0/0). Если его займёт sing-box,
             // пакеты туннеля пойдут по кругу через sing-box и VPN не заработает. Поэтому трафик забираем двумя половинами —
             // всё так же идёт через sing-box, а маршрут «для всего» остаётся у настоящей сети
-            if (Awg.IsAwg(server.Link)) tun["route_address"] = new[] { "0.0.0.0/1", "128.0.0.0/1" };
+            if (!locked && Awg.IsAwg(server.Link)) tun["route_address"] = new[] { "0.0.0.0/1", "128.0.0.0/1" };
+            List<object> dnsServers = new List<object>();
+            if (!locked) dnsServers.Add(new Dictionary<string, object> { { "type", "https" }, { "tag", "remote" }, { "server", "1.1.1.1" }, { "detour", "proxy" } });
+            dnsServers.Add(new Dictionary<string, object> { { "type", "local" }, { "tag", "local" } });
+            List<object> outbounds = new List<object>();
+            if (!locked) outbounds.Add(Awg.IsAwg(server.Link) ? Awg.ChainOutbound(Awg.ConfOf(server.Link)) : BuildOutbound(server.Link));
+            outbounds.Add(new Dictionary<string, object> { { "type", "direct" }, { "tag", "direct" } });
 
             Dictionary<string, object> cfg = new Dictionary<string, object>
             {
                 { "log", new Dictionary<string, object> { { "level", "warn" }, { "output", LogFile }, { "timestamp", true } } },
                 { "dns", new Dictionary<string, object>
                     {
-                        { "servers", new object[]
-                            {
-                                new Dictionary<string, object> { { "type", "https" }, { "tag", "remote" }, { "server", "1.1.1.1" }, { "detour", "proxy" } },
-                                new Dictionary<string, object> { { "type", "local" }, { "tag", "local" } },
-                            } },
+                        { "servers", dnsServers.ToArray() },
                         { "rules", dnsRules.ToArray() },
-                        { "final", all || ru ? "remote" : "local" },
+                        { "final", (all || ru) && !locked ? "remote" : "local" },
                         { "strategy", "ipv4_only" },
                     } },
                 { "inbounds", new object[] { tun } },
-                { "outbounds", new object[] { Awg.IsAwg(server.Link) ? Awg.ChainOutbound(Awg.ConfOf(server.Link)) : BuildOutbound(server.Link), new Dictionary<string, object> { { "type", "direct" }, { "tag", "direct" } } } },
+                { "outbounds", outbounds.ToArray() },
                 { "route", route },
             };
             Dictionary<string, object> experimental = new Dictionary<string, object>();
@@ -946,18 +958,40 @@ namespace ZapretLauncher
             await Stop();
             if (awg) await Awg.Start(server, true);
             Exception error = null;
-            try { await StartCore(server, mode, domains, apps); }
+            try
+            {
+                NewApiEndpoint();
+                if (NeedsXray(server.Link)) await StartXray(server.Link);
+                await StartCore(BuildConfig(server, mode, domains, apps));
+            }
             catch (Exception e) { error = e; }
             if (error == null) return;
             if (awg) await Awg.Stop();   // sing-box не запустился — туннель-выход не нужен
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
         }
 
-        static async Task StartCore(VpnServer server, string mode, IList<string> domains, IList<string> apps)
+        // Блокировка вместо VPN: то же ядро sing-box, но всё, что должно идти через VPN, отклоняется (BuildLockConfig)
+        public static async Task StartLock(string mode, IList<string> domains, IList<string> apps)
         {
-            NewApiEndpoint();
-            if (NeedsXray(server.Link)) await StartXray(server.Link);
-            File.WriteAllText(ConfigFile, BuildConfig(server, mode, domains, apps), new UTF8Encoding(false));
+            if (Version == null) await Install(await Latest());
+            await Stop();
+            apiPort = 0;
+            File.WriteAllText(LockMarker, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            Exception error = null;
+            try { await StartCore(BuildLockConfig(mode, domains, apps)); }
+            catch (Exception e) { error = e; }
+            if (error == null) return;
+            try { File.Delete(LockMarker); } catch { }
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+        }
+
+        // Метка «ядро сейчас — блокировка, а не VPN»: файл, чтобы и после перезапуска лаунчера было понятно, что работает
+        static readonly string LockMarker = Path.Combine(Dir, "locked.txt");
+        public static bool Locked { get { return File.Exists(LockMarker) && Processes().Length > 0; } }
+
+        static async Task StartCore(string config)
+        {
+            File.WriteAllText(ConfigFile, config, new UTF8Encoding(false));
             string error = await Task.Run(() => Check(ConfigFile));
             if (error != null) throw new Exception("Настройки VPN не прошли проверку: " + error);
             // прошлый журнал ядра оставляем рядом: после переключения сервера ещё видно, что было не так
@@ -981,6 +1015,7 @@ namespace ZapretLauncher
             if (procs.Length > 0) await Task.Run(() => { foreach (Process p in procs) { try { p.WaitForExit(5000); } catch { } } });
             apiPort = 0;
             xrayPort = 0;
+            try { File.Delete(LockMarker); } catch { }
             await Awg.Stop();
         }
 

@@ -140,8 +140,13 @@ namespace ZapretLauncher
         }
 
         // ---------- Старт ----------
+        // Демо-режим для скриншотов (переменная окружения ZAPRETLAUNCHER_DEMO=1): только окно. Без автозапуска, ярлыков, записей
+        // в реестре, обновлений, обхода, VPN и фоновых таймеров — копия лаунчера ничего не меняет в системе и не трогает настоящий
+        static readonly bool DemoMode = Environment.GetEnvironmentVariable("ZAPRETLAUNCHER_DEMO") == "1";
+
         async Task Startup()
         {
+            if (DemoMode) { RefreshVpnUi(); return; }
             Log.Write("Лаунчер " + Consts.Version + " запущен" + (autostart ? " (автозапуск)" : ""));
             if (Paths.Root.Any(c => c > 127))
                 Log.Write("Внимание: в пути к лаунчеру есть кириллица или спецсимволы — zapret может работать некорректно. Переместите папку, например, в C:\\ZapretLauncher");
@@ -189,11 +194,18 @@ namespace ZapretLauncher
 
             // VPN был включён до перезапуска лаунчера или Windows — включаем снова
             vpnRunning = Vpn.Running;
+            vpnLocked = !vpnRunning && Vpn.Locked;   // лаунчер перезапустился во время блокировки
             if (vpnRunning) { Vpn.ReadApiEndpoint(); vpnConnectedAt = Vpn.StartedAt(); vpnActive = VpnKey(); }   // лаунчер перезапустился, а VPN работал
             if (cfg.VpnOn && !vpnRunning && CurrentServer != null)
             {
+                Exception error = null;
                 try { await StartVpn(true); }
-                catch (Exception e) { Log.Write("VPN не подключился: " + e.Message); }
+                catch (Exception e) { error = e; }
+                if (error != null)
+                {
+                    Log.Write("VPN не подключился: " + error.Message);
+                    if (cfg.VpnKillSwitch) await LockVpn(error.Message);   // и после запуска Windows сайты из списка не уйдут напрямую
+                }
             }
             RefreshVpnUi();
 

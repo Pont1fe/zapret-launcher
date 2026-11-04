@@ -98,6 +98,26 @@ namespace ZapretLauncher
             b.Content = T("Копировать");
         }
 
+        // Отчёт для разработчика: архив на рабочем столе (Report.cs — что в нём и что из него вычищено), сразу показываем его в Проводнике
+        async Task SaveReport()
+        {
+            Button b = E<Button>("BtnLogReport");
+            b.IsEnabled = false;
+            b.Content = T("Собираю…");
+            string path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "ZapretLauncher-report-" + DateTime.Now.ToString("yyyy-MM-dd-HHmm") + ".zip");
+            try
+            {
+                cfg.Save();
+                await Task.Run(() => Report.Create(cfg, path));
+                Log.Write("Отчёт сохранён на рабочий стол: " + System.IO.Path.GetFileName(path));
+                try { Process.Start("explorer.exe", "/select,\"" + path + "\""); } catch { }
+                b.Content = T("Сохранено на рабочий стол") + " ✓";
+                await Task.Delay(2500);
+            }
+            catch (Exception e) { Log.Write("Не удалось собрать отчёт: " + e.Message); Ask(T("Не удалось собрать отчёт: ") + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); }
+            finally { b.Content = T("Собрать отчёт"); b.IsEnabled = true; }
+        }
+
         // ---------- Диалоги и уведомления ----------
         MessageBoxResult Ask(string text, MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage icon = MessageBoxImage.Information)
         {

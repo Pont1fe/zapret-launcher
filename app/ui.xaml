@@ -361,6 +361,8 @@
               <Button x:Name="BtnVpnPing" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Проверить серверы" ToolTip="Открыть тестовую страницу через каждый сервер и замерить время"/>
               <Button x:Name="BtnVpnBest" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Выбрать самый быстрый"/>
               <Button x:Name="BtnVpnRefresh" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Обновить подписку" Visibility="Collapsed"/>
+              <ToggleButton x:Name="VpnHideDead" Style="{DynamicResource Chip}" Height="32" Margin="0,0,8,6" Content="Скрыть неработающие" Visibility="Collapsed"
+                            ToolTip="Не показывать серверы, через которые при последней проверке сайт не открылся. Выбранный сервер виден всегда"/>
             </WrapPanel>
             <Border Style="{DynamicResource SettingsCard}" Margin="0,6,0,0">
               <CheckBox x:Name="SwVpnAuto" Style="{DynamicResource Switch}" BorderThickness="0" Tag="&#xE8B1;">
@@ -380,6 +382,14 @@
               <RadioButton x:Name="VpnModeAll" Style="{DynamicResource Segment}" GroupName="vpnmode" Content="Весь трафик"/>
             </StackPanel>
             <TextBlock x:Name="VpnModeText" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,0" TextWrapping="Wrap" Text=" "/>
+            <Border Style="{DynamicResource SettingsCard}" Margin="0,12,0,0">
+              <CheckBox x:Name="SwVpnKill" Style="{DynamicResource Switch}" BorderThickness="0" Tag="&#xE72E;">
+                <StackPanel>
+                  <TextBlock Text="Не пускать мимо VPN" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock Text="Если VPN упал и не поднимается, сайты и программы из списка не откроются напрямую, пока он не заработает. В режимах «Весь трафик» и «Россия напрямую» блокируется всё, что шло через VPN" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </CheckBox>
+            </Border>
             <!-- Сайты, которые провайдер режет по адресу: одной кнопкой — через VPN -->
             <Border x:Name="VpnBlockedBar" CornerRadius="10" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource AccentBorder}" BorderThickness="1"
                     Padding="12,8" Margin="0,12,0,0" Visibility="Collapsed">
@@ -789,6 +799,8 @@
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
               <Button x:Name="BtnLogCopy" Style="{DynamicResource GhostButton}" Height="30" Content="Копировать" ToolTip="Скопировать показанные строки — например, чтобы отправить разработчику"/>
               <Button x:Name="BtnLogOpen" Style="{DynamicResource GhostButton}" Height="30" Margin="6,0,0,0" Content="Открыть файл" ToolTip="Открыть весь журнал в Блокноте"/>
+              <Button x:Name="BtnLogReport" Style="{DynamicResource GhostButton}" Height="30" Margin="6,0,0,0" Content="Собрать отчёт"
+                      ToolTip="Журналы и сведения о системе — одним архивом на рабочий стол, чтобы отправить разработчику. Ключи VPN, адрес подписки и файлы настроек в него не попадают"/>
             </StackPanel>
           </Grid>
           <Grid Margin="0,12,0,0">

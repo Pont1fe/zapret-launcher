@@ -92,7 +92,7 @@ namespace ZapretLauncher
             {
                 if (busy) return;   // снова занят — выполнится после следующего RunBusy
                 if (bypassRestartPending) { bypassRestartPending = false; await RestartIfRunning(); }
-                if (vpnRestartPending) { vpnRestartPending = false; if (cfg.VpnOn) { await RunBusy(() => StartVpn(true), "VPN…"); RefreshVpnUi(); } }
+                if (vpnRestartPending) { vpnRestartPending = false; if (cfg.VpnOn) { await RunBusy(StartVpnOrLock, "VPN…"); RefreshVpnUi(); } }
             }));
         }
 

@@ -308,6 +308,65 @@ Section 'Сторож' {
     Check 'при VPN перезапуска не было' ("{0} {1}" -f (Prop $w Restarted), (Fails $w 1 -vpn $vpnOn)) 'False Wait'
 }
 
+Section 'Список серверов' {
+    # порядок: работающие по скорости → «без проверки» (UDP) → не проверены → не работают
+    $pings = @(@('dead', -1), @('slow', 900), @('udp', -2), @('none', $null), @('fast', 120))
+    $order = ($pings | Sort-Object { $r = if ($null -eq $_[1]) { Call Launcher PingRank $null } else { Call Launcher PingRank ([Nullable[int]]$_[1]) }; $r } | ForEach-Object { $_[0] }) -join ','
+    Check 'работающие наверх, быстрые первыми' $order 'fast,slow,udp,none,dead'
+}
+
+Section 'Отчёт без секретов' {
+    $sub = 'https://sub.example.com/api/sub/abcDEF123secretToken'
+    $raw = "VPN: ключ vless://11111111-2222-3333-4444-555555555555@h.example.com:443?security=reality&pbk=KEY#S`n" +
+           "файл amneziawg://W0ludGVyZmFjZV0KUHJpdmF0ZUtleSA9IGFhYQ#AmneziaWG`nPrivateKey = cHJpdmF0ZS1rZXktZm9yLXRlc3RzLW9ubHktMDAwMDA=`n" +
+           "подписка $sub обновлена`nпапка $env:USERPROFILE\Desktop`nЗапущена стратегия: ALT9"
+    $clean = Call Report Sanitize $raw $sub
+    Check 'ключ vless скрыт' ($clean.Contains('11111111-2222') -or $clean.Contains('pbk=KEY')) 'False'
+    Check 'ключ AmneziaWG скрыт' $clean.Contains('W0ludGVyZmFj') 'False'
+    Check 'закрытый ключ скрыт' $clean.Contains('cHJpdmF0ZS1r') 'False'
+    Check 'адрес подписки скрыт' $clean.Contains('secretToken') 'False'
+    Check 'имя пользователя Windows скрыто' $clean.Contains($env:USERPROFILE) 'False'
+    Check 'обычный текст на месте' ($clean.Contains('Запущена стратегия: ALT9') -and $clean.Contains('vless://<ключ>')) 'True'
+
+    $cfg = [Activator]::CreateInstance((TypeOf Config))
+    $s1 = [Activator]::CreateInstance((TypeOf VpnServer)); $s1.Name = 'Германия 3'; $s1.Link = 'vless://11111111-2222-3333-4444-555555555555@h.example.com:443?pbk=KEY#G3'
+    $s2 = [Activator]::CreateInstance((TypeOf VpnServer)); $s2.Name = 'AmneziaWG · DE'; $s2.Link = 'amneziawg://W0ludGVyZmFjZV0KUHJpdmF0ZUtleSA9IGFhYQ#DE'
+    $cfg.VpnServers.Add($s1); $cfg.VpnServers.Add($s2); $cfg.VpnSubscription = $sub; $cfg.VpnDomains.Add('deepl.com')
+    $summary = Call Report Summary $cfg
+    Check 'сводка: сервер и тип ключа видны' ($summary.Contains('Германия 3 (vless)') -and $summary.Contains('amneziawg 1')) 'True'
+    Check 'сводка: без ключей и подписки' ($summary.Contains('11111111') -or $summary.Contains('W0ludGVy') -or $summary.Contains('secretToken')) 'False'
+    Check 'сводка: сайты через VPN видны' $summary.Contains('deepl.com') 'True'
+    $zip = Join-Path $work 'report-test.zip'
+    Call Report Create $cfg $zip
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $z = [IO.Compression.ZipFile]::OpenRead($zip)
+    $names = ($z.Entries | ForEach-Object { $_.FullName }) -join ','
+    $text = ($z.Entries | ForEach-Object { (New-Object IO.StreamReader($_.Open())).ReadToEnd() }) -join "`n"
+    $z.Dispose()
+    Check 'архив: сводка и маршруты' ($names.Contains('report.txt') -and $names.Contains('routes.txt')) 'True'
+    Check 'архив: без ключей и подписки' ($text.Contains('11111111') -or $text.Contains('secretToken')) 'False'
+}
+
+Section 'Не пускать мимо VPN' {
+    $lockSplit = (Call Vpn BuildLockConfig 'split' (List 'deepl.com') (List 'Spotify.exe')) | ConvertFrom-Json
+    Check 'блокировка: выхода в VPN нет' (@($lockSplit.outbounds | Where-Object { $_.tag -eq 'proxy' }).Count) '0'
+    Check 'блокировка: сайты из списка отклоняются' (@($lockSplit.route.rules | Where-Object { $_.domain_suffix -contains 'deepl.com' -and $_.action -eq 'reject' -and -not $_.outbound }).Count) '1'
+    Check 'блокировка: программы из списка отклоняются' (@($lockSplit.route.rules | Where-Object { $_.process_name -contains 'Spotify.exe' -and $_.action -eq 'reject' }).Count) '1'
+    Check 'блокировка «Только выбранное»: остальное напрямую' ("{0} {1}" -f $lockSplit.route.final, @($lockSplit.route.rules | Where-Object { $_.inbound }).Count) 'direct 0'
+    Check 'блокировка: DNS только обычный' (($lockSplit.dns.servers | ForEach-Object { $_.tag }) -join ',') 'local'
+    foreach ($mode in 'all', 'ru') {
+        $lk = (Call Vpn BuildLockConfig $mode (List) (List)) | ConvertFrom-Json
+        $rules = @($lk.route.rules)
+        Check "блокировка «$mode»: всё остальное отклоняется — последним правилом" ("{0} {1}" -f ($rules[-1].inbound -join ','), $rules[-1].action) 'tun-in reject'
+        Check "блокировка «$mode»: локальная сеть работает" ([array]::IndexOf($rules, @($rules | Where-Object { $_.ip_is_private })[0]) -lt ($rules.Count - 1)) 'True'
+    }
+    $lkRu = (Call Vpn BuildLockConfig 'ru' (List) (List)) | ConvertFrom-Json
+    Check 'блокировка «Россия напрямую»: российское открывается' (@($lkRu.route.rules | Where-Object { $_.rule_set -and $_.outbound -eq 'direct' }).Count) '1'
+    $vl = [Activator]::CreateInstance((TypeOf VpnServer)); $vl.Name = 'V'; $vl.Link = 'vless://u@h.example.com:443?security=tls'
+    $normal = (Call Vpn BuildConfig $vl 'split' (List 'deepl.com') (List)) | ConvertFrom-Json
+    Check 'без блокировки — как раньше, через VPN' (@($normal.route.rules | Where-Object { $_.domain_suffix -contains 'deepl.com' -and $_.outbound -eq 'proxy' }).Count) '1'
+}
+
 Section 'Перевод' {
     Call I18n Init 'en'
     $cyr = New-Object Text.RegularExpressions.Regex '[А-Яа-яЁё]'

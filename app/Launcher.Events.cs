@@ -103,6 +103,14 @@ namespace ZapretLauncher
             Click("BtnVpnQrScreen", QrFromScreen);
             Click("BtnVpnAwgFile", AwgFromFile);
             ClickSync("SwVpnAuto", () => { cfg.VpnAutoBest = E<CheckBox>("SwVpnAuto").IsChecked == true; cfg.Save(); });
+            ClickSync("VpnHideDead", () => { cfg.VpnHideDead = E<ToggleButton>("VpnHideDead").IsChecked == true; cfg.Save(); RefreshVpnUi(); });
+            Click("SwVpnKill", async () =>
+            {
+                cfg.VpnKillSwitch = E<CheckBox>("SwVpnKill").IsChecked == true;
+                cfg.Save();
+                // выключили, пока блокировка работает, — снимаем её вместе с VPN: иначе сайты так и не откроются
+                if (!cfg.VpnKillSwitch && vpnLocked) { await RunBusy(StopVpn, "VPN…"); RefreshVpnUi(); }
+            });
             window.Activated += delegate { if (E<FrameworkElement>("PageVpn").Visibility == Visibility.Visible) CheckClipboard(); };
             Click("BtnVpnListAdd", AddVpnListItem);
             Click("BtnVpnListFile", async () => { string text = ReadListFile(); if (text != null) await AddVpnListItems(text); });
@@ -199,6 +207,7 @@ namespace ZapretLauncher
             SearchBox("LogSearch", "LogSearchHint", FilterLog);
             ClickSync("LogImportant", FilterLog);
             Click("BtnLogCopy", CopyLog);
+            Click("BtnLogReport", SaveReport);
             ClickSync("BtnLogOpen", () => { try { Process.Start("notepad.exe", "\"" + Paths.Log + "\""); } catch (Exception e) { Log.Write(e.Message); } });
             E<ListBox>("LogList").IsVisibleChanged += (s, e) =>
             {

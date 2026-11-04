@@ -256,6 +256,17 @@ namespace ZapretLauncher
             await ApplyVpnChanges();
         }
 
+        // Результат последней проверки сервера: мс; -1 — не работает; Vpn.PingUdp — проверить нельзя; null — ещё не проверяли
+        int? PingOf(VpnServer s) { int ms; return vpnPing.TryGetValue(s.Link, out ms) ? ms : (int?)null; }
+
+        // Порядок в списке: работающие по скорости, потом «без проверки», потом непроверенные, неработающие — в конце
+        static int PingRank(int? ms)
+        {
+            if (!ms.HasValue) return 2000000;
+            if (ms.Value >= 0) return ms.Value;
+            return ms.Value == Vpn.PingUdp ? 1000000 : 3000000;
+        }
+
         static string ModeName(string mode) { return mode == "all" ? "весь трафик" : mode == "ru" ? "Россия напрямую" : "только выбранное"; }
 
         void RefreshVpnUi()
@@ -264,8 +275,8 @@ namespace ZapretLauncher
             bool on = vpnRunning;
             VpnServer server = CurrentServer;
             bool ready = on && !VpnSwitching;   // подключён именно выбранный сервер
-            Text("VpnStatus").Text = T(ready ? "VPN подключён" : cfg.VpnOn ? "VPN переподключается…" : "VPN выключен");
-            E<Ellipse>("VpnDot").SetResourceReference(Shape.FillProperty, ready ? "Ok" : cfg.VpnOn ? "Wait" : "Idle");
+            Text("VpnStatus").Text = T(ready ? "VPN подключён" : vpnLocked ? "VPN не работает — блокировка" : cfg.VpnOn ? "VPN переподключается…" : "VPN выключен");
+            E<Ellipse>("VpnDot").SetResourceReference(Shape.FillProperty, ready ? "Ok" : vpnLocked ? "Fail" : cfg.VpnOn ? "Wait" : "Idle");
             Text("VpnSub").Text = server == null ? T("Добавьте сервер ниже") : Vpn.DisplayName(server.Name) + " · " + T(ModeName(cfg.VpnMode));
             // карточка подключения: подсветка, переключатель, флаг страны текущего сервера
             TimeSpan anim = TimeSpan.FromMilliseconds(260);
@@ -273,7 +284,8 @@ namespace ZapretLauncher
             Fade(E<UIElement>("VpnTrackOn"), on ? 1 : 0, anim);
             Slide(E<Ellipse>("VpnKnob"), on ? 28 : 0, anim);
             E<FrameworkElement>("VpnCard").Opacity = server != null ? 1 : 0.6;
-            E<FrameworkElement>("VpnCard").ToolTip = T(server == null ? "Сначала добавьте сервер" : on ? "Нажмите, чтобы отключить VPN" : "Нажмите, чтобы подключить VPN");
+            E<FrameworkElement>("VpnCard").ToolTip = vpnLocked ? T(LockText()) + ". " + T("Нажмите, чтобы выключить VPN и блокировку")
+                : T(server == null ? "Сначала добавьте сервер" : on ? "Нажмите, чтобы отключить VPN" : "Нажмите, чтобы подключить VPN");
             E<Border>("VpnFlagHost").Child = FlagElement(server == null ? null : Vpn.CountryCode(server.Name), 54, 36);
             E<FrameworkElement>("VpnHelp").Visibility = !cfg.VpnHelpDone ? Visibility.Visible : Visibility.Collapsed;
             UpdateVpnTimer();
@@ -281,6 +293,7 @@ namespace ZapretLauncher
             E<ToggleButton>("ChipVpn").IsChecked = on;
             E<RadioButton>(cfg.VpnMode == "all" ? "VpnModeAll" : cfg.VpnMode == "ru" ? "VpnModeRu" : "VpnModeSplit").IsChecked = true;
             E<CheckBox>("SwVpnAuto").IsChecked = cfg.VpnAutoBest;
+            E<CheckBox>("SwVpnKill").IsChecked = cfg.VpnKillSwitch;
             filling = false;
             E<Button>("BtnVpnPing").IsEnabled = cfg.VpnServers.Count > 0 && !vpnPinging;
             E<Button>("BtnVpnBest").IsEnabled = cfg.VpnServers.Count > 1 && !vpnPinging;
@@ -308,7 +321,17 @@ namespace ZapretLauncher
             string query = cfg.VpnServers.Count >= 6 ? E<TextBox>("VpnSearch").Text.Trim() : "";
             StackPanel servers = E<StackPanel>("VpnServerList");
             servers.Children.Clear();
-            var all = cfg.VpnServers.Select((s, i) => new { s, i, code = Vpn.CountryCode(s.Name) }).ToList();
+            // после проверки: неработающие можно скрыть (выбранный сервер виден всегда)
+            int dead = cfg.VpnServers.Count(s => PingOf(s) == -1);
+            ToggleButton hideDead = E<ToggleButton>("VpnHideDead");
+            hideDead.Visibility = dead > 0 ? Visibility.Visible : Visibility.Collapsed;
+            hideDead.Content = T("Скрыть неработающие") + " (" + dead + ")";
+            filling = true;
+            hideDead.IsChecked = cfg.VpnHideDead;
+            filling = false;
+            bool hiding = cfg.VpnHideDead && dead > 0;
+            var all = cfg.VpnServers.Select((s, i) => new { s, i, code = Vpn.CountryCode(s.Name) })
+                                    .Where(x => !hiding || x.i == cfg.VpnSelected || PingOf(x.s) != -1).ToList();
             var groups = all.GroupBy(x => x.code ?? "").ToList();
             WrapPanel tabs = E<WrapPanel>("VpnTabs");
             tabs.Children.Clear();
@@ -326,7 +349,8 @@ namespace ZapretLauncher
                     ? x.s.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
                       || (Vpn.CountryName(x.code) ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
                       || T(Vpn.CountryName(x.code) ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
-                    : !useTabs || (x.code ?? "") == vpnTab).ToList();
+                    : !useTabs || (x.code ?? "") == vpnTab)
+                .OrderBy(x => PingRank(PingOf(x.s))).ThenBy(x => x.i).ToList();   // работающие — наверх, быстрые первыми
             foreach (var x in shown) servers.Children.Add(ServerRow(x.s, x.i, x.code));
             if (shown.Count == 0 && cfg.VpnServers.Count > 0)
             {

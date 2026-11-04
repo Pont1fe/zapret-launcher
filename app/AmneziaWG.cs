@@ -210,7 +210,11 @@ namespace ZapretLauncher
                 NetworkInterface ni = Adapter(tunnel);
                 if (ni != null && ni.OperationalStatus == OperationalStatus.Up && Status(tunnel) == ServiceControllerStatus.Running)
                 {
-                    if (chain) await AddFallbackRoute();
+                    if (chain)
+                    {
+                        await AddFallbackRoute();
+                        await WaitAddress(tunnel, TunnelAddress(conf));   // sing-box привязывается к этому адресу — он должен уже быть у адаптера
+                    }
                     return;
                 }
                 if (i >= 8 && Status(tunnel) == ServiceControllerStatus.Stopped) break;   // служба остановилась — дальше ждать незачем
@@ -218,6 +222,19 @@ namespace ZapretLauncher
             string log = await Task.Run(() => LastLogLine());
             await Stop();
             throw new Exception("Туннель AmneziaWG не поднялся" + (log != null ? ": " + log : " — проверьте, что файл настроек свежий и подписка активна"));
+        }
+
+        // Адрес туннеля появляется у адаптера не сразу (Windows сначала проверяет, не занят ли он). Пока его нет, привязка
+        // к нему даёт ошибку «The requested address is not valid in its context» — ждём до 5 секунд
+        static async Task WaitAddress(string tunnel, string ip)
+        {
+            if (ip == null) return;
+            for (int i = 0; i < 25; i++)
+            {
+                NetworkInterface ni = Adapter(tunnel);
+                if (ni != null && ni.GetIPProperties().UnicastAddresses.Any(a => a.Address.ToString() == ip && a.DuplicateAddressDetectionState == DuplicateAddressDetectionState.Preferred)) return;
+                await Task.Delay(200);
+            }
         }
 
         // Windows отправляет пакет через адаптер, только если у адаптера есть подходящий маршрут. Даём туннелю-выходу маршрут
