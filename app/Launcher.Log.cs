@@ -162,6 +162,7 @@ namespace ZapretLauncher
                 else if (action == "start") await StartBypassUi();
                 else if (action == "rollback") RollbackUi(true);
                 else if (action == "vpn") OpenVpnRoutes();
+                else if (action == "vpn-page") E<RadioButton>("NavVpn").IsChecked = true;
                 else if (action == "revert") await RevertStrategy();
             }));
         }

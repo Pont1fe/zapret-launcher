@@ -533,6 +533,7 @@ namespace ZapretLauncher
                 cfg.VpnSelected = keep >= 0 ? keep : 0;
                 Text("VpnInfo").Text = T("Подписка обновлена, серверов") + ": " + found.Count;
                 await ApplyVpnChanges();
+                await CheckSubscription();
             }
             catch (Exception e) { Text("VpnInfo").Text = T(e.Message); }
         }
@@ -680,5 +681,56 @@ namespace ZapretLauncher
         }
 
         double subRatio;   // доля использованного трафика подписки — для полоски
+
+        // Что напомнить о подписке сейчас: ключ этапа → текст. Этапы: за 3 дня, за сутки, закончилась; трафик 90% и 100%.
+        // Ключ содержит дату окончания и размер тарифа: продлили подписку — ключ новый, и напоминание придёт снова, когда подойдёт срок
+        static Dictionary<string, string> SubscriptionWarnings(Vpn.SubscriptionInfo info, DateTime now)
+        {
+            Dictionary<string, string> w = new Dictionary<string, string>();
+            if (info == null) return w;
+            if (info.Expire.HasValue)
+            {
+                double days = (info.Expire.Value - now).TotalDays;
+                string date = info.Expire.Value.ToString("dd.MM.yyyy HH:mm");
+                string key = "expire " + info.Expire.Value.ToString("yyyyMMddHHmm") + " ";
+                if (days <= 0) w[key + "0"] = "Подписка VPN закончилась: " + date + ". Продлите её у своего провайдера";
+                else if (days <= 3)
+                    w[key + (days <= 1 ? "1" : "3")] = "Подписка VPN заканчивается: " + date + " (осталось дней: " + (int)Math.Ceiling(days) + "). Продлите её у своего провайдера";
+            }
+            if (info.Total > 0)
+            {
+                double ratio = (double)info.Used / info.Total;
+                string key = "traffic " + info.Total + " ";
+                string used = Bytes(info.Used) + " из " + Bytes(info.Total);
+                if (ratio >= 1) w[key + "100"] = "Трафик подписки VPN закончился: использовано " + used;
+                else if (ratio >= 0.9) w[key + "90"] = "Трафик подписки VPN почти закончился: использовано " + used;
+            }
+            return w;
+        }
+
+        // Раз в час и после обновления подписки: новый этап — одно уведомление. Перед ним — свежие сведения о подписке
+        // (только заголовок со сроком и трафиком; серверы и VPN не трогаем), если они старше часа: вдруг её уже продлили
+        async Task CheckSubscription()
+        {
+            if (cfg.VpnSubscription.Length == 0) return;
+            HashSet<string> warned = new HashSet<string>((cfg.VpnSubWarned ?? "").Split('|').Where(k => k.Length > 0));
+            Dictionary<string, string> now = SubscriptionWarnings(Vpn.ParseUserInfo(cfg.VpnSubInfo), DateTime.Now);
+            DateTime updated;
+            bool stale = !DateTime.TryParse(cfg.VpnSubUpdated, out updated) || (DateTime.Now - updated).TotalHours >= 1;
+            if (stale && now.Keys.Any(k => !warned.Contains(k)))
+            {
+                try
+                {
+                    await Vpn.Parse(cfg.VpnSubscription);
+                    if (Vpn.LastUserInfo != null) { cfg.VpnSubInfo = Vpn.LastUserInfo; RenderSubscription(); }
+                }
+                catch { }
+                now = SubscriptionWarnings(Vpn.ParseUserInfo(cfg.VpnSubInfo), DateTime.Now);
+            }
+            foreach (KeyValuePair<string, string> kv in now)
+                if (!warned.Contains(kv.Key)) Notify(kv.Value, new[] { "Открыть VPN", "vpn-page" });
+            string joined = string.Join("|", now.Keys);
+            if (joined != (cfg.VpnSubWarned ?? "")) { cfg.VpnSubWarned = joined; cfg.Save(); }
+        }
     }
 }

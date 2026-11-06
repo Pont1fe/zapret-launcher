@@ -107,6 +107,7 @@ namespace ZapretLauncher
         public List<string> VpnApps { get; set; }        // программы через VPN (режим split), например Spotify.exe
         public string VpnSubInfo { get; set; }          // заголовок subscription-userinfo: трафик и срок подписки
         public string VpnSubUpdated { get; set; }       // когда подписка обновлялась (yyyy-MM-dd HH:mm)
+        public string VpnSubWarned { get; set; }        // о каких этапах подписки уже напомнили (ключи через |, см. Launcher.SubscriptionWarnings)
         public bool VpnHelpDone { get; set; }           // подсказку «Как начать» на странице VPN закрыли
         public bool VpnAutoBest { get; set; }            // при подключении выбирать самый быстрый сервер и уходить с упавшего
         public bool VpnKillSwitch { get; set; }          // VPN упал и не поднимается — сайты и программы из списка не пускать напрямую

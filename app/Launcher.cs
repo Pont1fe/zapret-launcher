@@ -360,6 +360,7 @@ namespace ZapretLauncher
             // подписка обновляется сама раз в сутки — новые серверы, остаток трафика и срок
             DateTime subAt;
             if (tick % 600 == 9 && cfg.VpnSubscription.Length > 0 && (!DateTime.TryParse(cfg.VpnSubUpdated, out subAt) || (DateTime.Now - subAt).TotalHours >= 24)) await RefreshSubscription();
+            else if (tick % 3600 == 40) await CheckSubscription();   // напоминание, что подписка или её трафик заканчиваются
             await CrashGuard();
             if (DateTime.Now >= healthDue)
             {

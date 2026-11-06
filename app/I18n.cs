@@ -692,6 +692,12 @@ namespace ZapretLauncher
                 "Заявки на GitHub видны всем. Ключи VPN, адрес подписки, адреса серверов и имя пользователя Windows из отчёта убраны, но в нём остаются списки сайтов и программ и сведения о сети — архив можно открыть и проверить перед отправкой.",
                     "Issues on GitHub are public. VPN keys, the subscription URL, server addresses and your Windows user name are removed from the report, but it still has your site and app lists and network info — you can open the archive and check it before sending.",
                 "Не удалось открыть браузер: ", "Could not open the browser: ",
+                // напоминание о подписке
+                "Подписка VPN закончилась: ", "The VPN subscription has ended: ",
+                "Подписка VPN заканчивается: ", "The VPN subscription ends: ",
+                ". Продлите её у своего провайдера", ". Renew it with your provider",
+                "Трафик подписки VPN закончился: использовано ", "The VPN subscription traffic is used up: ",
+                "Трафик подписки VPN почти закончился: использовано ", "The VPN subscription traffic is almost used up: ",
                 // VPN в меню значка
                 "Сервер VPN", "VPN server",
                 "Режим VPN", "VPN mode",

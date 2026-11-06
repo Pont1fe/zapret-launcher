@@ -361,6 +361,29 @@ Section 'Список серверов' {
     Check 'работающие наверх, быстрые первыми' $order 'fast,slow,udp,none,dead'
 }
 
+Section 'Напоминание о подписке' {
+    $now = [DateTime]'2026-11-06 12:00'
+    function Info($days, [long]$usedGb = 0, [long]$totalGb = 0) {
+        $i = [Activator]::CreateInstance((TypeOf 'Vpn+SubscriptionInfo')); $i.Used = $usedGb * 1GB; $i.Total = $totalGb * 1GB
+        if ($null -ne $days) { $i.Expire = $now.AddDays($days) }; $i
+    }
+    function Warn($info) { $w = Call Launcher SubscriptionWarnings $info $now; ($w.GetEnumerator() | Sort-Object Key | ForEach-Object { $_.Key -replace '^expire \d{12}', 'expire' -replace '^traffic \d+', 'traffic' }) -join ',' }
+    Check 'нет сведений — молчим' (Warn $null) ''
+    Check 'больше трёх дней — молчим' (Warn (Info 5)) ''
+    Check 'бессрочная без лимита — молчим' (Warn (Info $null 500 0)) ''
+    Check 'за три дня' (Warn (Info 2.5)) 'expire 3'
+    Check 'за сутки' (Warn (Info 0.5)) 'expire 1'
+    Check 'закончилась' (Warn (Info -0.1)) 'expire 0'
+    $text = (Call Launcher SubscriptionWarnings (Info 2.5) $now).Values | Select-Object -First 1
+    Check 'текст: дата и сколько дней' ($text.Contains('09.11.2026') -and $text.Contains('осталось дней: 3')) 'True'
+    Check 'трафик 95%' (Warn (Info 30 95 100)) 'traffic 90'
+    Check 'трафик кончился, и срок подходит' (Warn (Info 1.5 100 100)) 'expire 3,traffic 100'
+    Check 'трафик 50% — молчим' (Warn (Info 30 50 100)) ''
+    $a = (Call Launcher SubscriptionWarnings (Info 2) $now).Keys | Select-Object -First 1
+    $b = (Call Launcher SubscriptionWarnings (Info 32) ($now.AddDays(30))).Keys | Select-Object -First 1
+    Check 'после продления — новое напоминание' ($a -ne $b -and $null -ne $b) 'True'
+}
+
 Section 'Отчёт без секретов' {
     $sub = 'https://sub.example.com/api/sub/abcDEF123secretToken'
     $raw = "VPN: ключ vless://11111111-2222-3333-4444-555555555555@h.example.com:443?security=reality&pbk=KEY#S`n" +
@@ -438,6 +461,11 @@ Section 'Перевод' {
     $cyr = New-Object Text.RegularExpressions.Regex '[А-Яа-яЁё]'
     $map = Field I18n Map
     foreach ($kv in $map.GetEnumerator()) { if ($kv.Value.Trim().Length -eq 0 -or $cyr.IsMatch($kv.Value)) { Fail "перевод '$($kv.Key)'" "'$($kv.Value)' — пары в I18n.cs сдвинулись?" } }
+    # сообщения, собранные из частей, переводятся целиком
+    foreach ($m in @('Подписка VPN заканчивается: 09.11.2026 12:00 (осталось дней: 3). Продлите её у своего провайдера',
+                     'Трафик подписки VPN почти закончился: использовано 95.0 ГБ из 100.0 ГБ', 'VPN: режим из меню значка — Россия напрямую')) {
+        $tr = Call I18n T $m; if ($cyr.IsMatch($tr)) { Fail "перевод сообщения" $tr }
+    }
     # вся разметка окна, мини-окна и стилей должна переводиться целиком (название языка в выборе языка — нарочно на своём языке)
     $keep = @('Русский')
     foreach ($r in 'ui.xaml', 'flyout.xaml', 'styles.xaml') {
