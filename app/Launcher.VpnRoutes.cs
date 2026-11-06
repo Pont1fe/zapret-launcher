@@ -312,7 +312,13 @@ namespace ZapretLauncher
                 Text("VpnBlockedText").Text = T("Провайдер блокирует по адресу") + ": " + string.Join(", ", uncovered.Select(T)) + ". " + T("zapret тут не поможет — пустите через VPN");
             E<Button>("BtnVpnRefresh").Visibility = cfg.VpnSubscription.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             Text("VpnListHint").Text = T(VpnSitesKind ? "Например: example.com" : "Например: Spotify.exe");
-            if (miVpn != null) { miVpn.Text = T(on ? "Выключить VPN" : "Включить VPN"); miVpn.Enabled = server != null; }
+            if (miVpn != null)
+            {
+                miVpn.Text = T(on ? "Выключить VPN" : "Включить VPN");
+                miVpn.Enabled = server != null;
+                miVpnServer.Visible = cfg.VpnServers.Count > 1;   // один сервер — выбирать не из чего
+                miVpnMode.Visible = server != null;
+            }
             RenderSubscription();
 
             // серверы по странам: сверху вкладки (флаг, страна, сколько серверов), ниже — серверы выбранной страны.

@@ -692,6 +692,11 @@ namespace ZapretLauncher
                 "Заявки на GitHub видны всем. Ключи VPN, адрес подписки, адреса серверов и имя пользователя Windows из отчёта убраны, но в нём остаются списки сайтов и программ и сведения о сети — архив можно открыть и проверить перед отправкой.",
                     "Issues on GitHub are public. VPN keys, the subscription URL, server addresses and your Windows user name are removed from the report, but it still has your site and app lists and network info — you can open the archive and check it before sending.",
                 "Не удалось открыть браузер: ", "Could not open the browser: ",
+                // VPN в меню значка
+                "Сервер VPN", "VPN server",
+                "Режим VPN", "VPN mode",
+                "не отвечает", "no response",
+                "VPN: режим из меню значка — ", "VPN: mode from the tray menu — ",
                 // наборы сайтов из репозитория
                 "Готовые наборы: не удалось скачать: ", "Ready-made sets: could not download: ",
                 "Готовые наборы: без изменений", "Ready-made sets: no changes",

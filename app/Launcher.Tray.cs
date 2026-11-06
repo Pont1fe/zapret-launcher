@@ -1,4 +1,4 @@
-// Трей, мини-окно у трея и значок на панели задач
+﻿// Трей, мини-окно у трея и значок на панели задач
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -206,8 +206,15 @@ namespace ZapretLauncher
             miPick = new Forms.ToolStripMenuItem(T("Подобрать стратегию"));
             miFixDiscord = new Forms.ToolStripMenuItem(T("Починить Discord"));
             miVpn = new Forms.ToolStripMenuItem(T("Включить VPN"));
+            miVpnServer = new Forms.ToolStripMenuItem(T("Сервер VPN"));
+            miVpnMode = new Forms.ToolStripMenuItem(T("Режим VPN"));
+            foreach (Forms.ToolStripMenuItem sub in new[] { miVpnServer, miVpnMode })
+            {
+                sub.DropDown.Renderer = new DarkMenuRenderer();
+                sub.DropDown.BackColor = menu.BackColor;
+            }
             miExit = new Forms.ToolStripMenuItem(T("Выход"));
-            menu.Items.AddRange(new Forms.ToolStripItem[] { miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miVpn, new Forms.ToolStripSeparator(), miExit });
+            menu.Items.AddRange(new Forms.ToolStripItem[] { miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, new Forms.ToolStripSeparator(), miVpn, miVpnServer, miVpnMode, new Forms.ToolStripSeparator(), miExit });
             tray.ContextMenuStrip = menu;
 
             miOpen.Click += delegate { ShowWindow(); };
@@ -232,8 +239,63 @@ namespace ZapretLauncher
                     item.Click += async delegate { await SelectStrategy(file); };
                     miStrategies.DropDownItems.Add(item);
                 }
+                FillTrayVpn();
                 UpdateUi();
             };
+        }
+
+        // Сервер и режим VPN из меню значка. Серверы — в том же порядке, что и в окне: после проверки быстрые сверху,
+        // неработающие внизу (или скрыты, если так выбрано в окне; выбранный виден всегда)
+        void FillTrayVpn()
+        {
+            miVpnServer.DropDownItems.Clear();
+            miVpnMode.DropDownItems.Clear();
+            bool hiding = cfg.VpnHideDead && cfg.VpnServers.Any(s => PingOf(s) == -1);
+            List<int> order = Enumerable.Range(0, cfg.VpnServers.Count)
+                .Where(i => !hiding || i == cfg.VpnSelected || PingOf(cfg.VpnServers[i]) != -1)
+                .OrderBy(i => PingRank(PingOf(cfg.VpnServers[i]))).ThenBy(i => i).ToList();
+            if (cfg.VpnServers.Count > 1)
+            {
+                Forms.ToolStripMenuItem best = new Forms.ToolStripMenuItem(T("Выбрать самый быстрый"));
+                best.Enabled = !vpnPinging && !busy;
+                best.Click += async delegate
+                {
+                    await SelectBestServer();
+                    if (BestServer() < 0) Notify("Ни один сервер не ответил — проверьте интернет или подписку");
+                };
+                miVpnServer.DropDownItems.Add(best);
+                miVpnServer.DropDownItems.Add(new Forms.ToolStripSeparator());
+            }
+            foreach (int i in order)
+            {
+                VpnServer s = cfg.VpnServers[i];
+                int? ms = PingOf(s);
+                string ping = !ms.HasValue ? "" : ms.Value >= 0 ? "  ·  " + ms.Value + " " + T("мс") : ms.Value == -1 ? "  ·  " + T("не отвечает") : "";
+                Forms.ToolStripMenuItem item = new Forms.ToolStripMenuItem(Vpn.DisplayName(s.Name) + ping);
+                item.Checked = i == cfg.VpnSelected;
+                int index = i;
+                item.Click += async delegate
+                {
+                    if (cfg.VpnSelected == index) return;
+                    cfg.VpnSelected = index;
+                    await ApplyVpnChanges();
+                };
+                miVpnServer.DropDownItems.Add(item);
+            }
+            foreach (string[] m in new[] { new[] { "split", "Только выбранное" }, new[] { "ru", "Россия напрямую" }, new[] { "all", "Весь трафик" } })
+            {
+                Forms.ToolStripMenuItem item = new Forms.ToolStripMenuItem(T(m[1]));
+                item.Checked = cfg.VpnMode == m[0];
+                string mode = m[0];
+                item.Click += async delegate
+                {
+                    if (cfg.VpnMode == mode) return;
+                    cfg.VpnMode = mode;
+                    Log.Write("VPN: режим из меню значка — " + ModeName(mode));
+                    await ApplyVpnChanges();
+                };
+                miVpnMode.DropDownItems.Add(item);
+            }
         }
 
         void BuildTrayIcons()

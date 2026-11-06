@@ -28,7 +28,7 @@ namespace ZapretLauncher
         readonly Config cfg;
         Window window, flyout;
         Forms.NotifyIcon tray;
-        Forms.ToolStripMenuItem miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miVpn, miExit;
+        Forms.ToolStripMenuItem miOpen, miStart, miStop, miStrategies, miPick, miFixDiscord, miVpn, miVpnServer, miVpnMode, miExit;
         Dictionary<string, System.Drawing.Icon> trayIcons;
         Dictionary<string, ImageSource> windowIcons;   // значок окна и панели задач — того же цвета, что в трее
         Dictionary<string, ImageSource> imageIcons;    // тот же значок картинкой — в заголовке и мини-окне
