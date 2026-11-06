@@ -1,7 +1,16 @@
 **Download `ZapretLauncherSetup.exe`** — installs or updates the launcher (settings and zapret are kept). Installed launchers update themselves automatically.
 **Скачайте `ZapretLauncherSetup.exe`** — установит или обновит лаунчер (настройки и zapret сохранятся). Установленные лаунчеры обновятся сами.
 
-![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/vpn-en.png)
+![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/demo-en.gif)
+
+### 4.0.5 — VPN at your fingertips / VPN под рукой
+
+- ⚡ “Test speed” under the server list: the launcher downloads a test file through the selected server and the fastest ones (up to 5, 5 seconds each) and shows Mbit/s next to the ping. It runs through a separate test core — your VPN keeps working and isn't reconnected / Кнопка «Проверить скорость» под списком серверов: лаунчер качает тестовый файл через выбранный сервер и самые быстрые (до 5, по 5 секунд на каждый) и показывает Мбит/с рядом с пингом. Замер идёт через отдельное тестовое ядро — ваш VPN работает и не переподключается
+- 🖱️ The tray icon menu now has “VPN server” (pick the fastest or any server, fastest on top) and “VPN mode” — no need to open the window / В меню значка в трее — «Сервер VPN» (самый быстрый или любой, быстрые сверху) и «Режим VPN»: окно открывать не нужно
+- ⏰ A reminder 3 days and 1 day before the VPN subscription ends, when it has ended, and when 90% and all of its traffic is used. Each once; before reminding, the launcher re-checks the subscription in case you've already renewed it / Напоминание за 3 дня и за сутки до конца подписки VPN, когда она закончилась, и когда израсходовано 90% и весь трафик. Каждое — один раз; перед напоминанием лаунчер перепроверит подписку — вдруг вы её уже продлили
+- 📤 Export and import of VPN routes on the Routes tab: your sites and apps in a plain .txt — move them to another computer or share them (there are no keys in the file) / Экспорт и импорт маршрутов VPN на вкладке «Маршруты»: ваши сайты и программы в обычном .txt — перенесите на другой компьютер или поделитесь (ключей в файле нет)
+- 🔄 Ready-made site sets update themselves: when a service adds a new domain, it lands in the sets you've turned on — without a new launcher version / Готовые наборы сайтов обновляются сами: если у сервиса появился новый домен, он попадёт во включённые у вас наборы — без новой версии лаунчера
+- 🐞 “Report a problem” on the Log page saves the report and opens a GitHub issue with the versions already filled in. Server addresses are now left out of the report too / «Сообщить о проблеме» в журнале: сохраняет отчёт и открывает заявку на GitHub с уже заполненными версиями. Адреса серверов теперь тоже не попадают в отчёт
 
 ### 4.0.4 — VPN without leaks / VPN без утечек
 

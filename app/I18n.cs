@@ -692,6 +692,16 @@ namespace ZapretLauncher
                 "Заявки на GitHub видны всем. Ключи VPN, адрес подписки, адреса серверов и имя пользователя Windows из отчёта убраны, но в нём остаются списки сайтов и программ и сведения о сети — архив можно открыть и проверить перед отправкой.",
                     "Issues on GitHub are public. VPN keys, the subscription URL, server addresses and your Windows user name are removed from the report, but it still has your site and app lists and network info — you can open the archive and check it before sending.",
                 "Не удалось открыть браузер: ", "Could not open the browser: ",
+                // Что нового в 4.0.5
+                "Проверка скорости серверов VPN: Мбит/с рядом с пингом, а VPN при этом не переподключается",
+                    "VPN server speed test: Mbit/s next to the ping, and the VPN isn't reconnected",
+                "Сервер и режим VPN — прямо из меню значка в трее", "VPN server and mode right from the tray icon menu",
+                "Напоминание, что подписка VPN или её трафик скоро закончатся", "A reminder when the VPN subscription or its traffic is about to run out",
+                "Экспорт и импорт маршрутов VPN: перенесите список сайтов и программ на другой компьютер",
+                    "Export and import of VPN routes: move your list of sites and apps to another computer",
+                "Готовые наборы сайтов обновляются сами: новые домены сервисов приходят без обновления лаунчера",
+                    "Ready-made site sets update themselves: new service domains arrive without a launcher update",
+                "«Сообщить о проблеме» в журнале: отчёт и готовая заявка на GitHub", "“Report a problem” on the Log page: a report and a ready GitHub issue",
                 // скорость серверов
                 "Проверить скорость", "Test speed",
                 "Скачать тестовый файл через выбранный сервер и самые быстрые по проверке (до 5, по 5 секунд на каждый). VPN при этом не переподключается",
