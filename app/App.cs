@@ -11,6 +11,8 @@ using System.Windows;
 
 [assembly: AssemblyTitle("Zapret Launcher")]
 [assembly: AssemblyProduct("Zapret Launcher")]
+[assembly: AssemblyCompany("Pont1fe")]
+[assembly: AssemblyCopyright("Copyright (c) 2026 Pont1fe")]
 [assembly: AssemblyDescription("Запуск и автообновление zapret-discord-youtube")]
 [assembly: AssemblyVersion(ZapretLauncher.AppVersion.Value + ".0")]
 [assembly: AssemblyFileVersion(ZapretLauncher.AppVersion.Value + ".0")]

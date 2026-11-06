@@ -1,4 +1,6 @@
 ﻿# Сборка: dist\ZapretLauncher.exe и dist\ZapretLauncherSetup.exe встроенным в Windows компилятором C# (.NET Framework 4.8)
+# -InstallerOnly — пересобрать только установщик вокруг уже готового dist\ZapretLauncher.exe (после подписи лаунчера в релизе)
+param([switch]$InstallerOnly)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $root = $PSScriptRoot
@@ -66,6 +68,9 @@ function Invoke-Csc([string[]]$CscArgs) {
     if ($LASTEXITCODE -ne 0) { throw "csc завершился с кодом $LASTEXITCODE" }
 }
 
+$app = Join-Path $root 'app'
+$launcherExe = Join-Path $dist 'ZapretLauncher.exe'
+if (-not $InstallerOnly) {
 # ZXing.Net — чтение QR-кодов (ключи VPN с картинки или экрана). Версия и контрольная сумма закреплены; библиотека встраивается в exe
 $zxingVersion = '0.16.11'
 $zxingSha = '7D39234D668E558B3D374D18116ED57021D7C0DF482801F1E1DB4F1DB9314EC3'
@@ -85,8 +90,6 @@ $helperExe = Join-Path $obj 'ZapretLauncherCmd.exe'
 Invoke-Csc @("/out:$helperExe", "/win32icon:$ico", "/win32manifest:$(Join-Path $root 'helper\app.manifest')", (Join-Path $root 'helper\Cmd.cs'))
 
 # Лаунчер
-$app = Join-Path $root 'app'
-$launcherExe = Join-Path $dist 'ZapretLauncher.exe'
 # флаги стран для списка серверов VPN (flagcdn.com, изображения флагов — общественное достояние)
 $flagArgs = @(Get-ChildItem (Join-Path $app 'flags') -Filter *.png | ForEach-Object { "/resource:$($_.FullName),flag-$($_.Name)" })
 Invoke-Csc (@(
@@ -99,6 +102,8 @@ Invoke-Csc (@(
     "/resource:$(Join-Path $app 'ui.xaml'),ui.xaml", "/resource:$(Join-Path $app 'styles.xaml'),styles.xaml", "/resource:$(Join-Path $app 'flyout.xaml'),flyout.xaml",
     (Join-Path $app '*.cs')
 ) + $flagArgs)
+}
+elseif (-not (Test-Path $launcherExe)) { throw "Нет $launcherExe — сначала соберите лаунчер" }
 
 # Установщик (внутри — только что собранный лаунчер) получает ту же версию
 $version = [regex]::Match((Get-Content (Join-Path $app 'App.cs') -Raw), 'Value = "([^"]+)"').Groups[1].Value

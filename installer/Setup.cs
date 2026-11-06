@@ -14,6 +14,8 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Zapret Launcher Setup")]
 [assembly: AssemblyProduct("Zapret Launcher")]
+[assembly: AssemblyCompany("Pont1fe")]
+[assembly: AssemblyCopyright("Copyright (c) 2026 Pont1fe")]
 
 static class Program
 {
