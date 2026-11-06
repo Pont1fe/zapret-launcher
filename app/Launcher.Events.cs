@@ -114,6 +114,8 @@ namespace ZapretLauncher
             window.Activated += delegate { if (E<FrameworkElement>("PageVpn").Visibility == Visibility.Visible) CheckClipboard(); };
             Click("BtnVpnListAdd", AddVpnListItem);
             Click("BtnVpnListFile", async () => { string text = ReadListFile(); if (text != null) await AddVpnListItems(text); });
+            Click("BtnVpnRoutesImport", ImportRoutes);
+            ClickSync("BtnVpnRoutesExport", ExportRoutes);
             Click("VpnModeSplit", async () => { if (filling || cfg.VpnMode == "split") return; cfg.VpnMode = "split"; await ApplyVpnChanges(); });
             Click("VpnModeAll", async () => { if (filling || cfg.VpnMode == "all") return; cfg.VpnMode = "all"; await ApplyVpnChanges(); });
             Click("VpnModeRu", async () => { if (filling || cfg.VpnMode == "ru") return; cfg.VpnMode = "ru"; await ApplyVpnChanges(); });

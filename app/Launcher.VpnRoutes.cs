@@ -1,4 +1,4 @@
-// Маршруты VPN: сайты и приложения через VPN, наборы, журнал соединений, заблокированные по адресу сайты
+﻿// Маршруты VPN: сайты и приложения через VPN, наборы, журнал соединений, заблокированные по адресу сайты
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -53,6 +53,73 @@ namespace ZapretLauncher
             list.AddRange(added);
             await ApplyVpnChanges();
             return true;
+        }
+
+        // ---------- Экспорт и импорт маршрутов ----------
+        // Файл — обычный текст: по сайту или программе на строку, комментарии после #.
+        // Ключей и серверов в нём нет — только списки, поэтому им можно делиться
+        static string RoutesFile(IEnumerable<string> domains, IEnumerable<string> apps)
+        {
+            List<string> lines = new List<string>
+            {
+                "# Zapret Launcher — " + T("маршруты VPN") + " (" + DateTime.Now.ToString("dd.MM.yyyy") + ")",
+                "# " + T("Сайты и программы, которые идут через VPN. Загрузить: VPN → Маршруты → «Импорт»"),
+                ""
+            };
+            lines.AddRange(domains);
+            if (apps.Any()) { lines.Add(""); lines.AddRange(apps); }
+            return string.Join("\r\n", lines) + "\r\n";
+        }
+
+        // Разбор файла маршрутов: «что-то.exe» или путь Windows — программа, остальное (и «site.com/path») — сайт; что не подошло ни туда, ни туда — в bad
+        static void SplitRoutes(string raw, List<string> domains, List<string> apps, List<string> bad)
+        {
+            foreach (string part in SitePresets.SplitItems(raw, false))
+            {
+                bool app = part.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || part.Contains('\\');
+                string item = app ? NormalizeApp(part) : Zapret.NormalizeDomain(part);
+                if (item == null) { bad.Add(part); continue; }
+                List<string> list = app ? apps : domains;
+                if (!list.Contains(item, StringComparer.OrdinalIgnoreCase)) list.Add(item);
+            }
+        }
+
+        void ExportRoutes()
+        {
+            if (cfg.VpnDomains.Count + cfg.VpnApps.Count == 0) { Text("VpnListInfo").Text = T("Список пуст — сохранять нечего"); return; }
+            Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = T("Сохранить маршруты VPN"), FileName = "zapret-launcher-routes.txt", DefaultExt = ".txt",
+                Filter = T("Текстовые списки") + " (*.txt)|*.txt"
+            };
+            if (dlg.ShowDialog(window) != true) return;
+            try
+            {
+                File.WriteAllText(dlg.FileName, RoutesFile(cfg.VpnDomains, cfg.VpnApps), new System.Text.UTF8Encoding(true));
+                Text("VpnListInfo").Text = T("Маршруты сохранены") + " — " + T("Сайты") + ": " + cfg.VpnDomains.Count + ", " + T("Программы") + ": " + cfg.VpnApps.Count;
+                Log.Write("VPN: маршруты сохранены в " + System.IO.Path.GetFileName(dlg.FileName));
+            }
+            catch (Exception e) { Ask(T("Не удалось сохранить файл: ") + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); }
+        }
+
+        async Task ImportRoutes()
+        {
+            string raw = ReadListFile();
+            if (raw == null) return;
+            List<string> domains = new List<string>(), apps = new List<string>(), bad = new List<string>();
+            SplitRoutes(raw, domains, apps, bad);
+            List<string> newDomains = domains.Where(d => !cfg.VpnDomains.Contains(d, StringComparer.OrdinalIgnoreCase)).ToList();
+            List<string> newApps = apps.Where(a => !cfg.VpnApps.Contains(a, StringComparer.OrdinalIgnoreCase)).ToList();
+            string info = newDomains.Count + newApps.Count > 0
+                ? T("Добавлено") + " — " + T("Сайты") + ": " + newDomains.Count + ", " + T("Программы") + ": " + newApps.Count
+                : domains.Count + apps.Count > 0 ? T("Всё из файла уже есть в списке") : T("В файле не нашлось сайтов и программ");
+            if (bad.Count > 0) info += ". " + T("Не распознано") + ": " + string.Join(", ", bad.Take(5)) + (bad.Count > 5 ? " (+" + (bad.Count - 5) + ")" : "");
+            Text("VpnListInfo").Text = info;
+            if (newDomains.Count + newApps.Count == 0) return;
+            cfg.VpnDomains.AddRange(newDomains);
+            cfg.VpnApps.AddRange(newApps);
+            Log.Write("VPN: маршруты загружены из файла: " + string.Join(", ", newDomains.Concat(newApps)));
+            await ApplyVpnChanges();
         }
 
         async Task ToggleVpnPreset(SitePreset p)

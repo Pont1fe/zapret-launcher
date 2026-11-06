@@ -361,6 +361,20 @@ Section 'Список серверов' {
     Check 'работающие наверх, быстрые первыми' $order 'fast,slow,udp,none,dead'
 }
 
+Section 'Экспорт и импорт маршрутов' {
+    $file = Call Launcher RoutesFile (List 'deepl.com', 'chatgpt.com') (List 'Spotify.exe')
+    $d = List @(); $a = List @(); $bad = List @()
+    Call Launcher SplitRoutes $file $d $a $bad
+    Check 'файл → те же сайты' ($d -join ',') 'deepl.com,chatgpt.com'
+    Check 'файл → те же программы' ($a -join ',') 'Spotify.exe'
+    Check 'комментарии в файле не мешают' $bad.Count '0'
+    $d = List @(); $a = List @(); $bad = List @()
+    Call Launcher SplitRoutes "https://www.DeepL.com/translator`n`"C:\Program Files\Spotify\Spotify.exe`"`ndiscord.exe`nsite.com/path`ndeepl.com`n<плохо>`n# коммент" $d $a $bad
+    Check 'чужой список: сайты' ($d -join ',') 'deepl.com,site.com'
+    Check 'чужой список: программы' ($a -join ',') 'Spotify.exe,discord.exe'
+    Check 'чужой список: мусор отдельно' ($bad -join ',') '<плохо>'
+}
+
 Section 'Напоминание о подписке' {
     $now = [DateTime]'2026-11-06 12:00'
     function Info($days, [long]$usedGb = 0, [long]$totalGb = 0) {

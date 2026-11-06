@@ -406,10 +406,18 @@
               <!-- Готовые наборы: домены и программа сервиса одной кнопкой -->
               <TextBlock Text="Готовые наборы" Style="{DynamicResource Caption}" Margin="2,0,0,8"/>
               <StackPanel x:Name="VpnPresets" Margin="0,0,0,8"/>
-              <StackPanel Orientation="Horizontal">
-                <RadioButton x:Name="VpnKindSites" Style="{DynamicResource Segment}" GroupName="vpnkind" Content="Сайты" IsChecked="True"/>
-                <RadioButton x:Name="VpnKindApps" Style="{DynamicResource Segment}" GroupName="vpnkind" Content="Программы"/>
-              </StackPanel>
+              <Grid>
+                <StackPanel Orientation="Horizontal">
+                  <RadioButton x:Name="VpnKindSites" Style="{DynamicResource Segment}" GroupName="vpnkind" Content="Сайты" IsChecked="True"/>
+                  <RadioButton x:Name="VpnKindApps" Style="{DynamicResource Segment}" GroupName="vpnkind" Content="Программы"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                  <Button x:Name="BtnVpnRoutesImport" Style="{DynamicResource GhostButton}" Height="28" Content="Импорт"
+                          ToolTip="Загрузить сайты и программы из файла — например, сохранённого на другом компьютере. Они добавятся к списку"/>
+                  <Button x:Name="BtnVpnRoutesExport" Style="{DynamicResource GhostButton}" Height="28" Margin="6,0,0,0" Content="Экспорт"
+                          ToolTip="Сохранить сайты и программы, которые идут через VPN, в файл. Ключей и серверов в нём нет — им можно поделиться"/>
+                </StackPanel>
+              </Grid>
               <Grid Margin="0,10,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition/>
