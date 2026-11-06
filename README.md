@@ -5,7 +5,7 @@
 **Discord, YouTube and Telegram working again — with one click.** Zapret Launcher is a friendly Windows app for [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) by Flowseal, with a built-in VPN client. No more `.bat` files, console windows or trying strategies by hand: the launcher finds one that works, keeps it up to date and fixes things when they break.
 
 <p align="center">
-  <img src="docs/screenshots/main-dark-en.png" alt="Main window, dark theme" width="820">
+  <img src="docs/screenshots/demo-en.gif" alt="Zapret Launcher: bypass, VPN, domains and settings" width="820">
 </p>
 
 <table>
