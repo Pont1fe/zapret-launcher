@@ -5,6 +5,10 @@
 # the secret SIGNPATH_API_TOKEN and the variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG, SIGNPATH_POLICY_SLUG.
 # Without them releases are published unsigned, as before. Order: sign the launcher, rebuild the installer around the
 # signed launcher (it is what gets installed), then sign the installer. Each signing request waits for manual approval.
+#
+# VirusTotal (tools/virustotal.ps1) runs only for release tags and only when the repository has the secret VT_API_KEY:
+# the final files are sent before publishing, the release notes get links to their scans, and after publishing the
+# scan result goes to the job summary. VirusTotal errors never stop a release.
 name: Build and release
 
 on:
@@ -24,6 +28,7 @@ jobs:
     timeout-minutes: 330
     env:
       SIGN: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.SIGNPATH_API_TOKEN != '' && vars.SIGNPATH_ORGANIZATION_ID != '' }}
+      VT: ${{ secrets.VT_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -120,9 +125,30 @@ jobs:
           name: ZapretLauncher
           path: dist/*.exe
 
+      # ---------- VirusTotal: links in the release notes, result in the job summary ----------
+      - name: Send the release files to VirusTotal
+        if: startsWith(github.ref, 'refs/tags/v') && env.VT == 'true'
+        continue-on-error: true
+        shell: powershell
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: ./tools/virustotal.ps1 -Files dist/ZapretLauncherSetup.exe, dist/ZapretLauncher.exe -NotesIn RELEASE_NOTES.md -NotesOut release-notes.md
+
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create '${{ github.ref_name }}' dist/ZapretLauncherSetup.exe dist/ZapretLauncher.exe --title 'Zapret Launcher ${{ github.ref_name }}' --notes-file RELEASE_NOTES.md --latest
+        run: |
+          $notes = 'RELEASE_NOTES.md'
+          if (Test-Path release-notes.md) { $notes = 'release-notes.md' }
+          gh release create '${{ github.ref_name }}' dist/ZapretLauncherSetup.exe dist/ZapretLauncher.exe --title 'Zapret Launcher ${{ github.ref_name }}' --notes-file $notes --latest
+          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+
+      - name: VirusTotal result
+        if: startsWith(github.ref, 'refs/tags/v') && env.VT == 'true'
+        continue-on-error: true
+        shell: powershell
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: ./tools/virustotal.ps1 -Report
