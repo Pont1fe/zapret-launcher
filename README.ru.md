@@ -93,3 +93,7 @@ powershell -ExecutionPolicy Bypass -File tests\run.ps1
 - [ZXing.Net](https://github.com/micjahn/ZXing.Net) — чтение QR-кодов, [flagcdn.com](https://flagcdn.com) — флаги стран.
 
 Лаунчер — неофициальная оболочка; zapret, tg-ws-proxy, sing-box, Xray и AmneziaWG скачиваются напрямую из релизов их авторов.
+
+## Лицензия
+
+[MIT](LICENSE). У программ, которые скачивает лаунчер (zapret, tg-ws-proxy, sing-box, Xray, AmneziaWG), — свои лицензии. В лаунчер встроена библиотека [ZXing.Net](https://github.com/micjahn/ZXing.Net) под [лицензией Apache 2.0](https://github.com/micjahn/ZXing.Net/blob/master/COPYING).

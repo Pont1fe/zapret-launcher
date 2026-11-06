@@ -93,3 +93,7 @@ Releases are built by GitHub Actions: bump `AppVersion` in `app/App.cs`, update 
 - [ZXing.Net](https://github.com/micjahn/ZXing.Net) — QR code reading, [flagcdn.com](https://flagcdn.com) — country flags.
 
 This is an unofficial wrapper; zapret, tg-ws-proxy, sing-box, Xray and AmneziaWG are downloaded directly from their authors' releases.
+
+## License
+
+[MIT](LICENSE). The programs the launcher downloads (zapret, tg-ws-proxy, sing-box, Xray, AmneziaWG) keep their own licenses. The launcher includes [ZXing.Net](https://github.com/micjahn/ZXing.Net) under the [Apache License 2.0](https://github.com/micjahn/ZXing.Net/blob/master/COPYING).
