@@ -1,4 +1,4 @@
-// Обновления zapret и лаунчера, откат, «Что нового», резервная копия настроек
+﻿// Обновления zapret и лаунчера, откат, «Что нового», резервная копия настроек
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -186,6 +186,7 @@ namespace ZapretLauncher
 
         async Task CheckUpdates(bool quiet, bool allowAuto)
         {
+            await UpdateSitePresets(quiet);   // первым: файл с raw.githubusercontent.com, лимиты GitHub API на него не действуют
             latest = await Util.LatestRelease(Consts.ZapretRepo, n => n.EndsWith(".zip"));
             lastCheck = DateTime.Now;
             string local = Zapret.LocalVersion;
@@ -289,6 +290,53 @@ namespace ZapretLauncher
             }
 
             await CheckLauncherUpdate(quiet, allowAuto && cfg.AutoUpdate);
+        }
+
+        // Готовые наборы сайтов из репозитория (SitePresets.Parse — что в файле и как он проверяется). Если в набор, который у пользователя
+        // включён, добавили домены или программы, они дописываются в его списки: в «Обходить» (тогда обход перезапускается) и в маршруты VPN
+        async Task UpdateSitePresets(bool quiet)
+        {
+            string text;
+            try { text = await Util.GetString(SitePresets.Url + "?t=" + DateTime.Now.Ticks, 10); }
+            catch (Exception e) { if (!quiet) Log.Write("Готовые наборы: не удалось скачать: " + e.Message); return; }
+            string cached = null;
+            try { if (File.Exists(SitePresets.Cache)) cached = File.ReadAllText(SitePresets.Cache, System.Text.Encoding.UTF8); } catch { }
+            if (text == cached && SitePresets.Updated != null) { if (!quiet) Log.Write("Готовые наборы: без изменений"); return; }
+            string error;
+            SitePresets.PresetFile f = SitePresets.Parse(text, out error);
+            if (f == null) { Log.Write("Готовые наборы: файл из репозитория не подошёл — " + error); return; }
+            if (f.Skipped.Count > 0) Log.Write("Готовые наборы: пропущены наборы с ошибками — " + string.Join(", ", f.Skipped));
+
+            SitePreset[] old = SitePresets.All;
+            SitePresets.Use(f);
+            try { File.WriteAllText(SitePresets.Cache, text, new System.Text.UTF8Encoding(false)); } catch (Exception e) { Log.Write("Готовые наборы: не удалось сохранить: " + e.Message); }
+
+            bool restart = false;
+            if (Zapret.LocalVersion != null)
+            {
+                List<string> general = Zapret.UserDomains("general");
+                List<string> add = SitePresets.Additions(old.Where(p => !p.VpnOnly), f.Sets, general, general, false);
+                if (add.Count > 0)
+                {
+                    Zapret.SaveUserDomains("general", general.Concat(add));
+                    Log.Write("Готовые наборы обновлены — добавлено в «Обходить»: " + string.Join(", ", add));
+                    restart = true;
+                }
+            }
+            List<string> vpnDomains = SitePresets.Additions(old, f.Sets, cfg.VpnDomains, cfg.VpnDomains, false);
+            List<string> vpnApps = SitePresets.Additions(old, f.Sets, cfg.VpnDomains, cfg.VpnApps, true);
+            if (vpnDomains.Count + vpnApps.Count > 0)
+            {
+                cfg.VpnDomains.AddRange(vpnDomains);
+                cfg.VpnApps.AddRange(vpnApps);
+                Log.Write("Готовые наборы обновлены — добавлено в маршруты VPN: " + string.Join(", ", vpnDomains.Concat(vpnApps)));
+            }
+            if (!restart && vpnDomains.Count + vpnApps.Count == 0) Log.Write("Готовые наборы сайтов обновлены" + (f.Updated != null ? " (" + f.Updated + ")" : ""));
+            UpdateDomainUi();
+            RefreshVpnUi();
+            AutoBackup();
+            if (restart) await RestartIfRunning();
+            if (vpnDomains.Count + vpnApps.Count > 0) await ApplyVpnChanges();
         }
 
         // Список IP-адресов для IPSet — раз в неделю вместе с проверкой обновлений. Если он изменился и используется,

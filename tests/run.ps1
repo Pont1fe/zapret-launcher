@@ -23,7 +23,7 @@ function Call([string]$type, [string]$method) {
     if (-not $m) { throw "$type.$method($($argv.Count)) not found" }
     try { $m.Invoke($null, $argv) } catch { throw (Inner $_.Exception) }
 }
-function Field([string]$type, [string]$name) { (TypeOf $type).GetField($name, $all).GetValue($null) }
+function Field([string]$type, [string]$name) { $f = (TypeOf $type).GetField($name, $all); if ($f) { $f.GetValue($null) } else { (TypeOf $type).GetProperty($name, $all).GetValue($null) } }
 function Inner([Exception]$e) { while ($e.InnerException) { $e = $e.InnerException }; $e }
 function Ok([string]$name) { $script:passed++ }
 function Fail([string]$name, [string]$detail) { $script:fails++; "  FAIL $name"; if ($detail) { "       $detail" } }
@@ -75,6 +75,52 @@ Section 'Готовые наборы' {
     Check 'при удалении набора убираются только его домены' $removal.Count '4'
     $list.Remove('instagram.com') | Out-Null
     Check 'без одного домена набор выключен' (Call SitePresets IsOn $insta $list) 'False'
+}
+
+Section 'Наборы из репозитория' {
+    function Parse([string]$json) { $err = $null; $m = (TypeOf SitePresets).GetMethod('Parse'); $a = [object[]]@($json, $null); $f = $m.Invoke($null, $a); @{ File = $f; Error = $a[1] } }
+    function Json($sets, $groups = @('Общение', 'ИИ'), $format = 1) { @{ format = $format; updated = '2026-11-06'; groups = $groups; sets = @($sets) } | ConvertTo-Json -Depth 5 }
+    $good = @{ name = 'Test'; group = 'ИИ'; mark = 'T'; color = '#10A37F'; domains = @('test.com', 'cdn-test.net'); apps = @('Test App.exe'); vpnOnly = $true }
+
+    # файл в репозитории — тот, что скачают все лаунчеры: он должен читаться целиком, без пропущенных наборов
+    $repoFile = Join-Path $PSScriptRoot '..\presets\sites.json'
+    $r = Parse ([IO.File]::ReadAllText($repoFile, [Text.Encoding]::UTF8))
+    Check 'presets/sites.json читается' $r.Error ''
+    Check 'presets/sites.json: все наборы правильные' ($r.File.Skipped -join ', ') ''
+    $builtIn = Field SitePresets BuiltIn
+    Check 'presets/sites.json: встроенные наборы на месте' (@($builtIn | Where-Object { $n = $_.Name; -not ($r.File.Sets | Where-Object Name -eq $n) }).Count) '0'
+    $rt = Parse (Call SitePresets BuiltInJson '2026-11-06')
+    Check 'встроенные наборы → файл → наборы' ("{0} {1} {2}" -f $rt.File.Sets.Count, $rt.File.Skipped.Count, (($rt.File.Groups) -join ',')) "$($builtIn.Count) 0 $((Field SitePresets BuiltInGroups) -join ',')"
+    $chat = $rt.File.Sets | Where-Object Name -eq 'ChatGPT'
+    Check 'набор переносится полностью' ("{0}|{1}|{2}|{3}|{4}" -f $chat.Group, $chat.Color, ($chat.Domains -join ','), ($chat.Apps -join ','), $chat.VpnOnly) 'ИИ|#10A37F|chatgpt.com,openai.com,oaistatic.com,oaiusercontent.com,chat.com|ChatGPT.exe|True'
+
+    $r = Parse (Json $good)
+    Check 'правильный набор' ("{0} {1} {2}" -f $r.File.Sets[0].Name, ($r.File.Sets[0].Apps -join ','), $r.File.Sets[0].VpnOnly) 'Test Test App.exe True'
+    Check 'пустая вкладка не показывается' ($r.File.Groups -join ',') 'ИИ'
+    Check 'файл новее лаунчера не принимается' ("{0} {1}" -f ($null -eq $r.File), (Parse (Json $good -format 2)).Error) 'False format 2 — новее, чем понимает эта версия лаунчера'
+    Check 'не JSON' ((Parse '<html>rate limit</html>').Error.StartsWith('не JSON')) 'True'
+    Check 'пустой файл' (Parse '').Error 'пустой или слишком большой файл'
+    Check 'без наборов' (Parse (Json @())).Error 'нет вкладок или наборов'
+    $bad = @(
+        @{ name = 'Домен'; group = 'ИИ'; mark = 'D'; color = '#000000'; domains = @('Https://Bad.com/x') },
+        @{ name = 'Вкладка'; group = 'Нет такой'; mark = 'V'; color = '#000000'; domains = @('ok.com') },
+        @{ name = 'Цвет'; group = 'ИИ'; mark = 'C'; color = 'red'; domains = @('ok.com') },
+        @{ name = 'Программа'; group = 'ИИ'; mark = 'P'; color = '#000000'; domains = @('ok.com'); apps = @('C:\Windows\cmd.exe') },
+        @{ name = 'Пусто'; group = 'ИИ'; mark = 'E'; color = '#000000'; domains = @() },
+        @{ name = 'Test'; group = 'ИИ'; mark = 'T'; color = '#000000'; domains = @('dup.com') })
+    $r = Parse (Json (@($good) + $bad))
+    Check 'наборы с ошибками пропускаются, остальные работают' ("{0} | {1}" -f (($r.File.Sets | ForEach-Object Name) -join ','), ($r.File.Skipped -join ',')) 'Test | Домен,Вкладка,Цвет,Программа,Пусто,Test'
+    Check 'одни ошибки — файл не принимается' (Parse (Json $bad[0..4])).Error 'ни одного правильного набора'
+
+    # обновление: новые домены включённых наборов дописываются, выключенные наборы не трогаются
+    $old = (Parse (Json $good)).File.Sets
+    $newer = $good.Clone(); $newer.domains = @('test.com', 'cdn-test.net', 'test.ai'); $newer.apps = @('Test App.exe', 'TestHelper.exe')
+    $fresh = (Parse (Json $newer)).File.Sets
+    $domains = List 'test.com', 'cdn-test.net', 'other.org'; $apps = List 'test app.exe'
+    Check 'новый домен включённого набора' ((Call SitePresets Additions $old $fresh $domains $domains $false) -join ',') 'test.ai'
+    Check 'новая программа включённого набора' ((Call SitePresets Additions $old $fresh $domains $apps $true) -join ',') 'TestHelper.exe'
+    $domains.Remove('cdn-test.net') | Out-Null
+    Check 'выключенный набор не трогается' (@(Call SitePresets Additions $old $fresh $domains $domains $false).Count) '0'
 }
 
 Section 'Стратегии' {

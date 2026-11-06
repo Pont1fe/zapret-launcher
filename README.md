@@ -58,6 +58,7 @@
 
 ### ✨ Nice touches
 - **Auto-update** of zapret, tg-ws-proxy and the launcher itself. Don't like a new version? Roll back with one click.
+- **Ready-made site sets** — YouTube, Discord, Instagram, ChatGPT and more with one click, for zapret and VPN routes. The sets update themselves: when a service adds a new domain, everyone gets it without a new release.
 - **Secure DNS** (DNS over HTTPS), **Game Filter**, **IPSet** and your own domains right in the window, no `service.bat` needed.
 - **Settings backup** to a file and back — handy when reinstalling Windows.
 - **Save report** and **Report a problem**: logs and system info in one archive (without VPN keys or server addresses); “Report a problem” also opens a new GitHub issue with the versions filled in.
@@ -83,6 +84,7 @@ Releases are built by GitHub Actions: bump `AppVersion` in `app/App.cs`, update 
 
 - `app/` — the launcher (WPF): `Launcher.cs` main window, the rest in `Launcher.*.cs` by area (`Bypass`, `Watchdog`, `Vpn`, `VpnRoutes`, `Lists`, `Network`, `Updates`, `Pages` and others), `Watchdog.cs` when the watchdog waits, restarts and picks a strategy, `Zapret.cs` zapret handling, `Vpn.cs` VPN (sing-box and Xray), `AmneziaWG.cs` AmneziaWG servers, `Telegram.cs`, `Network.cs` site and network checks, `Toast.cs` notifications, `I18n.cs` translation, `Shell.cs` icons, shortcuts, self-update, `ui.xaml` layout.
 - `installer/` — the installer (WinForms).
+- `presets/sites.json` — the ready-made site sets the launcher downloads ([how to edit](presets/README.md)).
 - `tests/` — logic tests.
 
 ## Credits

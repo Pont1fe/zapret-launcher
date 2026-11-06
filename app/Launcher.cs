@@ -73,6 +73,7 @@ namespace ZapretLauncher
         {
             this.autostart = autostart;
             this.cfg = cfg;
+            SitePresets.LoadCache();   // наборы сайтов из последней скачанной копии — до того, как их покажет интерфейс
             window = LoadWindow("ui.xaml");
             window.SourceInitialized += delegate { Theme.ApplyWindow(window); };
             Toasts.Init();

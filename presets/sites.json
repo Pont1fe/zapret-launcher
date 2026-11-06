@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "updated": "2026-11-06",
+  "groups": ["Общение","Медиа","Соцсети","Работа","ИИ"],
+  "sets": [
+    { "name": "YouTube", "group": "Медиа", "mark": "▶", "color": "#FF0033", "domains": ["youtube.com","youtu.be","ytimg.com","ggpht.com","googlevideo.com"] },
+    { "name": "Discord", "group": "Общение", "mark": "D", "color": "#5865F2", "domains": ["discord.com","discord.gg","discordapp.com","discordapp.net","discord.media"], "apps": ["Discord.exe"] },
+    { "name": "Telegram", "group": "Общение", "mark": "T", "color": "#2AABEE", "domains": ["telegram.org","t.me","telegram.me","telesco.pe","tdesktop.com","telegra.ph"], "apps": ["Telegram.exe"] },
+    { "name": "WhatsApp", "group": "Общение", "mark": "W", "color": "#25D366", "domains": ["whatsapp.com","whatsapp.net","wa.me"], "apps": ["WhatsApp.exe","WhatsApp.Root.exe"] },
+    { "name": "Signal", "group": "Общение", "mark": "S", "color": "#3A76F0", "domains": ["signal.org","whispersystems.org","signal.art"], "apps": ["Signal.exe"] },
+    { "name": "Viber", "group": "Общение", "mark": "V", "color": "#7360F2", "domains": ["viber.com"], "apps": ["Viber.exe"] },
+    { "name": "Instagram", "group": "Соцсети", "mark": "I", "color": "#E1306C", "domains": ["instagram.com","cdninstagram.com","ig.me","instagr.am","fbcdn.net"] },
+    { "name": "Facebook", "group": "Соцсети", "mark": "f", "color": "#1877F2", "domains": ["facebook.com","fb.com","fbcdn.net","facebook.net","fbsbx.com","messenger.com"] },
+    { "name": "X (Twitter)", "group": "Соцсети", "mark": "X", "color": "#2A2A2E", "domains": ["x.com","twitter.com","twimg.com","t.co"] },
+    { "name": "Spotify", "group": "Медиа", "mark": "S", "color": "#1DB954", "domains": ["spotify.com","scdn.co","spotifycdn.com","spotifycdn.net","pscdn.co"], "apps": ["Spotify.exe"] },
+    { "name": "SoundCloud", "group": "Медиа", "mark": "S", "color": "#FF5500", "domains": ["soundcloud.com","sndcdn.com"] },
+    { "name": "Twitch", "group": "Медиа", "mark": "T", "color": "#9146FF", "domains": ["twitch.tv","ttvnw.net","jtvnw.net","twitchcdn.net","twitchsvc.net"] },
+    { "name": "Netflix", "group": "Медиа", "mark": "N", "color": "#E50914", "domains": ["netflix.com","netflix.net","nflxvideo.net","nflximg.net","nflxext.com","nflxso.net"] },
+    { "name": "LinkedIn", "group": "Работа", "mark": "in", "color": "#0A66C2", "domains": ["linkedin.com","licdn.com"] },
+    { "name": "Patreon", "group": "Работа", "mark": "P", "color": "#F96854", "domains": ["patreon.com","patreonusercontent.com"] },
+    { "name": "Notion", "group": "Работа", "mark": "N", "color": "#37352F", "domains": ["notion.so","notion.site","notion.com"], "apps": ["Notion.exe"] },
+    { "name": "ChatGPT", "group": "ИИ", "mark": "G", "color": "#10A37F", "domains": ["chatgpt.com","openai.com","oaistatic.com","oaiusercontent.com","chat.com"], "apps": ["ChatGPT.exe"], "vpnOnly": true },
+    { "name": "Gemini", "group": "ИИ", "mark": "✦", "color": "#4285F4", "domains": ["gemini.google.com","aistudio.google.com","notebooklm.google.com","generativelanguage.googleapis.com","alkalimakersuite-pa.clients6.google.com"], "vpnOnly": true },
+    { "name": "Grok", "group": "ИИ", "mark": "G", "color": "#2A2A2E", "domains": ["grok.com","x.ai"], "vpnOnly": true },
+    { "name": "Perplexity", "group": "ИИ", "mark": "P", "color": "#20808D", "domains": ["perplexity.ai","pplx.ai"], "apps": ["Perplexity.exe"], "vpnOnly": true },
+    { "name": "Copilot", "group": "ИИ", "mark": "C", "color": "#0078D4", "domains": ["copilot.microsoft.com"], "vpnOnly": true }
+  ]
+}

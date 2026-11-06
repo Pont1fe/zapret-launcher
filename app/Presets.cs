@@ -1,8 +1,12 @@
-// Готовые наборы сайтов: все домены сервиса и его программа — чтобы добавить их одной кнопкой
+﻿// Готовые наборы сайтов: все домены сервиса и его программа — чтобы добавить их одной кнопкой.
+// Встроенные наборы — запасной вариант: свежие лаунчер берёт из presets/sites.json в репозитории (см. Parse и Launcher.UpdateSitePresets)
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Web.Script.Serialization;
 
 namespace ZapretLauncher
 {
@@ -19,7 +23,7 @@ namespace ZapretLauncher
 
     static class SitePresets
     {
-        public static readonly SitePreset[] All =
+        static readonly SitePreset[] BuiltIn =
         {
             new SitePreset { Name = "YouTube", Group = "Медиа", Mark = "▶", Color = "#FF0033", Domains = new[] { "youtube.com", "youtu.be", "ytimg.com", "ggpht.com", "googlevideo.com" } },
             new SitePreset { Name = "Discord", Group = "Общение", Mark = "D", Color = "#5865F2", Domains = new[] { "discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media" }, Apps = new[] { "Discord.exe" } },
@@ -46,7 +50,138 @@ namespace ZapretLauncher
         };
 
         // Вкладки «Готовых наборов» — в этом порядке
-        public static readonly string[] Groups = { "Общение", "Медиа", "Соцсети", "Работа", "ИИ" };
+        static readonly string[] BuiltInGroups = { "Общение", "Медиа", "Соцсети", "Работа", "ИИ" };
+
+        // Действующие наборы и вкладки: встроенные или из файла репозитория
+        public static SitePreset[] All { get; private set; }
+        public static string[] Groups { get; private set; }
+        public static string Updated { get; private set; }   // дата файла из репозитория; null — встроенные
+        static SitePresets() { All = BuiltIn; Groups = BuiltInGroups; }
+
+        // ---------- Наборы из репозитория ----------
+        // Файл presets/sites.json: { "format": 1, "updated": "yyyy-MM-dd", "groups": [...], "sets": [{ name, group, mark, color, domains, apps, vpnOnly }] }.
+        // Лаунчер скачивает его вместе с проверкой обновлений и хранит копию рядом с собой
+        public const int Format = 1;   // формат, который понимает эта версия; файл новее — не трогаем, ждём обновления лаунчера
+        public static readonly string Url = "https://raw.githubusercontent.com/" + Consts.LauncherRepo + "/main/presets/sites.json";
+        public static readonly string Cache = System.IO.Path.Combine(Paths.Root, "site-presets.json");
+
+        public class PresetFile
+        {
+            public string Updated;
+            public string[] Groups;
+            public SitePreset[] Sets;
+            public List<string> Skipped = new List<string>();   // наборы с ошибками — пропущены, остальные работают
+        }
+
+        static readonly Regex ColorRx = new Regex("^#[0-9A-Fa-f]{6}$");
+        static readonly Regex AppRx = new Regex(@"^[\w .()+&-]+\.exe$", RegexOptions.IgnoreCase);
+
+        // Разбор и проверка файла; null и error — если файл целиком не годится (тогда остаются прежние наборы)
+        public static PresetFile Parse(string json, out string error)
+        {
+            error = null;
+            Dictionary<string, object> root;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(json) || json.Length > 1000000) { error = "пустой или слишком большой файл"; return null; }
+                root = new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
+            }
+            catch (Exception e) { error = "не JSON: " + e.Message; return null; }
+            if (root == null) { error = "не JSON-объект"; return null; }
+            int format = root.ContainsKey("format") && root["format"] is int ? (int)root["format"] : 0;
+            if (format < 1) { error = "нет поля format"; return null; }
+            if (format > Format) { error = "format " + format + " — новее, чем понимает эта версия лаунчера"; return null; }
+
+            List<string> groups = Strings(root, "groups").Distinct().Where(g => g.Length > 0 && g.Length <= 40).ToList();
+            object[] rawSets = root.ContainsKey("sets") ? root["sets"] as object[] : null;
+            if (groups.Count == 0 || rawSets == null || rawSets.Length == 0) { error = "нет вкладок или наборов"; return null; }
+            if (rawSets.Length > 500) { error = "слишком много наборов"; return null; }
+
+            PresetFile f = new PresetFile { Updated = root.ContainsKey("updated") ? root["updated"] as string : null };
+            List<SitePreset> sets = new List<SitePreset>();
+            foreach (object o in rawSets)
+            {
+                Dictionary<string, object> s = o as Dictionary<string, object>;
+                string name = s != null && s.ContainsKey("name") ? (s["name"] as string ?? "").Trim() : "";
+                if (name.Length == 0 || name.Length > 40 || sets.Any(x => x.Name == name)) { f.Skipped.Add(name.Length > 0 ? name : "?"); continue; }
+                SitePreset p = new SitePreset
+                {
+                    Name = name,
+                    Group = s.ContainsKey("group") ? s["group"] as string : null,
+                    Mark = s.ContainsKey("mark") ? s["mark"] as string : null,
+                    Color = s.ContainsKey("color") ? s["color"] as string : null,
+                    Domains = Strings(s, "domains").ToArray(),
+                    Apps = Strings(s, "apps").ToArray(),
+                    VpnOnly = s.ContainsKey("vpnOnly") && s["vpnOnly"] is bool && (bool)s["vpnOnly"]
+                };
+                bool ok = groups.Contains(p.Group) && !string.IsNullOrEmpty(p.Mark) && p.Mark.Length <= 3 && p.Color != null && ColorRx.IsMatch(p.Color) &&
+                          p.Domains.Length > 0 && p.Domains.Length <= 200 && p.Domains.All(d => Zapret.NormalizeDomain(d) == d) &&
+                          p.Apps.Length <= 20 && p.Apps.All(a => AppRx.IsMatch(a));
+                if (ok) sets.Add(p); else f.Skipped.Add(name);
+            }
+            if (sets.Count == 0) { error = "ни одного правильного набора"; return null; }
+            f.Sets = sets.ToArray();
+            f.Groups = groups.Where(g => sets.Any(p => p.Group == g)).ToArray();
+            return f;
+        }
+
+        static IEnumerable<string> Strings(Dictionary<string, object> d, string key)
+        {
+            object[] a = d.ContainsKey(key) ? d[key] as object[] : null;
+            return a == null ? new string[0] : a.OfType<string>().Select(x => x.Trim()).Where(x => x.Length > 0);
+        }
+
+        public static void Use(PresetFile f)
+        {
+            Groups = f.Groups;
+            All = f.Sets;
+            Updated = f.Updated;
+        }
+
+        // При запуске: наборы из сохранённой копии файла, если она есть и годится
+        public static void LoadCache()
+        {
+            try
+            {
+                if (!System.IO.File.Exists(Cache)) return;
+                string error;
+                PresetFile f = Parse(System.IO.File.ReadAllText(Cache, Encoding.UTF8), out error);
+                if (f != null) Use(f);
+            }
+            catch { }
+        }
+
+        // Наборы обновились: что дописать в список, чтобы включённые наборы остались включёнными.
+        // on — список, по которому набор считается включённым (домены), target — куда дописываем (домены или программы).
+        // Набор, из которого пользователь убрал хоть один домен, уже выключен — его не трогаем
+        public static List<string> Additions(IEnumerable<SitePreset> old, IEnumerable<SitePreset> fresh, ICollection<string> on, ICollection<string> target, bool apps)
+        {
+            List<string> result = new List<string>();
+            foreach (SitePreset o in old.Where(o => IsOn(o, on)))
+            {
+                SitePreset n = fresh.FirstOrDefault(x => x.Name == o.Name);
+                if (n == null) continue;
+                foreach (string x in apps ? n.Apps : n.Domains)
+                    if (!target.Contains(x, StringComparer.OrdinalIgnoreCase) && !result.Contains(x, StringComparer.OrdinalIgnoreCase)) result.Add(x);
+            }
+            return result;
+        }
+
+        // Файл для репозитория из встроенных наборов (tools/presets.ps1)
+        public static string BuiltInJson(string updated)
+        {
+            List<object> sets = BuiltIn.Select(p =>
+            {
+                Dictionary<string, object> d = new Dictionary<string, object>();
+                d["name"] = p.Name; d["group"] = p.Group; d["mark"] = p.Mark; d["color"] = p.Color; d["domains"] = p.Domains;
+                if (p.Apps.Length > 0) d["apps"] = p.Apps;
+                if (p.VpnOnly) d["vpnOnly"] = true;
+                return (object)d;
+            }).ToList();
+            Dictionary<string, object> root = new Dictionary<string, object>();
+            root["format"] = Format; root["updated"] = updated; root["groups"] = BuiltInGroups; root["sets"] = sets;
+            return new JavaScriptSerializer().Serialize(root);
+        }
 
         public static SitePreset Find(string name)
         {
