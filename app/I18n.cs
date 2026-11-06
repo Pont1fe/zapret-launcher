@@ -682,6 +682,16 @@ namespace ZapretLauncher
                 "Сохранено на рабочий стол", "Saved to the desktop",
                 "Не удалось собрать отчёт: ", "Could not save the report: ",
                 "Отчёт сохранён на рабочий стол: ", "Report saved to the desktop: ",
+                // «Сообщить о проблеме»
+                "Сообщить о проблеме", "Report a problem",
+                "Сохранить отчёт и открыть страницу новой заявки на GitHub — версии уже будут заполнены, останется описать проблему и приложить архив",
+                    "Save a report and open a new issue page on GitHub — the versions are filled in, just describe the problem and attach the archive",
+                "Лаунчер сохранит отчёт на рабочий стол и откроет в браузере страницу новой заявки на GitHub (нужен аккаунт GitHub).",
+                    "The launcher will save a report to the desktop and open a new issue page on GitHub in the browser (a GitHub account is needed).",
+                "Опишите, что не работает, и перетащите архив отчёта в поле «Отчёт».", "Describe what doesn't work and drag the report archive into the “Report” field.",
+                "Заявки на GitHub видны всем. Ключи VPN, адрес подписки, адреса серверов и имя пользователя Windows из отчёта убраны, но в нём остаются списки сайтов и программ и сведения о сети — архив можно открыть и проверить перед отправкой.",
+                    "Issues on GitHub are public. VPN keys, the subscription URL, server addresses and your Windows user name are removed from the report, but it still has your site and app lists and network info — you can open the archive and check it before sending.",
+                "Не удалось открыть браузер: ", "Could not open the browser: ",
                 // «Не пускать мимо VPN»
                 "Не пускать мимо VPN", "Never bypass the VPN",
                 "Если VPN упал и не поднимается, сайты и программы из списка не откроются напрямую, пока он не заработает. В режимах «Весь трафик» и «Россия напрямую» блокируется всё, что шло через VPN",

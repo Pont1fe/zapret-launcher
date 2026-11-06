@@ -208,6 +208,7 @@ namespace ZapretLauncher
             ClickSync("LogImportant", FilterLog);
             Click("BtnLogCopy", CopyLog);
             Click("BtnLogReport", SaveReport);
+            Click("BtnLogIssue", ReportProblem);
             ClickSync("BtnLogOpen", () => { try { Process.Start("notepad.exe", "\"" + Paths.Log + "\""); } catch (Exception e) { Log.Write(e.Message); } });
             E<ListBox>("LogList").IsVisibleChanged += (s, e) =>
             {

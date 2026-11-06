@@ -99,23 +99,40 @@ namespace ZapretLauncher
         }
 
         // Отчёт для разработчика: архив на рабочем столе (Report.cs — что в нём и что из него вычищено), сразу показываем его в Проводнике
-        async Task SaveReport()
+        Task SaveReport() { return SaveReport("BtnLogReport", "Собрать отчёт", false); }
+
+        // «Сообщить о проблеме»: тот же отчёт + страница новой заявки на GitHub с заполненными версиями; архив пользователь перетаскивает сам
+        async Task ReportProblem()
         {
-            Button b = E<Button>("BtnLogReport");
+            if (Ask(T("Лаунчер сохранит отчёт на рабочий стол и откроет в браузере страницу новой заявки на GitHub (нужен аккаунт GitHub).") + "\n\n" +
+                    T("Опишите, что не работает, и перетащите архив отчёта в поле «Отчёт».") + "\n\n" +
+                    T("Заявки на GitHub видны всем. Ключи VPN, адрес подписки, адреса серверов и имя пользователя Windows из отчёта убраны, но в нём остаются списки сайтов и программ и сведения о сети — архив можно открыть и проверить перед отправкой."),
+                    MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
+            await SaveReport("BtnLogIssue", "Сообщить о проблеме", true);
+        }
+
+        async Task SaveReport(string button, string label, bool issue)
+        {
+            Button b = E<Button>(button);
             b.IsEnabled = false;
             b.Content = T("Собираю…");
             string path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "ZapretLauncher-report-" + DateTime.Now.ToString("yyyy-MM-dd-HHmm") + ".zip");
             try
             {
                 cfg.Save();
-                await Task.Run(() => Report.Create(cfg, path));
+                string system = null;
+                await Task.Run(() => { Report.Create(cfg, path); if (issue) system = Report.IssueSystem(cfg); });
                 Log.Write("Отчёт сохранён на рабочий стол: " + System.IO.Path.GetFileName(path));
                 try { Process.Start("explorer.exe", "/select,\"" + path + "\""); } catch { }
+                // через explorer, чтобы браузер открылся без прав администратора
+                if (issue)
+                    try { Process.Start("explorer.exe", "\"" + Report.IssueUrl(Consts.LauncherRepo, Consts.Version, system) + "\""); }
+                    catch (Exception e) { Log.Write("Не удалось открыть браузер: " + e.Message); }
                 b.Content = T("Сохранено на рабочий стол") + " ✓";
                 await Task.Delay(2500);
             }
             catch (Exception e) { Log.Write("Не удалось собрать отчёт: " + e.Message); Ask(T("Не удалось собрать отчёт: ") + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); }
-            finally { b.Content = T("Собрать отчёт"); b.IsEnabled = true; }
+            finally { b.Content = T(label); b.IsEnabled = true; }
         }
 
         // ---------- Диалоги и уведомления ----------

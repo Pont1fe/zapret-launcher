@@ -1,0 +1,49 @@
+name: Что-то не работает / Something doesn't work
+description: Сайт не открывается, VPN не подключается, лаунчер выдаёт ошибку / A site doesn't open, the VPN doesn't connect, the launcher shows an error
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Проще всего — кнопка **«Сообщить о проблеме»** на странице «Журнал» в лаунчере: она сохранит отчёт на рабочий стол и откроет эту форму с уже заполненными версиями. Останется описать проблему и перетащить архив отчёта в поле ниже.
+
+        The easiest way is the **“Report a problem”** button on the Log page of the launcher: it saves a report to the desktop and opens this form with the versions already filled in. Then describe the problem and drag the report archive into the field below.
+
+        ⚠️ Заявки видны всем. Не вставляйте сюда ключи VPN (`vless://…`, файлы AmneziaWG) и адрес подписки — в отчёте лаунчера их уже нет. / Issues are public. Don't paste VPN keys or your subscription URL here — the launcher's report already leaves them out.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Что не работает / What doesn't work
+      description: Какой сайт или программа, что вы видите, с какого момента. Скриншот очень помогает. / Which site or app, what you see, since when. A screenshot helps a lot.
+      placeholder: Например, YouTube не грузит видео после обновления zapret / e.g. YouTube doesn't load videos after the zapret update
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Что вы уже пробовали / What you already tried
+      description: Другая стратегия, перезапуск, выключение VPN или антивируса… / Another strategy, restart, turning off the VPN or antivirus…
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия лаунчера / Launcher version
+      description: Видна в заголовке окна лаунчера / Shown in the launcher's title bar
+      placeholder: "4.0.4"
+    validations:
+      required: true
+
+  - type: textarea
+    id: system
+    attributes:
+      label: Система / System
+      description: Кнопка «Сообщить о проблеме» заполняет это поле сама / The “Report a problem” button fills this in
+      render: text
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Отчёт / Report
+      description: Перетащите сюда архив ZapretLauncher-report-….zip с рабочего стола (кнопка «Собрать отчёт» или «Сообщить о проблеме» на странице «Журнал»). / Drag the ZapretLauncher-report-….zip archive from the desktop here (“Save report” or “Report a problem” on the Log page).

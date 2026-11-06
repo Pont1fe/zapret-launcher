@@ -60,7 +60,7 @@
 - **Auto-update** of zapret, tg-ws-proxy and the launcher itself. Don't like a new version? Roll back with one click.
 - **Secure DNS** (DNS over HTTPS), **Game Filter**, **IPSet** and your own domains right in the window, no `service.bat` needed.
 - **Settings backup** to a file and back — handy when reinstalling Windows.
-- **Save report**: logs and system info in one archive (without VPN keys) to send when something doesn't work.
+- **Save report** and **Report a problem**: logs and system info in one archive (without VPN keys or server addresses); “Report a problem” also opens a new GitHub issue with the versions filled in.
 - Dark and light themes, accent color, interface scale, Mica background, compact view.
 - Windows notifications with action buttons, start with Windows without a UAC prompt, taskbar icon menu.
 - Russian and English interface; uninstall from Windows “Installed apps”.

@@ -1,0 +1,17 @@
+name: Идея / Idea
+description: Чего не хватает в лаунчере / What the launcher is missing
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Что хотелось бы / What you'd like
+      description: Опишите, что должно появиться или измениться. / Describe what should be added or changed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Зачем / Why
+      description: Какую задачу это решит — так проще придумать, как сделать лучше. / What it solves for you — it helps to find the best way to do it.

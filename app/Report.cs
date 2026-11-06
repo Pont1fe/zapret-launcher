@@ -1,4 +1,4 @@
-// Отчёт для разбора проблем: журналы и сведения о системе одним архивом на рабочем столе.
+﻿// Отчёт для разбора проблем: журналы и сведения о системе одним архивом на рабочем столе.
 // Ключи серверов, адрес подписки, файлы настроек VPN и имя пользователя Windows в отчёт не попадают
 using System;
 using System.Collections.Generic;
@@ -18,18 +18,53 @@ namespace ZapretLauncher
         static readonly Regex Secrets = new Regex(@"\b(PrivateKey|PresharedKey|PublicKey|password|uuid|secret)(\s*[=:]\s*)\S+", RegexOptions.IgnoreCase);
         static readonly Regex LongBase64 = new Regex(@"[A-Za-z0-9+/_-]{40,}={0,2}");
 
-        // Убирает всё, что даёт доступ к VPN или выдаёт пользователя
-        public static string Sanitize(string text, string subscription)
+        // Убирает всё, что даёт доступ к VPN или выдаёт пользователя; hosts — адреса серверов VPN (отчёт может уйти в открытую заявку на GitHub)
+        public static string Sanitize(string text, string subscription) { return Sanitize(text, subscription, null); }
+        public static string Sanitize(string text, string subscription, IEnumerable<string> hosts)
         {
             if (string.IsNullOrEmpty(text)) return text ?? "";
             string s = text;
             if (!string.IsNullOrEmpty(subscription)) s = s.Replace(subscription, "<подписка>");
+            if (hosts != null)
+                foreach (string h in hosts.Where(h => !string.IsNullOrEmpty(h) && h.Length >= 4).Distinct().OrderByDescending(h => h.Length))
+                    s = Regex.Replace(s, @"(?<![\w.-])" + Regex.Escape(h) + @"(?![\w-]|\.\w)", "<сервер>", RegexOptions.IgnoreCase);
             s = KeyLinks.Replace(s, "$1://<ключ>");
             s = Secrets.Replace(s, "$1$2<скрыто>");
             s = LongBase64.Replace(s, "<скрыто>");   // ключи WireGuard и прочее длинное base64
             string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (profile.Length > 3) s = Regex.Replace(s, Regex.Escape(profile), "%USERPROFILE%", RegexOptions.IgnoreCase);
             return s;
+        }
+
+        // Адрес сервера из ключа (без DNS): host из ссылки, Endpoint из файла AmneziaWG. IP — в обычной записи, как в журналах
+        public static string ServerHost(string link)
+        {
+            string h = RawHost(link);
+            System.Net.IPAddress ip;
+            return h != null && System.Net.IPAddress.TryParse(h, out ip) ? ip.ToString() : h;
+        }
+
+        static string RawHost(string link)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(link)) return null;
+                if (Awg.IsAwg(link))
+                {
+                    string endpoint;
+                    if (!Awg.Fields(Awg.ConfOf(link)).TryGetValue("Peer.Endpoint", out endpoint)) return null;
+                    return Regex.Replace(endpoint.Trim(), @":\d+$", "").Trim('[', ']');
+                }
+                if (link.StartsWith("vmess://", StringComparison.OrdinalIgnoreCase) || !link.Split('#')[0].Contains("@"))
+                    return (string)Vpn.BuildOutbound(link)["server"];   // vmess и старый ss — адрес внутри base64
+                return new Uri(link.Split('#')[0]).Host.Trim('[', ']');
+            }
+            catch { return null; }
+        }
+
+        public static List<string> ServerHosts(Config cfg)
+        {
+            return cfg.VpnServers.Select(s => ServerHost(s.Link)).Where(h => !string.IsNullOrEmpty(h) && h != "127.0.0.1").Distinct().ToList();
         }
 
         // Тип ключа без самого ключа: «vless», «amneziawg»
@@ -92,7 +127,29 @@ namespace ZapretLauncher
                 line("Службы AmneziaWG", svc.Length > 0 ? svc : "нет");
             }
             catch { }
-            return Sanitize(sb.ToString(), cfg.VpnSubscription);
+            return Sanitize(sb.ToString(), cfg.VpnSubscription, ServerHosts(cfg));
+        }
+
+        // Короткая сводка для открытой заявки на GitHub: только версии и режимы — без сайтов, серверов и сети
+        public static string IssueSystem(Config cfg)
+        {
+            VpnServer current = cfg.VpnServers.Count == 0 ? null : cfg.VpnServers[Math.Min(Math.Max(cfg.VpnSelected, 0), cfg.VpnServers.Count - 1)];
+            List<string> l = new List<string>();
+            l.Add("Windows: " + Environment.OSVersion.Version + (Environment.Is64BitOperatingSystem ? " x64" : " x86"));
+            l.Add("zapret: " + (Zapret.LocalVersion ?? "-") + ", strategy: " + (string.IsNullOrEmpty(cfg.Strategy) ? "-" : cfg.Strategy) + ", watchdog: " + (cfg.Watchdog ? "on" : "off"));
+            l.Add("VPN: " + (cfg.VpnOn ? "on" : "off") + ", mode: " + cfg.VpnMode + (current != null ? ", " + Scheme(current.Link) : "") +
+                  (cfg.VpnKillSwitch ? ", kill switch" : "") + ", servers: " + cfg.VpnServers.Count + (cfg.VpnSubscription.Length > 0 ? " (subscription)" : ""));
+            l.Add("cores: sing-box " + (Vpn.Version ?? "-") + ", Xray " + (Vpn.XrayVersion ?? "-") + ", AmneziaWG " + (Awg.Version ?? "-"));
+            string other = Conflicts.ActiveVpn();
+            if (other != null) l.Add("other VPN: " + other);
+            return string.Join("\n", l);
+        }
+
+        // Адрес новой заявки с заполненными полями формы .github/ISSUE_TEMPLATE/bug.yml (поля — по их id)
+        public static string IssueUrl(string repo, string version, string system)
+        {
+            return "https://github.com/" + repo + "/issues/new?template=bug.yml" +
+                   "&version=" + Uri.EscapeDataString(version ?? "") + "&system=" + Uri.EscapeDataString(system ?? "");
         }
 
         // Последние строки файла, даже если он сейчас открыт на запись
@@ -115,6 +172,7 @@ namespace ZapretLauncher
         public static void Create(Config cfg, string zipPath)
         {
             string sub = cfg.VpnSubscription;
+            List<string> hosts = ServerHosts(cfg);
             Dictionary<string, string> files = new Dictionary<string, string>();
             files["report.txt"] = Summary(cfg);
             files["launcher.log"] = Tail(Paths.Log, 5000);
@@ -130,7 +188,7 @@ namespace ZapretLauncher
                 {
                     if (f.Value == null) continue;
                     using (StreamWriter w = new StreamWriter(zip.CreateEntry(f.Key).Open(), new UTF8Encoding(true)))
-                        w.Write(Sanitize(f.Value, sub));
+                        w.Write(Sanitize(f.Value, sub, hosts));
                 }
         }
     }

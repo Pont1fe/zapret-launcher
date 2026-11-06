@@ -345,6 +345,26 @@ Section 'Отчёт без секретов' {
     $z.Dispose()
     Check 'архив: сводка и маршруты' ($names.Contains('report.txt') -and $names.Contains('routes.txt')) 'True'
     Check 'архив: без ключей и подписки' ($text.Contains('11111111') -or $text.Contains('secretToken')) 'False'
+
+    # адреса серверов: отчёт может уйти в открытую заявку на GitHub
+    $vmess = 'vmess://' + (B64 '{"v":"2","ps":"V","add":"vm.example.net","port":"443","id":"11111111-2222-3333-4444-555555555555","net":"ws"}')
+    $ssOld = 'ss://' + (B64 'aes-256-gcm:pass@198.51.100.4:8388') + '#old'
+    $awg = 'amneziawg://' + ((B64 "[Interface]`nPrivateKey = aaa`nAddress = 10.8.1.2/32`n[Peer]`nPublicKey = bbb`nEndpoint = 203.0.113.7:51820") -replace '\+', '-' -replace '/', '_' -replace '=+$', '') + '#DE'
+    foreach ($c in @(@($s1.Link, 'h.example.com'), @($vmess, 'vm.example.net'), @($ssOld, '198.51.100.4'), @($awg, '203.0.113.7'),
+                     @('hysteria2://pw@[2001:db8::5]:443#h', '2001:db8::5'), @('trojan://pw@tr.example.org:443#t', 'tr.example.org'))) {
+        Check ("адрес сервера " + $c[0].Substring(0, $c[0].IndexOf('://'))) (Call Report ServerHost $c[0]) $c[1]
+    }
+    $hosts = List 'h.example.com', '203.0.113.7'
+    $clean = Call Report Sanitize "к h.example.com:443 и 203.0.113.7:51820; чужие sub.h.example.com, 203.0.113.70, h.example.com.au" $null $hosts
+    Check 'адреса серверов скрыты' $clean 'к <сервер>:443 и <сервер>:51820; чужие sub.h.example.com, 203.0.113.70, h.example.com.au'
+
+    # заявка на GitHub: только версии и режимы
+    $cfg.Strategy = 'ALT9'
+    $system = Call Report IssueSystem $cfg
+    Check 'заявка: версии и режимы' ($system.Contains('strategy: ALT9') -and $system.Contains('VPN: off') -and $system.Contains('vless') -and $system.Contains('(subscription)')) 'True'
+    Check 'заявка: без сайтов, серверов и ключей' ($system.Contains('deepl.com') -or $system.Contains('Германия') -or $system.Contains('example') -or $system.Contains('11111111') -or $system.Contains('secretToken')) 'False'
+    $url = Call Report IssueUrl 'Pont1fe/zapret-launcher' '4.0.5' "Windows: 10`nzapret: 1.9 & co"
+    Check 'заявка: адрес формы' $url 'https://github.com/Pont1fe/zapret-launcher/issues/new?template=bug.yml&version=4.0.5&system=Windows%3A%2010%0Azapret%3A%201.9%20%26%20co'
 }
 
 Section 'Не пускать мимо VPN' {
