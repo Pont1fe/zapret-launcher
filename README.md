@@ -47,7 +47,7 @@
 ### 🌍 Built-in VPN (new in 4.0)
 - Paste a **vless / vmess / trojan / ss / hysteria2 / tuic** key, a subscription URL — or just **scan a QR code** from an image or straight from the screen.
 - **Smart routing**: only the sites and apps you choose go through the VPN, or everything except Russian sites (“Russia direct” mode).
-- **Real server check**: a real page is opened through every server, not just a ping. Working servers go on top, dead ones can be hidden; “Pick the fastest” and automatic failover to another server.
+- **Real server check**: a real page is opened through every server, not just a ping. Working servers go on top, dead ones can be hidden; “Pick the fastest”, a speed test in Mbit/s and automatic failover to another server.
 - **Never bypass the VPN**: if the VPN goes down, the sites and apps you send through it are blocked instead of going directly.
 - Servers grouped by country with flags, subscription traffic and expiry, a speed graph and a live list of connections.
 - Keys with the **xhttp** transport work through the Xray core, downloaded automatically.

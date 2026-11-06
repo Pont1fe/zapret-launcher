@@ -360,6 +360,8 @@
             <WrapPanel Margin="0,4,0,0">
               <Button x:Name="BtnVpnPing" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Проверить серверы" ToolTip="Открыть тестовую страницу через каждый сервер и замерить время"/>
               <Button x:Name="BtnVpnBest" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Выбрать самый быстрый"/>
+              <Button x:Name="BtnVpnSpeed" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Проверить скорость"
+                      ToolTip="Скачать тестовый файл через выбранный сервер и самые быстрые по проверке (до 5, по 5 секунд на каждый). VPN при этом не переподключается"/>
               <Button x:Name="BtnVpnRefresh" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Обновить подписку" Visibility="Collapsed"/>
               <ToggleButton x:Name="VpnHideDead" Style="{DynamicResource Chip}" Height="32" Margin="0,0,8,6" Content="Скрыть неработающие" Visibility="Collapsed"
                             ToolTip="Не показывать серверы, через которые при последней проверке сайт не открылся. Выбранный сервер виден всегда"/>

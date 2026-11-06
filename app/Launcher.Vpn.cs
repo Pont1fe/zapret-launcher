@@ -42,7 +42,40 @@ namespace ZapretLauncher
 
         // ---------- Пинг, автовыбор сервера, трафик ----------
         readonly Dictionary<string, int> vpnPing = new Dictionary<string, int>();   // ссылка → мс (-1 нет ответа, -2 UDP)
-        bool vpnPinging;
+        readonly Dictionary<string, double> vpnSpeed = new Dictionary<string, double>();   // ссылка → Мбит/с по последнему замеру (-1 не скачалось)
+        bool vpnPinging, vpnSpeedTesting;
+
+        // Скорость: выбранный сервер и самые быстрые по проверке (всего до 5), по 5 секунд на каждый. Качаем через тестовое ядро —
+        // работающий VPN не переподключается. AmneziaWG так не проверить (как и пингом)
+        async Task SpeedTestServers()
+        {
+            if (vpnSpeedTesting || vpnPinging || cfg.VpnServers.Count == 0) return;
+            if (!cfg.VpnServers.Any(s => vpnPing.ContainsKey(s.Link))) await PingVpnServers();
+            List<VpnServer> servers = Enumerable.Range(0, cfg.VpnServers.Count)
+                .Where(i => !Awg.IsAwg(cfg.VpnServers[i].Link) && PingOf(cfg.VpnServers[i]) != -1)
+                .OrderBy(i => i == cfg.VpnSelected ? -1 : PingRank(PingOf(cfg.VpnServers[i]))).ThenBy(i => i)
+                .Take(5).Select(i => cfg.VpnServers[i]).ToList();
+            if (servers.Count == 0) { Text("VpnInfo").Text = T("Скорость проверить не на чем: серверы не отвечают (AmneziaWG так не проверить)"); return; }
+            vpnSpeedTesting = true;
+            RefreshVpnUi();
+            int done = 0;
+            Text("VpnInfo").Text = T("Замеряю скорость") + ": 0 / " + servers.Count + "…";
+            try
+            {
+                await Vpn.Speeds(servers, 5, (i, mbps) =>
+                {
+                    vpnSpeed[servers[i].Link] = mbps;
+                    Text("VpnInfo").Text = T("Замеряю скорость") + ": " + (++done) + " / " + servers.Count + "…";
+                    RefreshVpnUi();
+                });
+                VpnServer best = servers.Where(s => vpnSpeed.ContainsKey(s.Link) && vpnSpeed[s.Link] > 0).OrderByDescending(s => vpnSpeed[s.Link]).FirstOrDefault();
+                Text("VpnInfo").Text = best == null ? T("Ни через один сервер не скачался тестовый файл")
+                                                    : T("Быстрее всех") + ": " + Vpn.DisplayName(best.Name) + " — " + Mbps(vpnSpeed[best.Link]);
+                Log.Write("VPN: скорость — " + string.Join(", ", servers.Select(s => Vpn.DisplayName(s.Name) + " " + (vpnSpeed.ContainsKey(s.Link) && vpnSpeed[s.Link] > 0 ? Mbps(vpnSpeed[s.Link]) : "—"))));
+            }
+            catch (Exception e) { Text("VpnInfo").Text = T("Не удалось замерить скорость: ") + T(e.Message); }
+            finally { vpnSpeedTesting = false; RefreshVpnUi(); }
+        }
         int vpnDeadChecks;
         DateTime vpnHealthDue = DateTime.MinValue;
         long[] vpnTrafficLast;
@@ -595,7 +628,7 @@ namespace ZapretLauncher
             flag.Margin = new Thickness(0, 0, 11, 0);
             row.Children.Add(flag);
             TextBlock name = new TextBlock { Text = Vpn.DisplayName(s.Name), FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-                                             ToolTip = s.Link.Substring(0, s.Link.IndexOf("://") + 3) + "…", Margin = new Thickness(0, 0, 70, 0) };
+                                             ToolTip = s.Link.Substring(0, s.Link.IndexOf("://") + 3) + "…", Margin = new Thickness(0, 0, SpeedOf(s) > 0 ? 150 : 70, 0) };
             if (selected) name.FontWeight = FontWeights.SemiBold;
             Grid.SetColumn(name, 1);
             row.Children.Add(name);
@@ -612,11 +645,13 @@ namespace ZapretLauncher
             }
             else if (vpnPing.ContainsKey(s.Link))
             {
+                double speed = SpeedOf(s);
                 StackPanel signal = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 4, 0),
-                                                     ToolTip = ms < 0 ? T("Сайт через этот сервер не открылся") : T("Сайт через сервер открылся за") + " " + ms + " " + T("мс") };
+                                                     ToolTip = (ms < 0 ? T("Сайт через этот сервер не открылся") : T("Сайт через сервер открылся за") + " " + ms + " " + T("мс")) +
+                                                               (speed > 0 ? "\n" + T("Скорость загрузки") + ": " + Mbps(speed) : speed < 0 && vpnSpeed.ContainsKey(s.Link) ? "\n" + T("Тестовый файл через этот сервер не скачался") : "") };
                 int level = ms < 0 ? 0 : ms < 400 ? 3 : ms < 900 ? 2 : 1;
                 string color = level == 3 ? "Ok" : level == 2 ? "Ok" : level == 1 ? "Wait" : "Fail";
-                TextBlock label = new TextBlock { Text = ms < 0 ? T("не работает") : ms + " " + T("мс"), FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
+                TextBlock label = new TextBlock { Text = (ms < 0 ? T("не работает") : ms + " " + T("мс")) + (speed > 0 ? "  ·  " + Mbps(speed) : ""), FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
                 label.SetResourceReference(TextBlock.ForegroundProperty, ms < 0 ? "Fail" : "Muted");
                 signal.Children.Add(label);
                 for (int b = 0; b < 3; b++)

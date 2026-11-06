@@ -361,6 +361,18 @@ Section 'Список серверов' {
     Check 'работающие наверх, быстрые первыми' $order 'fast,slow,udp,none,dead'
 }
 
+Section 'Тестовое ядро: проверка и скорость' {
+    function D($h) { $d = New-Object 'System.Collections.Generic.Dictionary[string,object]'; foreach ($k in $h.Keys) { $d[$k] = $h[$k] }; $d }
+    function L($items) { $l = New-Object 'System.Collections.Generic.List[object]'; foreach ($x in $items) { $l.Add($x) }; , $l }
+    $outs = L @((D @{ type = 'vless'; tag = 's3' }))
+    $ping = (Call Vpn TestConfig $outs $null $null 40000 'k') | ConvertFrom-Json
+    Check 'проверка: выходы и прямой' (($ping.outbounds | ForEach-Object tag) -join ',') 's3,direct'
+    Check 'проверка: без входов и VPN-адаптера' ("{0} {1}" -f ($null -eq $ping.inbounds), $ping.route.final) 'True direct'
+    $speed = (Call Vpn TestConfig $outs (L @((D @{ type = 'mixed'; tag = 'in3'; listen = '127.0.0.1'; listen_port = 41000 }))) (L @((D @{ inbound = [string[]]@('in3'); outbound = 's3' }))) 40000 'k') | ConvertFrom-Json
+    Check 'скорость: свой прокси на сервер' ("{0} {1} {2}" -f $speed.inbounds[0].listen, $speed.route.rules[0].inbound[0], $speed.route.rules[0].outbound) '127.0.0.1 in3 s3'
+    Check 'скорость: тестовый файл не больше 50 МБ' ([int64](([regex]'bytes=(\d+)').Match((Field Vpn SpeedUrl)).Groups[1].Value) -le 50000000) 'True'
+}
+
 Section 'Экспорт и импорт маршрутов' {
     $file = Call Launcher RoutesFile (List 'deepl.com', 'chatgpt.com') (List 'Spotify.exe')
     $d = List @(); $a = List @(); $bad = List @()

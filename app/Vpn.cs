@@ -1,4 +1,4 @@
-// Встроенный VPN-клиент: ядро sing-box (SagerNet), ваш сервер или подписка.
+﻿// Встроенный VPN-клиент: ядро sing-box (SagerNet), ваш сервер или подписка.
 // Умная маршрутизация: через VPN идут только выбранные сайты и программы, остальное — напрямую (и через zapret)
 using System;
 using System.Collections.Generic;
@@ -650,11 +650,35 @@ namespace ZapretLauncher
             // AmneziaWG через тестовое ядро sing-box не проверить — у таких серверов «UDP», как у hysteria2
             for (int i = 0; i < servers.Count; i++) if (Awg.IsAwg(servers[i].Link)) result[i] = PingUdp;
             if (servers.All(s => Awg.IsAwg(s.Link))) return result;
-            if (Version == null) await Install(await Latest());
-            if (servers.Any(s => NeedsXray(s.Link)) && XrayVersion == null) await InstallXray(await XrayLatest());
-            List<object> outbounds = new List<object>();
+            await InstallTestCores(servers);
             List<int> tested = new List<int>();
             List<Process> xrays = new List<Process>();
+            List<object> outbounds = TestOutbounds(servers, tested, xrays);
+            for (int i = 0; i < servers.Count; i++) if (!Awg.IsAwg(servers[i].Link) && !tested.Contains(i)) result[i] = -1;
+            if (tested.Count == 0) { KillAll(xrays); return result; }
+            int port = FreePort();
+            string secret = Guid.NewGuid().ToString("N");
+            Process proc = StartTestCore("test.json", TestConfig(outbounds, null, null, port, secret));
+            try
+            {
+                if (!await WaitTestCore(proc, port, secret)) { foreach (int k in tested) result[k] = await Ping(servers[k]); return result; }   // запасной вариант — обычный пинг
+                int[] ms = await Task.WhenAll(tested.Select(i => Delay(port, secret, "s" + i)));
+                for (int j = 0; j < tested.Count; j++) result[tested[j]] = ms[j];
+            }
+            finally { try { proc.Kill(); } catch { } KillAll(xrays); }
+            return result;
+        }
+
+        static async Task InstallTestCores(IList<VpnServer> servers)
+        {
+            if (Version == null) await Install(await Latest());
+            if (servers.Any(s => NeedsXray(s.Link)) && XrayVersion == null) await InstallXray(await XrayLatest());
+        }
+
+        // Выходы тестового ядра: s0, s1… по индексу сервера; для xhttp — свой Xray. AmneziaWG и ключи с ошибкой — не в tested
+        static List<object> TestOutbounds(IList<VpnServer> servers, List<int> tested, List<Process> xrays)
+        {
+            List<object> outbounds = new List<object>();
             for (int i = 0; i < servers.Count; i++)
             {
                 Dictionary<string, object> o;
@@ -662,44 +686,125 @@ namespace ZapretLauncher
                 if (NeedsXray(servers[i].Link))
                 {
                     Process xr = StartTestXray(servers[i].Link, i, out o);
-                    if (xr == null) { result[i] = -1; continue; }
+                    if (xr == null) continue;
                     xrays.Add(xr);
                 }
                 else
                 {
-                    try { o = BuildOutbound(servers[i].Link); } catch { result[i] = -1; continue; }
+                    try { o = BuildOutbound(servers[i].Link); } catch { continue; }
                 }
                 o["tag"] = "s" + i;
                 outbounds.Add(o);
                 tested.Add(i);
             }
-            if (tested.Count == 0) { KillAll(xrays); return result; }
-            outbounds.Add(new Dictionary<string, object> { { "type", "direct" }, { "tag", "direct" } });
-            int port = FreePort();
-            string secret = Guid.NewGuid().ToString("N");
+            return outbounds;
+        }
+
+        // Настройки тестового ядра: без VPN-адаптера (прав администратора не нужно); inbounds/rules — для замера скорости
+        public static string TestConfig(List<object> outbounds, List<object> inbounds, List<object> rules, int apiPort, string secret)
+        {
+            List<object> outs = new List<object>(outbounds) { new Dictionary<string, object> { { "type", "direct" }, { "tag", "direct" } } };
+            Dictionary<string, object> route = new Dictionary<string, object> { { "final", "direct" }, { "auto_detect_interface", true } };
+            if (rules != null) route["rules"] = rules.ToArray();
             Dictionary<string, object> cfg = new Dictionary<string, object>
             {
                 { "log", new Dictionary<string, object> { { "level", "error" }, { "output", Path.Combine(Dir, "test.log") } } },
-                { "outbounds", outbounds.ToArray() },
-                { "route", new Dictionary<string, object> { { "final", "direct" }, { "auto_detect_interface", true } } },
-                { "experimental", new Dictionary<string, object> { { "clash_api", new Dictionary<string, object> { { "external_controller", "127.0.0.1:" + port }, { "secret", secret } } } } },
+                { "outbounds", outs.ToArray() },
+                { "route", route },
+                { "experimental", new Dictionary<string, object> { { "clash_api", new Dictionary<string, object> { { "external_controller", "127.0.0.1:" + apiPort }, { "secret", secret } } } } },
             };
-            string path = Path.Combine(Dir, "test.json");
-            File.WriteAllText(path, new JavaScriptSerializer().Serialize(cfg), new UTF8Encoding(false));
-            Process proc = Process.Start(new ProcessStartInfo(Exe, "run -c \"" + path + "\" -D \"" + Dir + "\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Dir });
+            if (inbounds != null) cfg["inbounds"] = inbounds.ToArray();
+            return new JavaScriptSerializer().Serialize(cfg);
+        }
+
+        static Process StartTestCore(string file, string config)
+        {
+            string path = Path.Combine(Dir, file);
+            File.WriteAllText(path, config, new UTF8Encoding(false));
+            return Process.Start(new ProcessStartInfo(Exe, "run -c \"" + path + "\" -D \"" + Dir + "\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Dir });
+        }
+
+        // Ждём, пока тестовое ядро начнёт отвечать (до 6 секунд); false — ядро сразу остановилось
+        static async Task<bool> WaitTestCore(Process proc, int port, string secret)
+        {
+            for (int i = 0; i < 40; i++)
+            {
+                await Task.Delay(150);
+                if (proc.HasExited) return false;
+                try { if (await ApiGet(port, secret, "/version", 500) != null) return true; } catch { }
+            }
+            return !proc.HasExited;
+        }
+
+        // ---------- Скорость серверов ----------
+        public const string SpeedUrl = "https://speed.cloudflare.com/__down?bytes=50000000";   // больше 50 МБ Cloudflare не отдаёт (403); скачался раньше — скорость по фактическому времени
+
+        // Скорость загрузки через серверы (Мбит/с), по очереди: у каждого сервера в тестовом ядре свой локальный прокси.
+        // -1 — через сервер не скачалось. progress — после каждого сервера (индекс в servers, результат). Работающий VPN не трогается
+        public static async Task<double[]> Speeds(IList<VpnServer> servers, int seconds, Action<int, double> progress)
+        {
+            double[] result = Enumerable.Repeat(-1.0, servers.Count).ToArray();
+            await InstallTestCores(servers);
+            List<int> tested = new List<int>();
+            List<Process> xrays = new List<Process>();
+            List<object> outbounds = TestOutbounds(servers, tested, xrays);
+            if (tested.Count == 0) { KillAll(xrays); return result; }
+            Dictionary<int, int> ports = new Dictionary<int, int>();
+            List<object> inbounds = new List<object>(), rules = new List<object>();
+            foreach (int i in tested)
+            {
+                ports[i] = FreePort();
+                inbounds.Add(new Dictionary<string, object> { { "type", "mixed" }, { "tag", "in" + i }, { "listen", "127.0.0.1" }, { "listen_port", ports[i] } });
+                rules.Add(new Dictionary<string, object> { { "inbound", new[] { "in" + i } }, { "outbound", "s" + i } });
+            }
+            int port = FreePort();
+            string secret = Guid.NewGuid().ToString("N");
+            Process proc = StartTestCore("speed.json", TestConfig(outbounds, inbounds, rules, port, secret));
             try
             {
-                for (int i = 0; i < 40; i++)   // ждём, пока ядро начнёт отвечать
+                if (!await WaitTestCore(proc, port, secret)) return result;
+                foreach (int i in tested)
                 {
-                    await Task.Delay(150);
-                    if (proc.HasExited) { foreach (int k in tested) result[k] = await Ping(servers[k]); return result; }   // запасной вариант — обычный пинг
-                    try { if (await ApiGet(port, secret, "/version", 500) != null) break; } catch { }
+                    result[i] = await Download(ports[i], seconds);
+                    if (progress != null) progress(i, result[i]);
                 }
-                int[] ms = await Task.WhenAll(tested.Select(i => Delay(port, secret, "s" + i)));
-                for (int j = 0; j < tested.Count; j++) result[tested[j]] = ms[j];
             }
             finally { try { proc.Kill(); } catch { } KillAll(xrays); }
             return result;
+        }
+
+        // Качаем тестовый файл через локальный прокси seconds секунд; время считаем с первого байта, чтобы не мерить задержку соединения
+        static async Task<double> Download(int proxyPort, int seconds)
+        {
+            try
+            {
+                System.Net.Http.HttpClientHandler h = new System.Net.Http.HttpClientHandler { Proxy = new System.Net.WebProxy("http://127.0.0.1:" + proxyPort), UseProxy = true };
+                using (System.Net.Http.HttpClient c = new System.Net.Http.HttpClient(h) { Timeout = TimeSpan.FromSeconds(seconds + 15) })
+                using (System.Net.Http.HttpResponseMessage r = await c.GetAsync(SpeedUrl, System.Net.Http.HttpCompletionOption.ResponseHeadersRead))
+                {
+                    if (!r.IsSuccessStatusCode) return -1;
+                    using (Stream s = await r.Content.ReadAsStreamAsync())
+                    {
+                        byte[] buf = new byte[1 << 16];
+                        Stopwatch sw = null;
+                        long counted = 0;
+                        DateTime deadline = DateTime.Now.AddSeconds(seconds + 10);   // включая ожидание первого байта
+                        while (true)
+                        {
+                            double left = sw == null ? (deadline - DateTime.Now).TotalMilliseconds : seconds * 1000 - sw.Elapsed.TotalMilliseconds;
+                            if (left <= 0) break;
+                            Task<int> read = s.ReadAsync(buf, 0, buf.Length);
+                            if (await Task.WhenAny(read, Task.Delay((int)left)) != read) break;
+                            int n = read.Result;
+                            if (n == 0) break;
+                            if (sw == null) sw = Stopwatch.StartNew(); else counted += n;
+                        }
+                        if (sw == null || sw.Elapsed.TotalSeconds < 0.5 || counted == 0) return -1;
+                        return counted * 8 / sw.Elapsed.TotalSeconds / 1000000;
+                    }
+                }
+            }
+            catch { return -1; }
         }
 
         static void KillAll(IEnumerable<Process> procs) { foreach (Process p in procs) { try { p.Kill(); } catch { } } }

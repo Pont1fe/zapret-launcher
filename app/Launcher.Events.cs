@@ -96,6 +96,7 @@ namespace ZapretLauncher
             Click("BtnVpnRefresh", RefreshSubscription);
             Click("BtnVpnPing", PingVpnServers);
             Click("BtnVpnBest", SelectBestServer);
+            Click("BtnVpnSpeed", SpeedTestServers);
             Click("BtnVpnClipAdd", AddFromClipboard);
             Click("BtnVpnAddBlocked", AddBlockedToVpn);
             Click("BtnFixConflict", FixConflicts);

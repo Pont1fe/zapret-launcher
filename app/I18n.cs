@@ -692,6 +692,18 @@ namespace ZapretLauncher
                 "Заявки на GitHub видны всем. Ключи VPN, адрес подписки, адреса серверов и имя пользователя Windows из отчёта убраны, но в нём остаются списки сайтов и программ и сведения о сети — архив можно открыть и проверить перед отправкой.",
                     "Issues on GitHub are public. VPN keys, the subscription URL, server addresses and your Windows user name are removed from the report, but it still has your site and app lists and network info — you can open the archive and check it before sending.",
                 "Не удалось открыть браузер: ", "Could not open the browser: ",
+                // скорость серверов
+                "Проверить скорость", "Test speed",
+                "Скачать тестовый файл через выбранный сервер и самые быстрые по проверке (до 5, по 5 секунд на каждый). VPN при этом не переподключается",
+                    "Download a test file through the selected server and the fastest ones by the check (up to 5, 5 seconds each). The VPN is not reconnected",
+                "Скорость проверить не на чем: серверы не отвечают (AmneziaWG так не проверить)", "Nothing to test: the servers don't respond (AmneziaWG can't be tested this way)",
+                "Замеряю скорость", "Testing speed",
+                "Ни через один сервер не скачался тестовый файл", "The test file didn't download through any server",
+                "Быстрее всех", "Fastest",
+                "Не удалось замерить скорость: ", "Could not test the speed: ",
+                "Скорость загрузки", "Download speed",
+                "Тестовый файл через этот сервер не скачался", "The test file didn't download through this server",
+                "VPN: скорость — ", "VPN: speed — ",
                 // экспорт и импорт маршрутов
                 "Импорт", "Import",
                 "Экспорт", "Export",

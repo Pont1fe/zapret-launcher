@@ -325,6 +325,7 @@ namespace ZapretLauncher
 
         // Результат последней проверки сервера: мс; -1 — не работает; Vpn.PingUdp — проверить нельзя; null — ещё не проверяли
         int? PingOf(VpnServer s) { int ms; return vpnPing.TryGetValue(s.Link, out ms) ? ms : (int?)null; }
+        double SpeedOf(VpnServer s) { double v; return vpnSpeed.TryGetValue(s.Link, out v) ? v : 0; }
 
         // Порядок в списке: работающие по скорости, потом «без проверки», потом непроверенные, неработающие — в конце
         static int PingRank(int? ms)
@@ -364,6 +365,7 @@ namespace ZapretLauncher
             filling = false;
             E<Button>("BtnVpnPing").IsEnabled = cfg.VpnServers.Count > 0 && !vpnPinging;
             E<Button>("BtnVpnBest").IsEnabled = cfg.VpnServers.Count > 1 && !vpnPinging;
+            E<Button>("BtnVpnSpeed").IsEnabled = cfg.VpnServers.Any(s => !Awg.IsAwg(s.Link)) && !vpnPinging && !vpnSpeedTesting;
             UpdatePowerVpn();
             trayState = null;   // значок трея — с меткой VPN или без
             Text("VpnModeText").Text = T(cfg.VpnMode == "all"
