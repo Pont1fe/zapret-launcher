@@ -3,6 +3,15 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/demo-en.gif)
 
+### 4.0.6 — Safer / Надёжнее
+
+- 🔐 Only an administrator can now change the launcher folder. Before, any program on the computer could swap the launcher or a strategy there — and they run with admin rights. The launcher fixes the folder permissions by itself on the first start. Note: to edit zapret files by hand (for example, lists in `zapret\lists`), open Notepad as administrator — editing through the launcher works as before / Папку лаунчера теперь может менять только администратор. Раньше любая программа на компьютере могла подменить в ней лаунчер или стратегию, а они запускаются с правами администратора. Лаунчер сам поправит права папки при первом запуске. Учтите: чтобы править файлы zapret вручную (например, списки в `zapret\lists`), откройте Блокнот от имени администратора — через лаунчер всё работает как раньше
+- 💾 Settings are saved more safely: a power cut in the middle of saving no longer wipes your VPN keys, and if the settings file does get damaged, the launcher keeps it and offers to restore the backup / Настройки сохраняются надёжнее: сбой питания посреди сохранения больше не сотрёт ключи VPN, а если файл настроек всё же повредится, лаунчер сохранит его и предложит восстановить копию
+- 🗑️ Uninstalling removes only the launcher's own files, not the whole folder; the installer no longer installs into a folder that already has other files / Удаление стирает только файлы лаунчера, а не всю папку; установщик больше не ставит лаунчер в папку, где уже лежат другие файлы
+- 🌐 A subscription is added even if the provider put a server the launcher doesn't support into it — that server is just skipped / Подписка добавляется, даже если провайдер положил в неё сервер, который лаунчер не поддерживает, — такой сервер просто пропускается
+- 🧭 Secure DNS leaves adapters with a manually set DNS (Pi-hole, a work DNS) alone, so turning it off doesn't lose them / Защищённый DNS не трогает адаптеры, где DNS прописан вручную (Pi-hole, рабочий DNS), — при выключении он не потеряется
+- ⚙️ Updated site sets apply right away; system tools can no longer freeze the window; big subscriptions with many xhttp servers are checked in batches / Обновлённые наборы сайтов применяются сразу; зависшая системная утилита больше не может заморозить окно; большие подписки с множеством серверов xhttp проверяются пачками
+
 ### 4.0.5 — VPN at your fingertips / VPN под рукой
 
 - ⚡ “Test speed” under the server list: the launcher downloads a test file through the selected server and the fastest ones (up to 5, 5 seconds each) and shows Mbit/s next to the ping. It runs through a separate test core — your VPN keeps working and isn't reconnected / Кнопка «Проверить скорость» под списком серверов: лаунчер качает тестовый файл через выбранный сервер и самые быстрые (до 5, по 5 секунд на каждый) и показывает Мбит/с рядом с пингом. Замер идёт через отдельное тестовое ядро — ваш VPN работает и не переподключается

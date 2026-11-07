@@ -116,6 +116,7 @@ namespace ZapretLauncher
 
         // launcher.json не было — первая установка (или после удаления); не сохраняется в файл
         [ScriptIgnore] public static bool Fresh { get; private set; }
+        [ScriptIgnore] public static bool Broken { get; private set; }   // launcher.json был, но не прочитался — настройки по умолчанию
         public List<string> Favorites { get; set; }
         public List<string> CollapsedGroups { get; set; }            // свёрнутые группы в списке стратегий
         public Dictionary<string, string> PickScores { get; set; }   // стратегия -> "открылось/всего/среднее мс" из последнего подбора
@@ -145,15 +146,24 @@ namespace ZapretLauncher
         {
             Config c = null;
             string raw = null;
+            bool exists = File.Exists(Paths.Config);
             try
             {
-                if (File.Exists(Paths.Config))
+                if (exists)
                 {
                     raw = File.ReadAllText(Paths.Config, Encoding.UTF8);
                     c = new JavaScriptSerializer().Deserialize<Config>(raw);
                 }
             }
             catch (Exception e) { Log.Write("Не удалось прочитать launcher.json: " + e.Message); }
+            // файл есть, но не читается (обрезан, пустой): откладываем его и ведём себя как новая установка — лаунчер предложит автокопию
+            if (exists && c == null)
+            {
+                try { File.Copy(Paths.Config, Paths.Config + ".broken", true); } catch { }
+                Log.Write("launcher.json повреждён — сохранён как launcher.json.broken");
+                raw = null;
+                Broken = true;
+            }
             if (c == null) c = new Config();
             // приветствие показываем только новым установкам, не тем, кто уже пользуется лаунчером
             if (raw != null && !raw.Contains("\"OnboardingDone\"")) c.OnboardingDone = true;
@@ -189,7 +199,14 @@ namespace ZapretLauncher
 
         public void Save()
         {
-            try { File.WriteAllText(Paths.Config, new JavaScriptSerializer().Serialize(this), new UTF8Encoding(false)); }
+            // через временный файл: сбой питания посреди записи не оставит обрезанный launcher.json (в нём ключи VPN)
+            try
+            {
+                string tmp = Paths.Config + ".tmp";
+                byte[] data = new UTF8Encoding(false).GetBytes(new JavaScriptSerializer().Serialize(this));
+                using (FileStream fs = new FileStream(tmp, FileMode.Create, FileAccess.Write)) { fs.Write(data, 0, data.Length); fs.Flush(true); }
+                if (File.Exists(Paths.Config)) File.Replace(tmp, Paths.Config, null); else File.Move(tmp, Paths.Config);
+            }
             catch (Exception e) { Log.Write("Не удалось сохранить launcher.json: " + e.Message); }
         }
     }
@@ -292,20 +309,19 @@ namespace ZapretLauncher
             return Run(exe, args, out output);
         }
 
-        public static int Run(string exe, string args, out string output)
+        // output — stdout и stderr вместе; -1 — утилита не уложилась в timeoutMs и снята. Оба потока читаются одновременно:
+        // иначе утилита, заполнившая stderr, ждала бы нас, а мы её. Системные утилиты пишут в OEM-866, sing-box и AmneziaWG — в UTF-8
+        public static int Run(string exe, string args, out string output, int timeoutMs = 30000, Encoding encoding = null, string workDir = null)
         {
-            ProcessStartInfo psi = new ProcessStartInfo(exe, args);
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-            psi.RedirectStandardOutput = true;
-            psi.RedirectStandardError = true;
-            psi.StandardOutputEncoding = Encoding.GetEncoding(866);
+            ProcessStartInfo psi = new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.StandardOutputEncoding = psi.StandardErrorEncoding = encoding ?? Encoding.GetEncoding(866);
+            if (workDir != null) psi.WorkingDirectory = workDir;
             using (Process p = Process.Start(psi))
             {
-                output = p.StandardOutput.ReadToEnd();
-                p.StandardError.ReadToEnd();
-                p.WaitForExit(30000);
-                return p.HasExited ? p.ExitCode : -1;
+                Task<string> err = p.StandardError.ReadToEndAsync(), outp = p.StandardOutput.ReadToEndAsync();
+                if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } output = "превышено время ожидания"; return -1; }
+                output = outp.Result + err.Result;
+                return p.ExitCode;
             }
         }
 

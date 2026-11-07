@@ -151,6 +151,7 @@ namespace ZapretLauncher
             Log.Write("Лаунчер " + Consts.Version + " запущен" + (autostart ? " (автозапуск)" : ""));
             if (Paths.Root.Any(c => c > 127))
                 Log.Write("Внимание: в пути к лаунчеру есть кириллица или спецсимволы — zapret может работать некорректно. Переместите папку, например, в C:\\ZapretLauncher");
+            await Task.Run(() => Shell.SecureFolder());   // до задачи автозапуска: её XML пишется в эту папку
             // schtasks и WMI небыстрые — опрашиваем их в фоне, окно уже на экране
             bool autoOn = false;
             try { autoOn = await Task.Run(() => Autostart.EnsureCurrent()); } catch { }   // путь мог измениться (переезд папки)
@@ -174,8 +175,10 @@ namespace ZapretLauncher
             }
             UpdateStrategyList();
             // новая установка, а от прошлой осталась автокопия настроек — предлагаем вернуть
-            if (Config.Fresh && !autostart && OfferAutoRestore()) return;
-            backupReady = true;   // до этого момента автокопию не трогаем: свежие настройки затёрли бы старые
+            // испорченный launcher.json — предлагаем и при автозапуске: иначе ключи VPN пропали бы молча
+            if (Config.Fresh && (!autostart || Config.Broken) && OfferAutoRestore()) return;
+            // до этого момента автокопию не трогаем: свежие настройки затёрли бы старые. После испорченного launcher.json — до перезапуска
+            backupReady = !Config.Broken;
             AutoBackup();
             // «Что нового» — после обновления лаунчера; новой установке не показываем
             if (cfg.LastSeenVersion != Consts.Version) Icons.RefreshShellIcons();   // новая версия могла принести новый значок
@@ -263,7 +266,8 @@ namespace ZapretLauncher
         {
             try
             {
-                commandWatcher = new FileSystemWatcher(Paths.Root, "command.txt");
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(TaskbarMenu.CommandFile));
+                commandWatcher = new FileSystemWatcher(System.IO.Path.GetDirectoryName(TaskbarMenu.CommandFile), "command.txt");
                 FileSystemEventHandler h = (s, e) => window.Dispatcher.BeginInvoke(new Action(async () => await RunCommandFile()));
                 commandWatcher.Created += h;
                 commandWatcher.Changed += h;

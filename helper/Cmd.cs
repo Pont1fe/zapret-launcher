@@ -1,5 +1,5 @@
 // Помощник для меню на значке в панели задач: работает без прав администратора, поэтому пункты меню не вызывают UAC.
-// Кладёт команду в command.txt рядом с лаунчером — работающий лаунчер её подхватит. Если лаунчер не запущен,
+// Кладёт команду в %LOCALAPPDATA%\ZapretLauncher\command.txt — работающий лаунчер её подхватит. Если лаунчер не запущен,
 // запускает его через задачу автозапуска (без UAC), а если её нет — обычным способом.
 using System;
 using System.Diagnostics;
@@ -16,9 +16,12 @@ static class Cmd
     {
         if (args.Length == 0) return 1;
         string root = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        string file = Path.Combine(root, "command.txt"), tmp = file + ".tmp";
+        // в папку лаунчера без прав администратора писать нельзя — команда идёт через профиль пользователя
+        string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZapretLauncher");
+        string file = Path.Combine(dir, "command.txt"), tmp = file + ".tmp";
         try
         {
+            Directory.CreateDirectory(dir);
             File.WriteAllText(tmp, string.Join(" ", args));
             if (File.Exists(file)) File.Delete(file);
             File.Move(tmp, file);

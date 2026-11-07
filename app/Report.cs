@@ -49,12 +49,7 @@ namespace ZapretLauncher
             try
             {
                 if (string.IsNullOrEmpty(link)) return null;
-                if (Awg.IsAwg(link))
-                {
-                    string endpoint;
-                    if (!Awg.Fields(Awg.ConfOf(link)).TryGetValue("Peer.Endpoint", out endpoint)) return null;
-                    return Regex.Replace(endpoint.Trim(), @":\d+$", "").Trim('[', ']');
-                }
+                if (Awg.IsAwg(link)) return Awg.EndpointHost(Awg.ConfOf(link));
                 if (link.StartsWith("vmess://", StringComparison.OrdinalIgnoreCase) || !link.Split('#')[0].Contains("@"))
                     return (string)Vpn.BuildOutbound(link)["server"];   // vmess и старый ss — адрес внутри base64
                 return new Uri(link.Split('#')[0]).Host.Trim('[', ']');

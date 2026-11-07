@@ -19,8 +19,6 @@ namespace ZapretLauncher
 {
     static class Icons
     {
-        public static Bitmap Draw(int size, bool active) { return Draw(size, active ? "on" : "off"); }
-
         // Логотип: белый щит с буквой Z в скруглённом квадрате (тот же рисунок в build.ps1).
         // Фигура рисуется линиями и выравнивается по своим границам — ровно по центру при любом размере.
         // Цвет — состояние обхода: on — бирюзовый, pause — жёлтый (VPN), error — красный, off — серый; vpn — синяя метка в углу
@@ -247,14 +245,43 @@ namespace ZapretLauncher
         {
             try { Hklm().DeleteSubKeyTree(Consts.UninstallKey, false); } catch { }
         }
+
+        // Папку лаунчера меняет только администратор: отсюда с правами администратора запускаются лаунчер, winws, ядра VPN и стратегии.
+        // Папка в корне диска (C:\ZapretLauncher) по умолчанию наследует от диска «изменение» для всех пользователей — убираем это
+        static readonly string[] Others = { "S-1-1-0", "S-1-5-11", "S-1-5-32-545" };   // Все, Прошедшие проверку, Пользователи
+        const System.Security.AccessControl.FileSystemRights WriteRights =
+            System.Security.AccessControl.FileSystemRights.WriteData | System.Security.AccessControl.FileSystemRights.AppendData |
+            System.Security.AccessControl.FileSystemRights.Delete | System.Security.AccessControl.FileSystemRights.DeleteSubdirectoriesAndFiles |
+            System.Security.AccessControl.FileSystemRights.ChangePermissions | System.Security.AccessControl.FileSystemRights.TakeOwnership;
+
+        public static bool OthersCanWrite(string dir)
+        {
+            return Directory.GetAccessControl(dir).GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier))
+                .Cast<System.Security.AccessControl.FileSystemAccessRule>()
+                .Any(r => r.AccessControlType == System.Security.AccessControl.AccessControlType.Allow && Others.Contains(r.IdentityReference.Value) && (r.FileSystemRights & WriteRights) != 0);
+        }
+
+        public static void SecureFolder()
+        {
+            string dir = Paths.Root.TrimEnd('\\');
+            try
+            {
+                if (!OthersCanWrite(dir)) return;
+                string output;
+                int code = Util.Run("icacls.exe", "\"" + dir + "\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /Q", out output);
+                Log.Write(code == 0 && !OthersCanWrite(dir) ? "Папка лаунчера закрыта от изменений без прав администратора" : "Не удалось закрыть папку лаунчера от изменений: " + output.Trim());
+            }
+            catch (Exception e) { Log.Write("Не удалось закрыть папку лаунчера от изменений: " + e.Message); }
+        }
     }
 
     // Меню на значке в панели задач (правый клик). Пункты запускают ZapretLauncherCmd.exe — он без прав администратора,
-    // поэтому UAC не появляется; команда приходит лаунчеру через command.txt
+    // поэтому UAC не появляется; команда приходит лаунчеру через command.txt в %LOCALAPPDATA%\ZapretLauncher
+    // (папка лаунчера закрыта от записи без прав администратора). Лаунчер выполняет только известные команды
     static class TaskbarMenu
     {
         public static readonly string Helper = Path.Combine(Paths.Root, "ZapretLauncherCmd.exe");
-        public static readonly string CommandFile = Path.Combine(Paths.Root, "command.txt");
+        public static readonly string CommandFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZapretLauncher", "command.txt");
 
         // Помощник лежит внутри лаунчера; кладём его рядом, если его нет или он от другой версии
         public static void EnsureHelper()

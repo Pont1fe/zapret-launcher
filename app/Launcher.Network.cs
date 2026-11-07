@@ -41,8 +41,12 @@ namespace ZapretLauncher
                 cfg.DnsAdapters = new List<string>();
                 if (on)
                 {
-                    List<string> adapters = await Task.Run(() => SecureDns.Enable(provider));
-                    if (adapters.Count == 0) throw new Exception("Не найден сетевой адаптер с интернетом");
+                    List<string> skipped = new List<string>();
+                    List<string> adapters = await Task.Run(() => SecureDns.Enable(provider, skipped));
+                    if (skipped.Count > 0) Log.Write("DNS: на адаптере уже прописан свой DNS — его не трогаю: " + string.Join(", ", skipped));
+                    if (adapters.Count == 0)
+                        throw new Exception(skipped.Count > 0 ? T("На адаптере уже прописан свой DNS — лаунчер его не меняет, чтобы не потерять его при выключении") + ": " + string.Join(", ", skipped)
+                                                              : T("Не найден сетевой адаптер с интернетом"));
                     cfg.SecureDns = provider;
                     cfg.DnsAdapters = adapters;
                     cfg.Save();

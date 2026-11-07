@@ -403,7 +403,7 @@ namespace ZapretLauncher
                 "  <Actions Context=\"Author\"><Exec><Command>" + Esc(Paths.Exe) + "</Command><Arguments>--autostart</Arguments>" +
                 "<WorkingDirectory>" + Esc(Paths.Root) + "</WorkingDirectory></Exec></Actions>\n" +
                 "</Task>";
-            string file = Path.Combine(Path.GetTempPath(), "ZapretLauncherTask.xml");
+            string file = Path.Combine(Paths.Root, "autostart-task.xml");   // не в %TEMP%: туда может писать любая программа пользователя
             File.WriteAllText(file, xml, System.Text.Encoding.Unicode);
             string output;
             int code = Util.Run("schtasks.exe", "/Create /TN " + Consts.TaskName + " /XML \"" + file + "\" /F", out output);

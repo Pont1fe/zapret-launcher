@@ -75,7 +75,7 @@ static class Installer
 
     static RegistryKey Hklm() { return RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64); }
 
-    static bool HasLauncher(string dir)
+    public static bool HasLauncher(string dir)
     {
         return File.Exists(Path.Combine(dir, ExeName)) || File.Exists(Path.Combine(dir, "ZapretLauncher.ps1"));
     }
@@ -140,9 +140,18 @@ static class Installer
         Marshal.FinalReleaseComObject(shell);
     }
 
+    static void RunHidden(string exe, string args)
+    {
+        using (Process p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true }))
+            p.WaitForExit(60000);
+    }
+
     public static void Install(string dir, bool desktop, bool startMenu, bool launch)
     {
         Directory.CreateDirectory(dir);
+        // Отсюда лаунчер запускает программы с правами администратора — менять папку может только администратор
+        // (папка в корне диска иначе наследует «изменение» для всех пользователей)
+        RunHidden("icacls.exe", "\"" + dir.TrimEnd('\\') + "\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /Q");
         string exe = Path.Combine(dir, ExeName);
         File.WriteAllBytes(exe, Resource(ExeName));
         foreach (string legacy in Legacy)
@@ -328,6 +337,21 @@ class SetupForm : Form
         {
             MessageBox.Show(this, L("Укажите папку, а не корень диска, например C:\\ZapretLauncher.", "Choose a folder, not a drive root, e.g. C:\\ZapretLauncher."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
+        }
+        // в непустую чужую папку не ставим: лаунчер живёт в своей папке, и её закрывают от изменений без прав администратора
+        if (Directory.Exists(dir) && Directory.EnumerateFileSystemEntries(dir).Any() && !Installer.HasLauncher(dir))
+        {
+            string sub = Path.Combine(dir, "ZapretLauncher");
+            if (Directory.Exists(sub) && Directory.EnumerateFileSystemEntries(sub).Any() && !Installer.HasLauncher(sub))
+            {
+                MessageBox.Show(this, L("Папка не пустая — выберите пустую папку для лаунчера.", "The folder is not empty — choose an empty folder for the launcher."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (MessageBox.Show(this, L("В папке " + dir + " уже есть другие файлы. Установить в " + sub + "?", "The folder " + dir + " already has other files. Install to " + sub + "?"),
+                    Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+            dir = sub;
+            pathBox.Text = dir;
         }
         if (dir.Any(ch => ch > 127) &&
             MessageBox.Show(this, L("В пути есть русские буквы или спецсимволы — zapret с ними может работать нестабильно.\n\nВсё равно установить сюда?",

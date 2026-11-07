@@ -1,4 +1,4 @@
-// Перевод интерфейса на английский. Исходный язык — русский: строки в коде и XAML остаются русскими,
+﻿// Перевод интерфейса на английский. Исходный язык — русский: строки в коде и XAML остаются русскими,
 // а T() переводит их при выводе — сначала по точному совпадению, затем по фразам (так переводятся и сообщения,
 // собранные из кусков: "Запущена стратегия: " + название).
 using System;
@@ -692,6 +692,23 @@ namespace ZapretLauncher
                 "Заявки на GitHub видны всем. Ключи VPN, адрес подписки, адреса серверов и имя пользователя Windows из отчёта убраны, но в нём остаются списки сайтов и программ и сведения о сети — архив можно открыть и проверить перед отправкой.",
                     "Issues on GitHub are public. VPN keys, the subscription URL, server addresses and your Windows user name are removed from the report, but it still has your site and app lists and network info — you can open the archive and check it before sending.",
                 "Не удалось открыть браузер: ", "Could not open the browser: ",
+                // Что нового в 4.0.6
+                "Папку лаунчера теперь может менять только администратор — подменить лаунчер или стратегию без прав администратора нельзя",
+                    "Only an administrator can now change the launcher folder — the launcher or a strategy can't be swapped without admin rights",
+                "Настройки сохраняются надёжнее: сбой питания не сотрёт ключи VPN, а повреждённый файл можно восстановить из копии",
+                    "Settings are saved more safely: a power cut won't wipe your VPN keys, and a damaged file can be restored from the backup",
+                "Удаление стирает только файлы лаунчера, а не всю папку", "Uninstalling removes only the launcher's files, not the whole folder",
+                "Подписка добавляется, даже если в ней есть сервер, который лаунчер не поддерживает", "A subscription is added even if it has a server the launcher doesn't support",
+                "Защищённый DNS не трогает адаптеры, где DNS прописан вручную", "Secure DNS leaves adapters with a manually set DNS alone",
+                "Обновлённые наборы сайтов применяются сразу", "Updated site sets apply right away",
+                // надёжность и защита
+                "Папка лаунчера закрыта от изменений без прав администратора", "The launcher folder is now protected from changes without admin rights",
+                "Не удалось закрыть папку лаунчера от изменений: ", "Could not protect the launcher folder from changes: ",
+                "launcher.json повреждён — сохранён как launcher.json.broken", "launcher.json is damaged — saved as launcher.json.broken",
+                "DNS: на адаптере уже прописан свой DNS — его не трогаю: ", "DNS: the adapter already has its own DNS — leaving it as is: ",
+                "На адаптере уже прописан свой DNS — лаунчер его не меняет, чтобы не потерять его при выключении",
+                    "The adapter already has its own DNS — the launcher doesn't change it so it isn't lost when turned off",
+                "превышено время ожидания", "timed out",
                 // Что нового в 4.0.5
                 "Проверка скорости серверов VPN: Мбит/с рядом с пингом, а VPN при этом не переподключается",
                     "VPN server speed test: Mbit/s next to the ping, and the VPN isn't reconnected",

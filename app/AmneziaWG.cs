@@ -1,4 +1,4 @@
-// AmneziaWG: серверы Amnezia (в том числе Amnezia Premium — «Файлы конфигурации» в их приложении) и свои серверы AmneziaWG.
+﻿// AmneziaWG: серверы Amnezia (в том числе Amnezia Premium — «Файлы конфигурации» в их приложении) и свои серверы AmneziaWG.
 // Ядро — официальный клиент AmneziaWG для Windows (amnezia-vpn/amneziawg-windows-client): его MSI распаковывается в vpn\awg
 // без установки, туннель поднимает служба Windows «AmneziaWGTunnel$ZapretVPN». Адаптер называется ZapretVPN, как у sing-box, —
 // по этому имени лаунчер отличает свой VPN от чужого. Маршрутизации по сайтам и программам здесь нет: через туннель идёт весь трафик
@@ -308,12 +308,18 @@ namespace ZapretLauncher
             try { IPInterfaceStatistics st = ni.GetIPStatistics(); return new TunnelStats { Rx = st.BytesReceived, Tx = st.BytesSent }; }
             catch { return null; }
         }
+        // Адрес сервера из Endpoint (без порта и скобок IPv6); null — в файле его нет
+        public static string EndpointHost(string conf)
+        {
+            string endpoint;
+            return Fields(conf).TryGetValue("Peer.Endpoint", out endpoint) ? Regex.Replace(endpoint.Trim(), @":\d+$", "").Trim('[', ']') : null;
+        }
+
         // Адреса сервера AmneziaWG — пакеты самого туннеля к нему sing-box должен пускать напрямую, а не по кругу в VPN
         public static string[] EndpointIps(string conf)
         {
-            string endpoint;
-            if (!Fields(conf).TryGetValue("Peer.Endpoint", out endpoint)) return new string[0];
-            string host = Regex.Replace(endpoint.Trim(), @":\d+$", "").Trim('[', ']');
+            string host = EndpointHost(conf);
+            if (host == null) return new string[0];
             System.Net.IPAddress ip;
             if (System.Net.IPAddress.TryParse(host, out ip)) return new[] { ip.ToString() };
             try { return System.Net.Dns.GetHostAddresses(host).Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork).Select(a => a.ToString()).ToArray(); }
@@ -325,7 +331,7 @@ namespace ZapretLauncher
         {
             if (!File.Exists(Exe)) return null;
             string output;
-            RunTool(Exe, "/dumplog", 10000, out output);
+            Util.Run(Exe, "/dumplog", out output, 10000, Encoding.UTF8);
             string[] lines = output.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("Error")).ToArray();
             lines = lines.Where(l => l.Contains("[" + ChainTunnel + "]") || l.Contains("[" + Vpn.InterfaceName + "]")).ToArray();   // только наши туннели
             return lines.Length == 0 ? null : string.Join(" | ", lines.Skip(Math.Max(0, lines.Length - count)).Select(l => Regex.Replace(l, @"^\S+\s+\S+:\s*", "")));
@@ -336,7 +342,7 @@ namespace ZapretLauncher
         {
             if (!File.Exists(Exe)) return null;
             string output;
-            RunTool(Exe, "/dumplog", 10000, out output);
+            Util.Run(Exe, "/dumplog", out output, 10000, Encoding.UTF8);
             string last = output.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0 && !l.StartsWith("Error"));
             return last == null ? null : Regex.Replace(last, @"^\S+\s+\S+:\s*", "");   // без даты и источника
         }
@@ -347,25 +353,10 @@ namespace ZapretLauncher
             return t.Length == 0 ? fallback : t.Length > 300 ? t.Substring(0, 300) + "…" : t;
         }
 
+        // AmneziaWG пишет ошибки в stderr — они попадают в output (без перехвата он показал бы окно с ошибкой)
         static Task<Tuple<int, string>> RunAsync(string exe, string args, int timeoutMs)
         {
-            return Task.Run(() => { string output; int code = RunTool(exe, args, timeoutMs, out output); return Tuple.Create(code, output); });
-        }
-
-        // Консольный запуск с выводом stdout и stderr: AmneziaWG пишет ошибки в stderr (без него показал бы окно с ошибкой)
-        static int RunTool(string exe, string args, int timeoutMs, out string output)
-        {
-            ProcessStartInfo psi = new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            psi.StandardOutputEncoding = Encoding.UTF8;
-            psi.StandardErrorEncoding = Encoding.UTF8;
-            using (Process p = Process.Start(psi))
-            {
-                Task<string> err = p.StandardError.ReadToEndAsync();
-                Task<string> outp = p.StandardOutput.ReadToEndAsync();
-                if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } output = "превышено время ожидания"; return -1; }
-                output = outp.Result + err.Result;
-                return p.ExitCode;
-            }
+            return Task.Run(() => { string output; int code = Util.Run(exe, args, out output, timeoutMs, Encoding.UTF8); return Tuple.Create(code, output); });
         }
     }
 }

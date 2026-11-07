@@ -482,6 +482,48 @@ Section 'Не пускать мимо VPN' {
     Check 'без блокировки — как раньше, через VPN' (@($normal.route.rules | Where-Object { $_.domain_suffix -contains 'deepl.com' -and $_.outbound -eq 'proxy' }).Count) '1'
 }
 
+Section 'Надёжность и защита' {
+    # список ключей: сервер с неподдерживаемым транспортом пропускается, один такой ключ — понятная ошибка
+    $list = (Call Vpn Parse "vless://u@a.example.com:443?type=kcp#Bad`nvless://u@b.example.com:443?security=tls#Good").Result
+    Check 'список ключей: плохой сервер не ломает остальные' (($list | ForEach-Object Name) -join ',') 'Good'
+    Throws 'один плохой ключ — понятная ошибка' { (Call Vpn Parse 'vless://u@a.example.com:443?type=kcp').GetAwaiter().GetResult() } 'не поддерживается'
+
+    # самообновление ставит только лаунчер нужной версии; подмену удаляет
+    $exe = Join-Path $work 'ZapretLauncher.exe'
+    $fake = Join-Path $work 'fake.exe'; [IO.File]::WriteAllText($fake, 'not an exe')
+    Throws 'самообновление: не exe' { Call SelfUpdate Verify $fake '4.0.5' $false } 'повреждён'
+    Check 'самообновление: подмена удалена' (Test-Path $fake) 'False'
+    $old = Join-Path $work 'old.exe'; Copy-Item $exe $old
+    Throws 'самообновление: версия старее нужной' { Call SelfUpdate Verify $old '99.0.0' $false } 'не похож'
+    $ok = Join-Path $work 'ok.exe'; Copy-Item $exe $ok
+    Call SelfUpdate Verify $ok (Field AppVersion Value) $true
+    Check 'самообновление: нужная версия принимается' (Test-Path $ok) 'True'
+
+    # испорченный launcher.json не затирается настройками по умолчанию молча
+    $cfgFile = Join-Path $work 'launcher.json'
+    [IO.File]::WriteAllText($cfgFile, '{"VpnServers":[{"Name":"x"')
+    $c = Call Config Load
+    Check 'испорченный launcher.json: как новая установка, копия отложена' ("{0} {1} {2}" -f (Field Config Broken), (Field Config Fresh), (Test-Path "$cfgFile.broken")) 'True True True'
+    $c.Save()
+    Check 'сохранение: файл читается, временного не осталось' ("{0} {1}" -f ($null -ne ((Get-Content $cfgFile -Raw) | ConvertFrom-Json)), (Test-Path "$cfgFile.tmp")) 'True False'
+    Remove-Item $cfgFile, "$cfgFile.broken" -ErrorAction SilentlyContinue
+
+    # удаление стирает только свои файлы — и знает их все
+    $own = @(Field Uninstaller OwnFiles) + @(Field Uninstaller OwnDirs)
+    $mine = @((Field Paths Config), (Field Paths Log), (Field Paths History), (Field Paths HostsCache), (Field Paths HostsBackup), (Field Paths Zapret),
+              (Field Paths Backup), (Field Paths Temp), (Field Paths TgDir), (Field Vpn Dir), (Field SitePresets Cache), (Field SelfUpdate PrevFile), (Field TaskbarMenu Helper)) |
+            ForEach-Object { Split-Path $_ -Leaf }
+    Check 'удаление знает все файлы лаунчера' (@($mine | Where-Object { $own -notcontains $_ }) -join ',') ''
+
+    # папка, которую может менять любой пользователь, распознаётся
+    $d = Join-Path $work 'acl'; New-Item -ItemType Directory $d -Force | Out-Null
+    Check 'папка: чужих прав на запись нет' (Call Shell OthersCanWrite $d) 'False'
+    $acl = Get-Acl $d
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier 'S-1-5-11'), 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+    Set-Acl $d $acl
+    Check 'папка: «Прошедшие проверку» могут менять' (Call Shell OthersCanWrite $d) 'True'
+}
+
 Section 'Перевод' {
     Call I18n Init 'en'
     $cyr = New-Object Text.RegularExpressions.Regex '[А-Яа-яЁё]'

@@ -84,17 +84,20 @@ namespace ZapretLauncher
         {
             text = (text ?? "").Trim();
             if (Awg.LooksLikeConf(text)) return new List<VpnServer> { Awg.FromConf(text, null) };   // вставили содержимое файла AmneziaWG
-            if (text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                text = DecodeSubscription(await FetchSubscription(text));
+            bool subscription = text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            if (subscription) text = DecodeSubscription(await FetchSubscription(text));
             List<VpnServer> list = new List<VpnServer>();
-            foreach (string raw in text.Split(new[] { '\r', '\n', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            Exception firstError = null;
+            string[] links = text.Split(new[] { '\r', '\n', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim()).Where(IsLink).ToArray();
+            foreach (string link in links)
             {
-                string link = raw.Trim();
-                if (!IsLink(link)) continue;
-                // ссылку, которую не разобрать, сразу отбрасываем с понятной ошибкой
-                if (Awg.IsAwg(link)) Awg.Check(Awg.ConfOf(link)); else BuildOutbound(link);
+                // ссылку, которую не разобрать, отбрасываем: один вставленный ключ — сразу с понятной ошибкой,
+                // а в подписке или списке — молча, чтобы один сервер с неподдерживаемым транспортом не ломал остальные
+                try { if (Awg.IsAwg(link)) Awg.Check(Awg.ConfOf(link)); else BuildOutbound(link); }
+                catch (Exception e) { if (!subscription && links.Length == 1) throw; if (firstError == null) firstError = e; continue; }
                 list.Add(new VpnServer { Name = NameOf(link), Link = link });
             }
+            if (list.Count == 0 && firstError != null) throw firstError;
             if (list.Count == 0)
             {
                 if (text.StartsWith("happ://"))
@@ -262,16 +265,10 @@ namespace ZapretLauncher
         // Проверка конфигурации Xray самим ядром; null — всё в порядке
         public static string CheckXray(string path)
         {
-            ProcessStartInfo psi = new ProcessStartInfo(XrayExe, "run -test -c \"" + path + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Dir };
-            using (Process p = Process.Start(psi))
-            {
-                Task<string> err = p.StandardError.ReadToEndAsync();
-                string output = p.StandardOutput.ReadToEnd() + err.Result;
-                p.WaitForExit(20000);
-                if (p.HasExited && p.ExitCode == 0) return null;
-                string last = output.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
-                return last ?? "xray -test: ошибка";
-            }
+            string output;
+            if (Util.Run(XrayExe, "run -test -c \"" + path + "\"", out output, 20000, Encoding.UTF8, Dir) == 0) return null;
+            string last = output.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
+            return last ?? "xray -test: ошибка";
         }
 
         static Process[] XrayProcesses()
@@ -646,6 +643,13 @@ namespace ZapretLauncher
         // Для серверов xhttp на время проверки поднимается свой Xray, и запрос идёт через него
         public static async Task<int[]> Delays(IList<VpnServer> servers)
         {
+            // у каждого xhttp-сервера свой процесс Xray: на большой подписке их были бы десятки сразу — тогда проверяем по 10 серверов
+            if (servers.Count > 10 && servers.Count(s => NeedsXray(s.Link)) > 8)
+            {
+                List<int> all = new List<int>();
+                for (int i = 0; i < servers.Count; i += 10) all.AddRange(await Delays(servers.Skip(i).Take(10).ToList()));
+                return all.ToArray();
+            }
             int[] result = new int[servers.Count];
             // AmneziaWG через тестовое ядро sing-box не проверить — у таких серверов «UDP», как у hysteria2
             for (int i = 0; i < servers.Count; i++) if (Awg.IsAwg(servers[i].Link)) result[i] = PingUdp;
@@ -1030,22 +1034,8 @@ namespace ZapretLauncher
         public static string Check(string configPath)
         {
             string output;
-            int code = RunCore("check -c \"" + configPath + "\"", out output);
+            int code = Util.Run(Exe, "check -c \"" + configPath + "\"", out output, 20000, Encoding.UTF8, Dir);
             return code == 0 ? null : (output.Trim().Length > 0 ? output.Trim() : "sing-box check: код " + code);
-        }
-
-        static int RunCore(string args, out string output)
-        {
-            ProcessStartInfo psi = new ProcessStartInfo(Exe, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Dir };
-            psi.StandardOutputEncoding = Encoding.UTF8;
-            psi.StandardErrorEncoding = Encoding.UTF8;
-            using (Process p = Process.Start(psi))
-            {
-                Task<string> err = p.StandardError.ReadToEndAsync();
-                output = p.StandardOutput.ReadToEnd() + err.Result;
-                p.WaitForExit(20000);
-                return p.HasExited ? p.ExitCode : -1;
-            }
         }
 
         // Запуск: конфигурация → проверка → ядро в фоне; ждём, пока появится адаптер VPN

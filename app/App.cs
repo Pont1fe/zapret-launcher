@@ -21,7 +21,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "4.0.5";
+        public const string Value = "4.0.6";
     }
 
     static class App
@@ -183,6 +183,13 @@ namespace ZapretLauncher
             catch { }
         }
 
+        // Всё, что лаунчер создаёт в своей папке (Paths, Vpn.Dir, загрузки ядер, SelfUpdate, TaskbarMenu)
+        public static readonly string[] OwnDirs = { "zapret", "zapret.old", "temp", "vpn", "tgproxy", "vpn-download", "xray-download", "awg-download" };
+        public static readonly string[] OwnFiles = {
+            "ZapretLauncher.exe", "ZapretLauncher.exe.old", "ZapretLauncher.exe.new", "ZapretLauncher.prev.exe", "ZapretLauncherCmd.exe",
+            "launcher.json", "launcher.json.tmp", "launcher.json.broken", "launcher.log", "launcher.log.1", "history.txt", "hosts.backup",
+            "site-presets.json", "telegram-hosts.txt", "command.txt", "autostart-task.xml" };
+
         public static async Task Remove(bool deleteFiles)
         {
             await Zapret.Stop(true);
@@ -197,10 +204,14 @@ namespace ZapretLauncher
             Shell.RemoveShortcuts();
             Shell.RemoveUninstallEntry();
             Log.Write("Автозапуск, службы, ярлыки и записи в hosts удалены");
-            // папку удаляем, только если это действительно папка лаунчера, а не корень диска
-            if (deleteFiles && Paths.Root.Length > 3 && File.Exists(Paths.Exe))
+            // удаляем только свои файлы и папки (лаунчер могли поставить в папку, где лежит что-то ещё), а саму папку — если она опустела
+            if (deleteFiles && File.Exists(Paths.Exe))
             {
-                ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", "/c timeout /t 3 /nobreak >nul & rmdir /s /q \"" + Paths.Root + "\"");
+                Func<string, string> q = name => "\"" + Path.Combine(Paths.Root, name) + "\"";
+                string script = "timeout /t 3 /nobreak >nul & " +
+                    string.Join(" & ", OwnDirs.Select(d => "rmdir /s /q " + q(d))) + " & " +
+                    string.Join(" & ", OwnFiles.Select(f => "del /f /q " + q(f))) + " & rmdir \"" + Paths.Root.TrimEnd('\\') + "\"";
+                ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", "/c " + script + " 2>nul");
                 psi.WindowStyle = ProcessWindowStyle.Hidden;
                 psi.CreateNoWindow = true;
                 psi.UseShellExecute = false;

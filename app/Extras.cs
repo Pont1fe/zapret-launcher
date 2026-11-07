@@ -126,8 +126,18 @@ namespace ZapretLauncher
 
         static string Q(string s) { return "\"" + s.Replace("\"", "") + "\""; }
 
-        // Включает DNS выбранного провайдера; возвращает имена адаптеров, на которых он включён
-        public static List<string> Enable(string key)
+        // DNS на адаптере прописан вручную (Pi-hole, рабочий или свой DNS). Выключение возвращает «автоматически» —
+        // такой DNS потерялся бы, поэтому эти адаптеры не трогаем. Свой DNS лаунчер перед сменой провайдера сначала снимает
+        static bool ManualDns(NetworkInterface ni)
+        {
+            foreach (string stack in new[] { "Tcpip", "Tcpip6" })
+                using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\" + stack + @"\Parameters\Interfaces\" + ni.Id))
+                    if (k != null && !string.IsNullOrWhiteSpace(k.GetValue("NameServer") as string)) return true;
+            return false;
+        }
+
+        // Включает DNS выбранного провайдера; возвращает имена адаптеров, на которых он включён, в skipped — где DNS прописан вручную
+        public static List<string> Enable(string key, List<string> skipped)
         {
             Provider p = Providers[key];
             if (EncryptionSupported)
@@ -141,6 +151,7 @@ namespace ZapretLauncher
             List<string> names = new List<string>();
             foreach (NetworkInterface ni in Adapters())
             {
+                if (ManualDns(ni)) { skipped.Add(ni.Name); continue; }
                 string n = Q(ni.Name);
                 Util.Run("netsh.exe", "interface ipv4 set dnsservers name=" + n + " source=static address=" + p.V4[0] + " register=none validate=no");
                 Util.Run("netsh.exe", "interface ipv4 add dnsservers name=" + n + " address=" + p.V4[1] + " index=2 validate=no");
