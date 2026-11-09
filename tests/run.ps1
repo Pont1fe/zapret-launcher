@@ -545,6 +545,8 @@ Section 'Надёжность и защита' {
     # папка, которую может менять любой пользователь, распознаётся
     $d = Join-Path $work 'acl'; New-Item -ItemType Directory $d -Force | Out-Null
     Check 'папка: чужих прав на запись нет' (Call Shell OthersCanWrite $d) 'False'
+    # владелец — сам пользователь (в GitHub Actions тесты идут от администратора, и владельцем новой папки сразу были бы «Администраторы»)
+    $acl = Get-Acl $d; $acl.SetOwner([Security.Principal.WindowsIdentity]::GetCurrent().User); Set-Acl $d $acl
     Check 'папка: владелец — обычный пользователь, значит закрывать' (Call Shell NeedsLock $d) 'True'
     $acl = Get-Acl $d
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier 'S-1-5-11'), 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
