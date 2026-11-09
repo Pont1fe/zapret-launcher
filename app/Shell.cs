@@ -261,27 +261,38 @@ namespace ZapretLauncher
                 .Any(r => r.AccessControlType == System.Security.AccessControl.AccessControlType.Allow && Others.Contains(r.IdentityReference.Value) && (r.FileSystemRights & WriteRights) != 0);
         }
 
+        // Владелец папки может сам вернуть себе права, даже без прав администратора, — поэтому владелец тоже должен быть администратором
+        static readonly string[] TrustedOwners = { "S-1-5-32-544", "S-1-5-18", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464" };   // Администраторы, SYSTEM, TrustedInstaller
+
+        public static bool NeedsLock(string dir)
+        {
+            return OthersCanWrite(dir) || !TrustedOwners.Contains(Directory.GetAccessControl(dir).GetOwner(typeof(System.Security.Principal.SecurityIdentifier)).Value);
+        }
+
         public static void SecureFolder()
         {
             string dir = Paths.Root.TrimEnd('\\');
             try
             {
-                if (!OthersCanWrite(dir)) return;
-                string output;
-                int code = Util.Run("icacls.exe", "\"" + dir + "\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /Q", out output);
-                Log.Write(code == 0 && !OthersCanWrite(dir) ? "Папка лаунчера закрыта от изменений без прав администратора" : "Не удалось закрыть папку лаунчера от изменений: " + output.Trim());
+                if (!NeedsLock(dir)) return;
+                string output, output2;
+                Util.Run("icacls.exe", "\"" + dir + "\" /setowner *S-1-5-32-544 /T /C /Q", out output);   // /T — и файлы внутри: их владелец тоже мог бы вернуть себе права
+                int code = Util.Run("icacls.exe", "\"" + dir + "\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /Q", out output2);
+                Log.Write(code == 0 && !NeedsLock(dir) ? "Папка лаунчера закрыта от изменений без прав администратора" : "Не удалось закрыть папку лаунчера от изменений: " + (output + " " + output2).Trim());
             }
             catch (Exception e) { Log.Write("Не удалось закрыть папку лаунчера от изменений: " + e.Message); }
         }
     }
 
     // Меню на значке в панели задач (правый клик). Пункты запускают ZapretLauncherCmd.exe — он без прав администратора,
-    // поэтому UAC не появляется; команда приходит лаунчеру через command.txt в %LOCALAPPDATA%\ZapretLauncher
-    // (папка лаунчера закрыта от записи без прав администратора). Лаунчер выполняет только известные команды
+    // поэтому UAC не появляется; команда приходит лаунчеру через command.txt в %ProgramData%\ZapretLauncher.
+    // Папка лаунчера закрыта от записи без прав администратора, а профиль пользователя не годится: лаунчер может работать
+    // от другой учётной записи (обычный пользователь вводит пароль администратора). В подпапке ProgramData любой пользователь
+    // может создать файл — по умолчанию, без смены прав. Лаунчер выполняет только известные команды
     static class TaskbarMenu
     {
         public static readonly string Helper = Path.Combine(Paths.Root, "ZapretLauncherCmd.exe");
-        public static readonly string CommandFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZapretLauncher", "command.txt");
+        public static readonly string CommandFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ZapretLauncher", "command.txt");
 
         // Помощник лежит внутри лаунчера; кладём его рядом, если его нет или он от другой версии
         public static void EnsureHelper()

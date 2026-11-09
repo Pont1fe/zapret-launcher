@@ -3,6 +3,13 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/demo-en.gif)
 
+### 4.0.7 — Locked for real / Защита до конца
+
+- 🔐 The launcher folder protection from 4.0.6 is now complete: the folder's owner also becomes Administrators. Before, if the folder had been created without admin rights (for example, when unpacking an old version by hand), its owner could take the write access back without admin rights / Защита папки лаунчера из 4.0.6 доведена до конца: владельцем папки тоже становятся администраторы. Раньше, если папку создавали без прав администратора (например, распаковывая старую версию вручную), её владелец мог вернуть себе право на запись и без прав администратора
+- 🖱️ The taskbar icon menu works even when the launcher runs under another account (a standard user enters an administrator's password) / Меню на значке в панели задач работает, даже если лаунчер запущен от другой учётной записи (обычный пользователь вводит пароль администратора)
+- 📝 The log shows how many subscription servers were skipped because the launcher doesn't support them, and why / В журнале видно, сколько серверов подписки пропущено, потому что лаунчер их не поддерживает, и почему
+- 🧹 Under the hood: server ordering, the fastest-server pick and the speed-test candidates live in one tested place instead of three copies; new tests for frozen system tools / Внутри: порядок серверов, выбор самого быстрого и серверы для замера скорости — в одном месте с тестами вместо трёх копий; новые тесты на зависание системных утилит
+
 ### 4.0.6 — Safer / Надёжнее
 
 - 🔐 Only an administrator can now change the launcher folder. Before, any program on the computer could swap the launcher or a strategy there — and they run with admin rights. The launcher fixes the folder permissions by itself on the first start. Note: to edit zapret files by hand (for example, lists in `zapret\lists`), open Notepad as administrator — editing through the launcher works as before / Папку лаунчера теперь может менять только администратор. Раньше любая программа на компьютере могла подменить в ней лаунчер или стратегию, а они запускаются с правами администратора. Лаунчер сам поправит права папки при первом запуске. Учтите: чтобы править файлы zapret вручную (например, списки в `zapret\lists`), откройте Блокнот от имени администратора — через лаунчер всё работает как раньше

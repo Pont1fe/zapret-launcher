@@ -692,6 +692,12 @@ namespace ZapretLauncher
                 "Заявки на GitHub видны всем. Ключи VPN, адрес подписки, адреса серверов и имя пользователя Windows из отчёта убраны, но в нём остаются списки сайтов и программ и сведения о сети — архив можно открыть и проверить перед отправкой.",
                     "Issues on GitHub are public. VPN keys, the subscription URL, server addresses and your Windows user name are removed from the report, but it still has your site and app lists and network info — you can open the archive and check it before sending.",
                 "Не удалось открыть браузер: ", "Could not open the browser: ",
+                // Что нового в 4.0.7
+                "Папка лаунчера защищена полностью: её владельцем теперь тоже становятся администраторы",
+                    "The launcher folder is fully protected: administrators now also become its owner",
+                "Меню на значке в панели задач работает, даже если лаунчер запущен от другой учётной записи",
+                    "The taskbar icon menu works even when the launcher runs under another account",
+                "В журнале видно, сколько серверов подписки пропущено и почему", "The log shows how many subscription servers were skipped and why",
                 // Что нового в 4.0.6
                 "Папку лаунчера теперь может менять только администратор — подменить лаунчер или стратегию без прав администратора нельзя",
                     "Only an administrator can now change the launcher folder — the launcher or a strategy can't be swapped without admin rights",
@@ -709,6 +715,8 @@ namespace ZapretLauncher
                 "На адаптере уже прописан свой DNS — лаунчер его не меняет, чтобы не потерять его при выключении",
                     "The adapter already has its own DNS — the launcher doesn't change it so it isn't lost when turned off",
                 "превышено время ожидания", "timed out",
+                " — ссылка на другую папку", " is a link to another folder",
+                "VPN: пропущены серверы, которые лаунчер не поддерживает: ", "VPN: skipped servers the launcher doesn't support: ",
                 // Что нового в 4.0.5
                 "Проверка скорости серверов VPN: Мбит/с рядом с пингом, а VPN при этом не переподключается",
                     "VPN server speed test: Mbit/s next to the ping, and the VPN isn't reconnected",

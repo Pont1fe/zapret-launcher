@@ -151,6 +151,8 @@ static class Installer
         Directory.CreateDirectory(dir);
         // Отсюда лаунчер запускает программы с правами администратора — менять папку может только администратор
         // (папка в корне диска иначе наследует «изменение» для всех пользователей)
+        // владелец — тоже администраторы: владелец папки может вернуть себе права и без прав администратора
+        RunHidden("icacls.exe", "\"" + dir.TrimEnd('\\') + "\" /setowner *S-1-5-32-544 /T /C /Q");
         RunHidden("icacls.exe", "\"" + dir.TrimEnd('\\') + "\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /Q");
         string exe = Path.Combine(dir, ExeName);
         File.WriteAllBytes(exe, Resource(ExeName));

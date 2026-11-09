@@ -21,7 +21,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "4.0.6";
+        public const string Value = "4.0.7";
     }
 
     static class App
@@ -203,6 +203,8 @@ namespace ZapretLauncher
             if (cfg.SecureDns.Length > 0) { try { SecureDns.Disable(cfg.DnsAdapters); } catch (Exception e) { Log.Write("DNS: " + e.Message); } }
             Shell.RemoveShortcuts();
             Shell.RemoveUninstallEntry();
+            // папка команд меню панели задач в ProgramData: только свой файл и саму папку, если она пустая (без обхода вглубь — её мог создать кто угодно)
+            try { File.Delete(TaskbarMenu.CommandFile); Directory.Delete(Path.GetDirectoryName(TaskbarMenu.CommandFile)); } catch { }
             Log.Write("Автозапуск, службы, ярлыки и записи в hosts удалены");
             // удаляем только свои файлы и папки (лаунчер могли поставить в папку, где лежит что-то ещё), а саму папку — если она опустела
             if (deleteFiles && File.Exists(Paths.Exe))

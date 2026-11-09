@@ -324,16 +324,8 @@ namespace ZapretLauncher
         }
 
         // Результат последней проверки сервера: мс; -1 — не работает; Vpn.PingUdp — проверить нельзя; null — ещё не проверяли
-        int? PingOf(VpnServer s) { int ms; return vpnPing.TryGetValue(s.Link, out ms) ? ms : (int?)null; }
+        int? PingOf(VpnServer s) { return ServerList.Ping(vpnPing, s); }
         double SpeedOf(VpnServer s) { double v; return vpnSpeed.TryGetValue(s.Link, out v) ? v : 0; }
-
-        // Порядок в списке: работающие по скорости, потом «без проверки», потом непроверенные, неработающие — в конце
-        static int PingRank(int? ms)
-        {
-            if (!ms.HasValue) return 2000000;
-            if (ms.Value >= 0) return ms.Value;
-            return ms.Value == Vpn.PingUdp ? 1000000 : 3000000;
-        }
 
         static string ModeName(string mode) { return mode == "all" ? "весь трафик" : mode == "ru" ? "Россия напрямую" : "только выбранное"; }
 
@@ -404,9 +396,8 @@ namespace ZapretLauncher
             filling = true;
             hideDead.IsChecked = cfg.VpnHideDead;
             filling = false;
-            bool hiding = cfg.VpnHideDead && dead > 0;
-            var all = cfg.VpnServers.Select((s, i) => new { s, i, code = Vpn.CountryCode(s.Name) })
-                                    .Where(x => !hiding || x.i == cfg.VpnSelected || PingOf(x.s) != -1).ToList();
+            HashSet<int> visible = new HashSet<int>(ServerList.Visible(cfg.VpnServers, vpnPing, cfg.VpnSelected, cfg.VpnHideDead));
+            var all = cfg.VpnServers.Select((s, i) => new { s, i, code = Vpn.CountryCode(s.Name) }).Where(x => visible.Contains(x.i)).ToList();
             var groups = all.GroupBy(x => x.code ?? "").ToList();
             WrapPanel tabs = E<WrapPanel>("VpnTabs");
             tabs.Children.Clear();
@@ -425,7 +416,7 @@ namespace ZapretLauncher
                       || (Vpn.CountryName(x.code) ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
                       || T(Vpn.CountryName(x.code) ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
                     : !useTabs || (x.code ?? "") == vpnTab)
-                .OrderBy(x => PingRank(PingOf(x.s))).ThenBy(x => x.i).ToList();   // работающие — наверх, быстрые первыми
+                .OrderBy(x => ServerList.Rank(PingOf(x.s))).ThenBy(x => x.i).ToList();   // работающие — наверх, быстрые первыми
             foreach (var x in shown) servers.Children.Add(ServerRow(x.s, x.i, x.code));
             if (shown.Count == 0 && cfg.VpnServers.Count > 0)
             {

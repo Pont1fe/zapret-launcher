@@ -356,9 +356,26 @@ Section 'Сторож' {
 
 Section 'Список серверов' {
     # порядок: работающие по скорости → «без проверки» (UDP) → не проверены → не работают
-    $pings = @(@('dead', -1), @('slow', 900), @('udp', -2), @('none', $null), @('fast', 120))
-    $order = ($pings | Sort-Object { $r = if ($null -eq $_[1]) { Call Launcher PingRank $null } else { Call Launcher PingRank ([Nullable[int]]$_[1]) }; $r } | ForEach-Object { $_[0] }) -join ','
-    Check 'работающие наверх, быстрые первыми' $order 'fast,slow,udp,none,dead'
+    $VS = TypeOf VpnServer
+    $servers = [Activator]::CreateInstance([Collections.Generic.List`1].MakeGenericType($VS))
+    $pingsDict = New-Object 'System.Collections.Generic.Dictionary[string,int]'
+    # индекс: 0 dead, 1 slow, 2 udp (AmneziaWG), 3 без проверки, 4 fast
+    foreach ($p in @(@('dead', 'vless://a@d.example.com:443', -1), @('slow', 'vless://a@s.example.com:443', 900), @('udp', 'amneziawg://x#udp', -2),
+                     @('none', 'vless://a@n.example.com:443', $null), @('fast', 'vless://a@f.example.com:443', 120))) {
+        $s = [Activator]::CreateInstance($VS); $s.Name = $p[0]; $s.Link = $p[1]; $servers.Add($s)
+        if ($null -ne $p[2]) { $pingsDict[$p[1]] = $p[2] }
+    }
+    function Names($idx) { (@($idx) | ForEach-Object { $servers[$_].Name }) -join ',' }
+    Check 'работающие наверх, быстрые первыми' (Names (Call ServerList Visible $servers $pingsDict 1 $false)) 'fast,slow,udp,none,dead'
+    Check 'скрыть неработающие' (Names (Call ServerList Visible $servers $pingsDict 1 $true)) 'fast,slow,udp,none'
+    Check 'выбранный неработающий виден всегда' (Names (Call ServerList Visible $servers $pingsDict 0 $true)) 'fast,slow,udp,none,dead'
+    Check 'самый быстрый' (Call ServerList Best $servers $pingsDict (-1)) '4'
+    Check 'самый быстрый, кроме текущего' (Call ServerList Best $servers $pingsDict 4) '1'
+    $onlyUdp = New-Object 'System.Collections.Generic.Dictionary[string,int]'; $onlyUdp['amneziawg://x#udp'] = -2; $onlyUdp['vless://a@d.example.com:443'] = -1
+    Check 'никто не ответил, кроме UDP — берём UDP' (Call ServerList Best $servers $onlyUdp (-1)) '2'
+    Check 'никто не ответил' (Call ServerList Best $servers (New-Object 'System.Collections.Generic.Dictionary[string,int]') (-1)) '-1'
+    Check 'замер скорости: выбранный первым, без неработающих и AmneziaWG' (Names (Call ServerList SpeedCandidates $servers $pingsDict 1 5)) 'slow,fast,none'
+    Check 'замер скорости: не больше max' (Names (Call ServerList SpeedCandidates $servers $pingsDict 3 2)) 'none,fast'
 }
 
 Section 'Тестовое ядро: проверка и скорость' {
@@ -515,9 +532,20 @@ Section 'Надёжность и защита' {
             ForEach-Object { Split-Path $_ -Leaf }
     Check 'удаление знает все файлы лаунчера' (@($mine | Where-Object { $own -notcontains $_ }) -join ',') ''
 
+    # запуск утилит: зависшая снимается по таймауту, а много текста в потоке ошибок не вешает лаунчер
+    $run = (TypeOf Util).GetMethods($all) | Where-Object { $_.Name -eq 'Run' -and $_.GetParameters().Count -eq 6 }
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $a = [object[]]@('powershell.exe', '-NoProfile -Command Start-Sleep 10', $null, 700, $null, $null)
+    $rc = $run.Invoke($null, $a)
+    Check 'утилита: зависшая снимается по таймауту' ("{0} {1}" -f $rc, ($sw.Elapsed.TotalSeconds -lt 5)) '-1 True'
+    $a = [object[]]@('cmd.exe', '/c for /L %i in (1,1,4000) do @echo stderr-line-with-some-text-to-fill-the-pipe 1>&2', $null, 30000, $null, $null)
+    $rc = $run.Invoke($null, $a)
+    Check 'утилита: много текста в потоке ошибок не вешает' ("{0} {1}" -f $rc, ($a[2].Length -gt 100000)) '0 True'
+
     # папка, которую может менять любой пользователь, распознаётся
     $d = Join-Path $work 'acl'; New-Item -ItemType Directory $d -Force | Out-Null
     Check 'папка: чужих прав на запись нет' (Call Shell OthersCanWrite $d) 'False'
+    Check 'папка: владелец — обычный пользователь, значит закрывать' (Call Shell NeedsLock $d) 'True'
     $acl = Get-Acl $d
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier 'S-1-5-11'), 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
     Set-Acl $d $acl

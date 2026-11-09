@@ -250,10 +250,7 @@ namespace ZapretLauncher
         {
             miVpnServer.DropDownItems.Clear();
             miVpnMode.DropDownItems.Clear();
-            bool hiding = cfg.VpnHideDead && cfg.VpnServers.Any(s => PingOf(s) == -1);
-            List<int> order = Enumerable.Range(0, cfg.VpnServers.Count)
-                .Where(i => !hiding || i == cfg.VpnSelected || PingOf(cfg.VpnServers[i]) != -1)
-                .OrderBy(i => PingRank(PingOf(cfg.VpnServers[i]))).ThenBy(i => i).ToList();
+            List<int> order = ServerList.Visible(cfg.VpnServers, vpnPing, cfg.VpnSelected, cfg.VpnHideDead);
             if (cfg.VpnServers.Count > 1)
             {
                 Forms.ToolStripMenuItem best = new Forms.ToolStripMenuItem(T("Выбрать самый быстрый"));

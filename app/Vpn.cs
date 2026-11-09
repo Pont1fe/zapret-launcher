@@ -98,6 +98,8 @@ namespace ZapretLauncher
                 list.Add(new VpnServer { Name = NameOf(link), Link = link });
             }
             if (list.Count == 0 && firstError != null) throw firstError;
+            int skipped = links.Length - list.Count;
+            if (skipped > 0) Log.Write("VPN: пропущены серверы, которые лаунчер не поддерживает: " + skipped + " (" + firstError.Message + ")");
             if (list.Count == 0)
             {
                 if (text.StartsWith("happ://"))

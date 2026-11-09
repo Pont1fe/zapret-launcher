@@ -51,10 +51,7 @@ namespace ZapretLauncher
         {
             if (vpnSpeedTesting || vpnPinging || cfg.VpnServers.Count == 0) return;
             if (!cfg.VpnServers.Any(s => vpnPing.ContainsKey(s.Link))) await PingVpnServers();
-            List<VpnServer> servers = Enumerable.Range(0, cfg.VpnServers.Count)
-                .Where(i => !Awg.IsAwg(cfg.VpnServers[i].Link) && PingOf(cfg.VpnServers[i]) != -1)
-                .OrderBy(i => i == cfg.VpnSelected ? -1 : PingRank(PingOf(cfg.VpnServers[i]))).ThenBy(i => i)
-                .Take(5).Select(i => cfg.VpnServers[i]).ToList();
+            List<VpnServer> servers = ServerList.SpeedCandidates(cfg.VpnServers, vpnPing, cfg.VpnSelected, 5).Select(i => cfg.VpnServers[i]).ToList();
             if (servers.Count == 0) { Text("VpnInfo").Text = T("Скорость проверить не на чем: серверы не отвечают (AmneziaWG так не проверить)"); return; }
             vpnSpeedTesting = true;
             RefreshVpnUi();
@@ -99,20 +96,7 @@ namespace ZapretLauncher
             RefreshVpnUi();
         }
 
-        // Индекс самого быстрого отвечающего сервера (UDP-серверы — в конце очереди); -1 — никто не ответил
-        int BestServer(int exclude = -1)
-        {
-            int best = -1, bestMs = int.MaxValue;
-            for (int i = 0; i < cfg.VpnServers.Count; i++)
-            {
-                if (i == exclude) continue;
-                int ms;
-                if (!vpnPing.TryGetValue(cfg.VpnServers[i].Link, out ms) || ms == -1) continue;
-                int rank = ms == Vpn.PingUdp ? 100000 : ms;
-                if (rank < bestMs) { best = i; bestMs = rank; }
-            }
-            return best;
-        }
+        int BestServer(int exclude = -1) { return ServerList.Best(cfg.VpnServers, vpnPing, exclude); }
 
         async Task SelectBestServer()
         {

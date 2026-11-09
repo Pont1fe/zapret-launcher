@@ -266,15 +266,20 @@ namespace ZapretLauncher
         {
             try
             {
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(TaskbarMenu.CommandFile));
-                commandWatcher = new FileSystemWatcher(System.IO.Path.GetDirectoryName(TaskbarMenu.CommandFile), "command.txt");
+                string dir = System.IO.Path.GetDirectoryName(TaskbarMenu.CommandFile);
+                Directory.CreateDirectory(dir);
+                // в ProgramData папку может заранее создать кто угодно — ссылку на чужую папку не принимаем
+                if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) throw new Exception(dir + " — ссылка на другую папку");
+                // 4.0.6 клал команды в профиль пользователя — убираем пустую папку оттуда
+                try { Directory.Delete(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZapretLauncher")); } catch { }
+                commandWatcher = new FileSystemWatcher(dir, "command.txt");
                 FileSystemEventHandler h = (s, e) => window.Dispatcher.BeginInvoke(new Action(async () => await RunCommandFile()));
                 commandWatcher.Created += h;
                 commandWatcher.Changed += h;
                 commandWatcher.Renamed += (s, e) => window.Dispatcher.BeginInvoke(new Action(async () => await RunCommandFile()));
                 commandWatcher.EnableRaisingEvents = true;
             }
-            catch (Exception e) { Log.Write("Команды из панели задач недоступны: " + e.Message); }
+            catch (Exception e) { Log.Write("Команды из панели задач недоступны: " + e.Message); return; }
             if (File.Exists(TaskbarMenu.CommandFile)) window.Dispatcher.BeginInvoke(new Action(async () => await RunCommandFile()));   // лаунчер запустили ради команды
         }
 
