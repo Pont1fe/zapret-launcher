@@ -141,10 +141,34 @@ namespace ZapretLauncher
         }
 
         // Адрес новой заявки с заполненными полями формы .github/ISSUE_TEMPLATE/bug.yml (поля — по их id)
-        public static string IssueUrl(string repo, string version, string system)
+        public static string IssueUrl(string repo, string version, string system, string problem = null)
         {
             return "https://github.com/" + repo + "/issues/new?template=bug.yml" +
-                   "&version=" + Uri.EscapeDataString(version ?? "") + "&system=" + Uri.EscapeDataString(system ?? "");
+                   "&version=" + Uri.EscapeDataString(version ?? "") + "&system=" + Uri.EscapeDataString(system ?? "") +
+                   (problem == null ? "" : "&problem=" + Uri.EscapeDataString(problem));
+        }
+
+        // ---------- Падение лаунчера ----------
+        // Текст ошибки — в crash.txt рядом с программой (уже без ключей и адресов серверов); при следующем запуске
+        // лаунчер один раз предлагает открыть заявку с ним и переименовывает файл в crash.old.txt — он попадёт в отчёт
+        public static readonly string CrashFile = Path.Combine(Paths.Root, "crash.txt");
+        public static readonly string CrashOld = Path.Combine(Paths.Root, "crash.old.txt");
+
+        public static string CrashText(Exception e, Config cfg, DateTime when)
+        {
+            return when.ToString("dd.MM.yyyy HH:mm:ss") + " · " + Consts.Version + "\n" + Sanitize(e.ToString(), cfg.VpnSubscription, ServerHosts(cfg));
+        }
+
+        public static void SaveCrash(Exception e, Config cfg)
+        {
+            try { File.WriteAllText(CrashFile, CrashText(e, cfg, DateTime.Now), new UTF8Encoding(false)); } catch { }
+        }
+
+        // Для заявки: время, тип ошибки и начало стека — длинный адрес браузер может обрезать
+        public static string CrashSummary(string text)
+        {
+            string s = string.Join("\n", (text ?? "").Replace("\r", "").Split('\n').Take(14));
+            return s.Length > 1500 ? s.Substring(0, 1500) + "…" : s;
         }
 
         // Последние строки файла, даже если он сейчас открыт на запись
@@ -177,6 +201,7 @@ namespace ZapretLauncher
             Util.Run("route.exe", "print -4", out routes);
             files["routes.txt"] = routes;
             if (Awg.Version != null) files["amneziawg.log"] = Awg.LogTail(80);
+            files["crash.txt"] = Tail(File.Exists(CrashFile) ? CrashFile : CrashOld, 400);
             if (File.Exists(zipPath)) File.Delete(zipPath);
             using (ZipArchive zip = ZipFile.Open(zipPath, ZipArchiveMode.Create))
                 foreach (KeyValuePair<string, string> f in files)

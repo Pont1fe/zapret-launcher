@@ -43,9 +43,12 @@ namespace ZapretLauncher
         static readonly string[] ControlUrls = { "https://vk.com/", "https://ya.ru/", "http://www.msftconnecttest.com/connecttest.txt" };
 
         // Любой HTTP-ответ — значит до сервера достучались; блокировка DPI даёт сброс соединения или таймаут
-        public static Task<List<SiteResult>> Test(bool telegram, bool control, int timeoutSec = 6)
+        // mine — свои сайты пользователя: проверяются заодно, имя карточки — сам адрес
+        public static Task<List<SiteResult>> Test(bool telegram, bool control, int timeoutSec = 6, IList<string> mine = null)
         {
-            return Run(Targets(telegram, control), timeoutSec);
+            List<KeyValuePair<string, string>> t = Targets(telegram, control);
+            if (mine != null) t.AddRange(mine.Select(host => new KeyValuePair<string, string>(host, "https://" + host + "/")));
+            return Run(t, timeoutSec);
         }
 
         // Повторная проверка только не открывшихся сайтов, с запасом по времени: из-за разового сбоя (медленный ответ,

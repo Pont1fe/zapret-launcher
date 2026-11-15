@@ -238,6 +238,7 @@ namespace ZapretLauncher
                 k.SetValue("DisplayIcon", Paths.Exe);
                 k.SetValue("InstallLocation", Paths.Root);
                 k.SetValue("UninstallString", "\"" + Paths.Exe + "\" --uninstall");
+                k.SetValue("QuietUninstallString", "\"" + Paths.Exe + "\" --uninstall --quiet");   // для winget и Scoop
             }
         }
 

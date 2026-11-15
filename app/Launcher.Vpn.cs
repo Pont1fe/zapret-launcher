@@ -1,4 +1,4 @@
-// Встроенный VPN: подключение, серверы, пинг, трафик, подписки, ключи из буфера обмена и QR-кода
+﻿// Встроенный VPN: подключение, серверы, пинг, трафик, подписки, ключи из буфера обмена и QR-кода
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -67,8 +67,8 @@ namespace ZapretLauncher
                 });
                 VpnServer best = servers.Where(s => vpnSpeed.ContainsKey(s.Link) && vpnSpeed[s.Link] > 0).OrderByDescending(s => vpnSpeed[s.Link]).FirstOrDefault();
                 Text("VpnInfo").Text = best == null ? T("Ни через один сервер не скачался тестовый файл")
-                                                    : T("Быстрее всех") + ": " + Vpn.DisplayName(best.Name) + " — " + Mbps(vpnSpeed[best.Link]);
-                Log.Write("VPN: скорость — " + string.Join(", ", servers.Select(s => Vpn.DisplayName(s.Name) + " " + (vpnSpeed.ContainsKey(s.Link) && vpnSpeed[s.Link] > 0 ? Mbps(vpnSpeed[s.Link]) : "—"))));
+                                                    : T("Быстрее всех") + ": " + Vpn.DisplayName(best.Name) + " — " + Formats.Mbps(vpnSpeed[best.Link]);
+                Log.Write("VPN: скорость — " + string.Join(", ", servers.Select(s => Vpn.DisplayName(s.Name) + " " + (vpnSpeed.ContainsKey(s.Link) && vpnSpeed[s.Link] > 0 ? Formats.Mbps(vpnSpeed[s.Link]) : "—"))));
             }
             catch (Exception e) { Text("VpnInfo").Text = T("Не удалось замерить скорость: ") + T(e.Message); }
             finally { vpnSpeedTesting = false; RefreshVpnUi(); }
@@ -139,7 +139,7 @@ namespace ZapretLauncher
                 {
                     double sec = Math.Max(0.5, (now - vpnTrafficAt).TotalSeconds);
                     double down = Math.Max(0, t[0] - vpnTrafficLast[0]) * 8 / sec / 1e6, up = Math.Max(0, t[1] - vpnTrafficLast[1]) * 8 / sec / 1e6;
-                    vpnSpeedText = "↓ " + Mbps(down) + "  ↑ " + Mbps(up) + "  ·  " + T("за сессию") + " " + Bytes(t[0] + t[1]);
+                    vpnSpeedText = "↓ " + Formats.Mbps(down) + "  ↑ " + Formats.Mbps(up) + "  ·  " + T("за сессию") + " " + Formats.Bytes(t[0] + t[1]);
                     vpnSpeeds.Add(down);
                     if (vpnSpeeds.Count > 60) vpnSpeeds.RemoveAt(0);
                 }
@@ -151,7 +151,7 @@ namespace ZapretLauncher
             traffic.Visibility = vpnSpeedText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateVpnTimer();
             DrawVpnGraph();
-            UpdatePowerVpn();
+            DrawHomeVpn();
         }
 
         // Время подключения: «Подключено 1:23:45»
@@ -186,32 +186,11 @@ namespace ZapretLauncher
             line.SetResourceReference(Shape.StrokeProperty, "Accent");
             c.Children.Add(fill);
             c.Children.Add(line);
-            TextBlock peak = new TextBlock { Text = Mbps(max), FontSize = 10 };
+            TextBlock peak = new TextBlock { Text = Formats.Mbps(max), FontSize = 10 };
             peak.SetResourceReference(TextBlock.ForegroundProperty, "Faint");
             Canvas.SetRight(peak, 0);
             Canvas.SetTop(peak, -1);
             c.Children.Add(peak);
-        }
-
-        static string Mbps(double v) { return (v < 10 ? v.ToString("0.0") : v.ToString("0")) + " " + T("Мбит/с"); }
-        static string Bytes(long b)
-        {
-            return b >= 1L << 30 ? (b / 1073741824.0).ToString("0.0") + " " + T("ГБ") : b >= 1L << 20 ? (b / 1048576.0).ToString("0") + " " + T("МБ") : Math.Max(1, b / 1024) + " " + T("КБ");
-        }
-
-        // Строка VPN на карточке-переключателе
-        void UpdatePowerVpn()
-        {
-            bool show = cfg.VpnOn || vpnRunning;
-            E<FrameworkElement>("PowerVpn").Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            if (!show) return;
-            VpnServer s = CurrentServer;
-            // на карточке места мало — только скорость загрузки
-            string speed = vpnSpeedText.Length > 0 ? " · " + vpnSpeedText.Split(new[] { "  ↑" }, StringSplitOptions.None)[0] : "";
-            bool ready = vpnRunning && !VpnSwitching;   // пока подключён не выбранный сервер — «подключается», а не его скорость
-            Text("PowerVpnText").Text = "VPN · " + (s == null ? "" : Vpn.DisplayName(s.Name)) +
-                                        (ready ? speed : " · " + T(vpnLocked ? "не работает — блокировка" : "подключается…"));
-            E<Ellipse>("PowerVpnDot").SetResourceReference(Shape.FillProperty, ready ? "Ok" : vpnLocked ? "Fail" : "Wait");
         }
 
         // ---------- Ключ из буфера обмена ----------
@@ -355,7 +334,7 @@ namespace ZapretLauncher
             cfg.VpnHelpDone = true;   // подключились — подсказка «Как начать» больше не нужна
             cfg.VpnOn = true;
             cfg.Save();
-            Log.Write("VPN подключён: " + server.Name + " (" + ModeName(cfg.VpnMode) + ")");   // и при переподключении — видно, через какой сервер идёт трафик
+            Log.Write("VPN подключён: " + server.Name + " (" + VpnInfo.ModeName(cfg.VpnMode) + ")");   // и при переподключении — видно, через какой сервер идёт трафик
             if (Awg.IsAwg(server.Link)) { Task check = AwgSelfCheck(); }   // в фоне: VPN уже подключён, ждать проверку незачем
         }
 
@@ -420,7 +399,7 @@ namespace ZapretLauncher
             line.BeginAnimation(UIElement.OpacityProperty, fade);
         }
 
-        // Подключился — карточка коротко вспыхивает цветом акцента
+        // Подключился — карточка (уже цвета акцента) коротко вспыхивает белым
         void VpnFlash()
         {
             E<UIElement>("VpnFlash").BeginAnimation(UIElement.OpacityProperty,
@@ -632,10 +611,10 @@ namespace ZapretLauncher
                 double speed = SpeedOf(s);
                 StackPanel signal = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 4, 0),
                                                      ToolTip = (ms < 0 ? T("Сайт через этот сервер не открылся") : T("Сайт через сервер открылся за") + " " + ms + " " + T("мс")) +
-                                                               (speed > 0 ? "\n" + T("Скорость загрузки") + ": " + Mbps(speed) : speed < 0 && vpnSpeed.ContainsKey(s.Link) ? "\n" + T("Тестовый файл через этот сервер не скачался") : "") };
+                                                               (speed > 0 ? "\n" + T("Скорость загрузки") + ": " + Formats.Mbps(speed) : speed < 0 && vpnSpeed.ContainsKey(s.Link) ? "\n" + T("Тестовый файл через этот сервер не скачался") : "") };
                 int level = ms < 0 ? 0 : ms < 400 ? 3 : ms < 900 ? 2 : 1;
                 string color = level == 3 ? "Ok" : level == 2 ? "Ok" : level == 1 ? "Wait" : "Fail";
-                TextBlock label = new TextBlock { Text = (ms < 0 ? T("не работает") : ms + " " + T("мс")) + (speed > 0 ? "  ·  " + Mbps(speed) : ""), FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
+                TextBlock label = new TextBlock { Text = (ms < 0 ? T("не работает") : ms + " " + T("мс")) + (speed > 0 ? "  ·  " + Formats.Mbps(speed) : ""), FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
                 label.SetResourceReference(TextBlock.ForegroundProperty, ms < 0 ? "Fail" : "Muted");
                 signal.Children.Add(label);
                 for (int b = 0; b < 3; b++)
@@ -659,7 +638,7 @@ namespace ZapretLauncher
             };
             Grid.SetColumn(del, 2);
             row.Children.Add(del);
-            Border card = new Border { Child = row, CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6), Cursor = Cursors.Hand, BorderThickness = new Thickness(1.5) };
+            Border card = new Border { Child = row, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 7, 8, 7), Margin = new Thickness(0, 0, 0, 6), Cursor = Cursors.Hand, BorderThickness = new Thickness(1.5) };
             card.SetResourceReference(Border.BackgroundProperty, selected ? "AccentSoft" : "Card");
             card.SetResourceReference(Border.BorderBrushProperty, selected ? "Accent" : "Card");
             card.MouseLeftButtonUp += async delegate
@@ -678,8 +657,8 @@ namespace ZapretLauncher
             E<FrameworkElement>("VpnSubCard").Visibility = info != null ? Visibility.Visible : Visibility.Collapsed;
             if (info == null) return;
             Text("VpnSubText").Text = info.Total > 0
-                ? T("Использовано") + " " + Bytes(info.Used) + " " + T("из") + " " + Bytes(info.Total)
-                : T("Использовано") + " " + Bytes(info.Used) + " · " + T("без лимита");
+                ? T("Использовано") + " " + Formats.Bytes(info.Used) + " " + T("из") + " " + Formats.Bytes(info.Total)
+                : T("Использовано") + " " + Formats.Bytes(info.Used) + " · " + T("без лимита");
             TextBlock exp = Text("VpnSubExpire");
             if (info.Expire.HasValue)
             {
@@ -701,39 +680,13 @@ namespace ZapretLauncher
 
         double subRatio;   // доля использованного трафика подписки — для полоски
 
-        // Что напомнить о подписке сейчас: ключ этапа → текст. Этапы: за 3 дня, за сутки, закончилась; трафик 90% и 100%.
-        // Ключ содержит дату окончания и размер тарифа: продлили подписку — ключ новый, и напоминание придёт снова, когда подойдёт срок
-        static Dictionary<string, string> SubscriptionWarnings(Vpn.SubscriptionInfo info, DateTime now)
-        {
-            Dictionary<string, string> w = new Dictionary<string, string>();
-            if (info == null) return w;
-            if (info.Expire.HasValue)
-            {
-                double days = (info.Expire.Value - now).TotalDays;
-                string date = info.Expire.Value.ToString("dd.MM.yyyy HH:mm");
-                string key = "expire " + info.Expire.Value.ToString("yyyyMMddHHmm") + " ";
-                if (days <= 0) w[key + "0"] = "Подписка VPN закончилась: " + date + ". Продлите её у своего провайдера";
-                else if (days <= 3)
-                    w[key + (days <= 1 ? "1" : "3")] = "Подписка VPN заканчивается: " + date + " (осталось дней: " + (int)Math.Ceiling(days) + "). Продлите её у своего провайдера";
-            }
-            if (info.Total > 0)
-            {
-                double ratio = (double)info.Used / info.Total;
-                string key = "traffic " + info.Total + " ";
-                string used = Bytes(info.Used) + " из " + Bytes(info.Total);
-                if (ratio >= 1) w[key + "100"] = "Трафик подписки VPN закончился: использовано " + used;
-                else if (ratio >= 0.9) w[key + "90"] = "Трафик подписки VPN почти закончился: использовано " + used;
-            }
-            return w;
-        }
-
         // Раз в час и после обновления подписки: новый этап — одно уведомление. Перед ним — свежие сведения о подписке
         // (только заголовок со сроком и трафиком; серверы и VPN не трогаем), если они старше часа: вдруг её уже продлили
         async Task CheckSubscription()
         {
             if (cfg.VpnSubscription.Length == 0) return;
             HashSet<string> warned = new HashSet<string>((cfg.VpnSubWarned ?? "").Split('|').Where(k => k.Length > 0));
-            Dictionary<string, string> now = SubscriptionWarnings(Vpn.ParseUserInfo(cfg.VpnSubInfo), DateTime.Now);
+            Dictionary<string, string> now = VpnInfo.SubscriptionWarnings(Vpn.ParseUserInfo(cfg.VpnSubInfo), DateTime.Now);
             DateTime updated;
             bool stale = !DateTime.TryParse(cfg.VpnSubUpdated, out updated) || (DateTime.Now - updated).TotalHours >= 1;
             if (stale && now.Keys.Any(k => !warned.Contains(k)))
@@ -744,7 +697,7 @@ namespace ZapretLauncher
                     if (Vpn.LastUserInfo != null) { cfg.VpnSubInfo = Vpn.LastUserInfo; RenderSubscription(); }
                 }
                 catch { }
-                now = SubscriptionWarnings(Vpn.ParseUserInfo(cfg.VpnSubInfo), DateTime.Now);
+                now = VpnInfo.SubscriptionWarnings(Vpn.ParseUserInfo(cfg.VpnSubInfo), DateTime.Now);
             }
             foreach (KeyValuePair<string, string> kv in now)
                 if (!warned.Contains(kv.Key)) Notify(kv.Value, new[] { "Открыть VPN", "vpn-page" });

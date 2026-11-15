@@ -75,7 +75,7 @@ namespace ZapretLauncher
             this.cfg = cfg;
             SitePresets.LoadCache();   // наборы сайтов из последней скачанной копии — до того, как их покажет интерфейс
             window = LoadWindow("ui.xaml");
-            window.SourceInitialized += delegate { Theme.ApplyWindow(window); };
+            window.SourceInitialized += delegate { Theme.ApplyWindow(window, TopBarHeight * cfg.Scale / 100.0); };
             Toasts.Init();
             BuildTray();
             WireEvents();
@@ -118,8 +118,9 @@ namespace ZapretLauncher
                 {
                     BuildSitePanel(); UpdateUi(); RenderHistory();
                     if (whatsNewPending) window.Dispatcher.BeginInvoke(new Action(ShowWhatsNew), DispatcherPriority.ApplicationIdle);
+                    if (pendingCrash != null) window.Dispatcher.BeginInvoke(new Action(ShowCrashOffer), DispatcherPriority.ApplicationIdle);
                 }
-                else { trimDue = DateTime.Now.AddSeconds(20); SaveWindowSize(); AutoBackup(); }
+                else { trimDue = DateTime.Now.AddSeconds(20); SaveWindowSize(); AutoBackup(); shownShare = 0; }
             };
             SystemEvents.UserPreferenceChanged += (s, e) =>
             {
@@ -186,6 +187,7 @@ namespace ZapretLauncher
             if (Config.Fresh) { cfg.LastSeenVersion = Consts.Version; cfg.Save(); }
             else if (cfg.LastSeenVersion != Consts.Version) { if (window.IsVisible) ShowWhatsNew(); else whatsNewPending = true; }
             if (!cfg.OnboardingDone && !autostart) ShowOnboarding();
+            CheckCrash();
 
             try { TaskbarMenu.EnsureHelper(); UpdateTaskbarMenu(); } catch (Exception e) { Log.Write("Меню в панели задач: " + e.Message); }
             WatchCommands();

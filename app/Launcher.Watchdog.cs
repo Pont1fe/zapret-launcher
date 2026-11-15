@@ -1,4 +1,4 @@
-// Сторож и подбор стратегии: проверка сайтов, перезапуск, автоподбор, «Вернуть прежнюю», сравнение после обновления
+﻿// Сторож и подбор стратегии: проверка сайтов, перезапуск, автоподбор, «Вернуть прежнюю», сравнение после обновления
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -54,7 +54,7 @@ namespace ZapretLauncher
             siteChecking = true;
             BuildSitePanel();
             List<SiteResult> res;
-            try { res = await Sites.Test(cfg.Telegram, true); }
+            try { res = await Sites.Test(cfg.Telegram, true, mine: cfg.MySites); }
             finally { siteChecking = false; }
             // ручную проверку показываем и без обхода (видно, что заблокировано); фоновую — только при работающем обходе
             if (health && !Zapret.Running) { siteResults = null; BuildSitePanel(); return; }
@@ -76,7 +76,8 @@ namespace ZapretLauncher
 
             // сайты, которые режут по адресу, сторож не считает: новая стратегия их всё равно не откроет.
             // Не считает и сайты, которые сейчас идут через VPN: обход на них не влияет
-            List<SiteResult> watched = siteResults.Where(r => !cfg.BlockedSites.Contains(r.Name) && !SiteViaVpn(r.Name)).ToList();
+            // и свои сайты пользователя: из-за одного медленного личного сайта перебирать стратегии нельзя
+            List<SiteResult> watched = siteResults.Where(r => !cfg.BlockedSites.Contains(r.Name) && !SiteViaVpn(r.Name) && !cfg.MySites.Contains(r.Name)).ToList();
             int ok = watched.Count(r => r.Ok);
             int expected = baseline.HasValue ? Math.Min(baseline.Value, watched.Count) : watched.Count;
             List<string> failing = watched.Where(r => !r.Ok).Select(r => r.Name).ToList();
@@ -158,7 +159,7 @@ namespace ZapretLauncher
         {
             if (!vpnRunning) return false;
             if (cfg.VpnMode != "split") return true;
-            SitePreset p = BlockedPreset(site);
+            SitePreset p = Routes.BlockedPreset(site);
             return p != null && SitePresets.IsOn(p, cfg.VpnDomains);
         }
 
@@ -208,6 +209,7 @@ namespace ZapretLauncher
             Log.Write("Подбор стратегии: проверяю " + strategies.Count + " шт. (" + string.Join(", ", Sites.Targets(cfg.Telegram, false).Select(t => t.Key)) + ")");
             Stopwatch total = Stopwatch.StartNew();
             ShowPickProgress(0, strategies.Count);
+            RaceStart(strategies);
             HashSet<string> seen = new HashSet<string>(), everOk = new HashSet<string>();   // для поиска сайтов, заблокированных по адресу
             int tested = 0;
             try
@@ -220,6 +222,7 @@ namespace ZapretLauncher
                     Text("PowerTimer").Text = T(Zapret.Title(s));
                     cfg.Strategy = s;
                     UpdateStrategyList();   // в списке подсвечивается проверяемая стратегия, метки обновляются по ходу
+                    RaceRunning(i);
                     siteChecking = true;
                     BuildSitePanel();
                     List<SiteResult> res;
@@ -227,7 +230,7 @@ namespace ZapretLauncher
                     {
                         // первый запуск — с полной подготовкой системы, дальше — быстрый
                         try { await StartBypass(true, i > 0); }
-                        catch { cfg.PickScores[s] = "0/0/0"; cfg.PickDetails.Remove(s); Log.Write("  " + Zapret.Title(s) + " — не запустилась"); ShowPickProgress(i + 1, strategies.Count); continue; }
+                        catch { cfg.PickScores[s] = "0/0/0"; cfg.PickDetails.Remove(s); Log.Write("  " + Zapret.Title(s) + " — не запустилась"); ShowPickProgress(i + 1, strategies.Count); RaceFailed(i, i + 1, strategies.Count); continue; }
                         await Task.Delay(400);
                         res = await Sites.Test(cfg.Telegram, false, 4);
                     }
@@ -249,6 +252,7 @@ namespace ZapretLauncher
                     // карточки сайтов показывают результат только что проверенной стратегии
                     siteResults = res;
                     BuildSitePanel();
+                    RaceResult(i, res, best.File == s, i + 1, strategies.Count);
                     Text("PowerHint").Visibility = Visibility.Visible;   // во время подбора — лучшая стратегия на данный момент
                     Text("PowerHint").Text = best.Ok > 0
                         ? T("Лучшая пока") + ": " + T(Zapret.Title(best.File)) + " · " + best.Ok + "/" + best.Total
@@ -258,7 +262,7 @@ namespace ZapretLauncher
                     if (stopAtFirstPerfect && res.All(r => r.Ok || cfg.BlockedSites.Contains(r.Name))) break;
                 }
             }
-            finally { picking = false; HidePickProgress(); }
+            finally { picking = false; HidePickProgress(); RaceEnd(best != null && best.Ok > 0 ? best.File : null, cancelPick); }
             Log.Write("Подбор занял " + (int)total.Elapsed.TotalSeconds + " сек.");
             UpdateBlockedSites(seen, everOk, tested);
             cfg.Strategy = best != null && best.Ok > 0 ? best.File : original;

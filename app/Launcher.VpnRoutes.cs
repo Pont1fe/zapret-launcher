@@ -42,12 +42,12 @@ namespace ZapretLauncher
                 parts = parts.SelectMany(t => t.IndexOfAny(new[] { '\\', '/' }) >= 0 ? new[] { t } : t.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
             foreach (string part in parts)
             {
-                string item = VpnSitesKind ? Zapret.NormalizeDomain(part) : NormalizeApp(part);
+                string item = VpnSitesKind ? Zapret.NormalizeDomain(part) : Routes.NormalizeApp(part);
                 if (item == null) { bad.Add(part); continue; }
                 found++;
                 if (!list.Contains(item, StringComparer.OrdinalIgnoreCase) && !added.Contains(item, StringComparer.OrdinalIgnoreCase)) added.Add(item);
             }
-            Text("VpnListInfo").Text = AddedInfo(added.Count, found, bad, VpnSitesKind ? "Не похоже на домен" : "Нужно имя программы, например Spotify.exe",
+            Text("VpnListInfo").Text = Formats.AddedInfo(added.Count, found, bad, VpnSitesKind ? "Не похоже на домен" : "Нужно имя программы, например Spotify.exe",
                                                  "Уже есть в списке", " ");
             if (added.Count == 0) return false;
             list.AddRange(added);
@@ -55,35 +55,7 @@ namespace ZapretLauncher
             return true;
         }
 
-        // ---------- Экспорт и импорт маршрутов ----------
-        // Файл — обычный текст: по сайту или программе на строку, комментарии после #.
-        // Ключей и серверов в нём нет — только списки, поэтому им можно делиться
-        static string RoutesFile(IEnumerable<string> domains, IEnumerable<string> apps)
-        {
-            List<string> lines = new List<string>
-            {
-                "# Zapret Launcher — " + T("маршруты VPN") + " (" + DateTime.Now.ToString("dd.MM.yyyy") + ")",
-                "# " + T("Сайты и программы, которые идут через VPN. Загрузить: VPN → Маршруты → «Импорт»"),
-                ""
-            };
-            lines.AddRange(domains);
-            if (apps.Any()) { lines.Add(""); lines.AddRange(apps); }
-            return string.Join("\r\n", lines) + "\r\n";
-        }
-
-        // Разбор файла маршрутов: «что-то.exe» или путь Windows — программа, остальное (и «site.com/path») — сайт; что не подошло ни туда, ни туда — в bad
-        static void SplitRoutes(string raw, List<string> domains, List<string> apps, List<string> bad)
-        {
-            foreach (string part in SitePresets.SplitItems(raw, false))
-            {
-                bool app = part.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || part.Contains('\\');
-                string item = app ? NormalizeApp(part) : Zapret.NormalizeDomain(part);
-                if (item == null) { bad.Add(part); continue; }
-                List<string> list = app ? apps : domains;
-                if (!list.Contains(item, StringComparer.OrdinalIgnoreCase)) list.Add(item);
-            }
-        }
-
+        // ---------- Экспорт и импорт маршрутов (сам файл — Routes) ----------
         void ExportRoutes()
         {
             if (cfg.VpnDomains.Count + cfg.VpnApps.Count == 0) { Text("VpnListInfo").Text = T("Список пуст — сохранять нечего"); return; }
@@ -95,7 +67,7 @@ namespace ZapretLauncher
             if (dlg.ShowDialog(window) != true) return;
             try
             {
-                File.WriteAllText(dlg.FileName, RoutesFile(cfg.VpnDomains, cfg.VpnApps), new System.Text.UTF8Encoding(true));
+                File.WriteAllText(dlg.FileName, Routes.RoutesFile(cfg.VpnDomains, cfg.VpnApps), new System.Text.UTF8Encoding(true));
                 Text("VpnListInfo").Text = T("Маршруты сохранены") + " — " + T("Сайты") + ": " + cfg.VpnDomains.Count + ", " + T("Программы") + ": " + cfg.VpnApps.Count;
                 Log.Write("VPN: маршруты сохранены в " + System.IO.Path.GetFileName(dlg.FileName));
             }
@@ -107,7 +79,7 @@ namespace ZapretLauncher
             string raw = ReadListFile();
             if (raw == null) return;
             List<string> domains = new List<string>(), apps = new List<string>(), bad = new List<string>();
-            SplitRoutes(raw, domains, apps, bad);
+            Routes.SplitRoutes(raw, domains, apps, bad);
             List<string> newDomains = domains.Where(d => !cfg.VpnDomains.Contains(d, StringComparer.OrdinalIgnoreCase)).ToList();
             List<string> newApps = apps.Where(a => !cfg.VpnApps.Contains(a, StringComparer.OrdinalIgnoreCase)).ToList();
             string info = newDomains.Count + newApps.Count > 0
@@ -145,16 +117,6 @@ namespace ZapretLauncher
                 if (!cfg.VpnDomains.Contains(d, StringComparer.OrdinalIgnoreCase)) cfg.VpnDomains.Add(d);
             foreach (string app in p.Apps)
                 if (!cfg.VpnApps.Contains(app, StringComparer.OrdinalIgnoreCase)) cfg.VpnApps.Add(app);
-        }
-
-        // "C:\...\Spotify.exe" или "spotify" → Spotify.exe / spotify.exe
-        static string NormalizeApp(string s)
-        {
-            s = s.Trim().Trim('"');
-            if (s.Length == 0 || s.IndexOfAny(System.IO.Path.GetInvalidPathChars()) >= 0) return null;   // «a|b» — не путь (GetFileName упал бы)
-            s = System.IO.Path.GetFileName(s);
-            if (!s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) s += ".exe";
-            return s.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 ? null : s;
         }
 
         // ---------- Журнал соединений ----------
@@ -218,7 +180,7 @@ namespace ZapretLauncher
                 title.Children.Add(sub);
                 Grid.SetColumn(title, 1);
                 head.Children.Add(title);
-                TextBlock total = new TextBlock { Text = Bytes(a.Bytes), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+                TextBlock total = new TextBlock { Text = Formats.Bytes(a.Bytes), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
                 total.SetResourceReference(TextBlock.ForegroundProperty, a.Vpn > 0 ? "AccentHover" : "TextSub");
                 Grid.SetColumn(total, 2);
                 head.Children.Add(total);
@@ -237,7 +199,7 @@ namespace ZapretLauncher
                     TextBlock host = new TextBlock { Text = s.Host + (s.Count > 1 ? " ×" + s.Count : ""), FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis };
                     Grid.SetColumn(host, 1);
                     row.Children.Add(host);
-                    TextBlock via = new TextBlock { Text = T(s.ViaVpn ? "VPN" : "напрямую") + " · " + Bytes(s.Bytes), FontSize = 10.5, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                    TextBlock via = new TextBlock { Text = T(s.ViaVpn ? "VPN" : "напрямую") + " · " + Formats.Bytes(s.Bytes), FontSize = 10.5, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
                     via.SetResourceReference(TextBlock.ForegroundProperty, s.ViaVpn ? "AccentHover" : "Faint");
                     Grid.SetColumn(via, 2);
                     row.Children.Add(via);
@@ -249,7 +211,7 @@ namespace ZapretLauncher
                     more.SetResourceReference(TextBlock.ForegroundProperty, "Faint");
                     body.Children.Add(more);
                 }
-                Border card = new Border { Child = body, CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 9, 12, 9), Margin = new Thickness(0, 0, 0, 6) };
+                Border card = new Border { Child = body, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 6) };
                 card.SetResourceReference(Border.BackgroundProperty, "Card");
                 list.Children.Add(card);
             }
@@ -302,22 +264,16 @@ namespace ZapretLauncher
             return title;
         }
 
-        // Набор проверяемого сайта (домены и программа) — чтобы целиком пустить его через VPN
-        static SitePreset BlockedPreset(string site)
-        {
-            return site == "Видео" ? new SitePreset { Name = site, Domains = new[] { "googlevideo.com" } } : SitePresets.Find(site);
-        }
-
         List<string> UncoveredBlockedSites()
         {
-            return cfg.BlockedSites.Where(s => BlockedPreset(s) != null && !SitePresets.IsOn(BlockedPreset(s), cfg.VpnDomains)).ToList();
+            return cfg.BlockedSites.Where(s => Routes.BlockedPreset(s) != null && !SitePresets.IsOn(Routes.BlockedPreset(s), cfg.VpnDomains)).ToList();
         }
 
         async Task AddBlockedToVpn()
         {
             foreach (string site in UncoveredBlockedSites())
             {
-                AddPresetToVpn(BlockedPreset(site));
+                AddPresetToVpn(Routes.BlockedPreset(site));
                 Log.Write(site + " теперь идёт через VPN");
             }
             await ApplyVpnChanges();
@@ -327,8 +283,6 @@ namespace ZapretLauncher
         int? PingOf(VpnServer s) { return ServerList.Ping(vpnPing, s); }
         double SpeedOf(VpnServer s) { double v; return vpnSpeed.TryGetValue(s.Link, out v) ? v : 0; }
 
-        static string ModeName(string mode) { return mode == "all" ? "весь трафик" : mode == "ru" ? "Россия напрямую" : "только выбранное"; }
-
         void RefreshVpnUi()
         {
             if (exiting) return;
@@ -337,10 +291,13 @@ namespace ZapretLauncher
             bool ready = on && !VpnSwitching;   // подключён именно выбранный сервер
             Text("VpnStatus").Text = T(ready ? "VPN подключён" : vpnLocked ? "VPN не работает — блокировка" : cfg.VpnOn ? "VPN переподключается…" : "VPN выключен");
             E<Ellipse>("VpnDot").SetResourceReference(Shape.FillProperty, ready ? "Ok" : vpnLocked ? "Fail" : cfg.VpnOn ? "Wait" : "Idle");
-            Text("VpnSub").Text = server == null ? T("Добавьте сервер ниже") : Vpn.DisplayName(server.Name) + " · " + T(ModeName(cfg.VpnMode));
+            Text("VpnSub").Text = server == null ? T("Добавьте сервер ниже") : Vpn.DisplayName(server.Name) + " · " + T(VpnInfo.ModeName(cfg.VpnMode));
             // карточка подключения: подсветка, переключатель, флаг страны текущего сервера
             TimeSpan anim = TimeSpan.FromMilliseconds(260);
             Fade(E<UIElement>("VpnCardOn"), on ? 1 : 0, anim);
+            // подключён — карточка цвета акцента, текст на ней светлый (AccentText), как на карточке обхода
+            Text("VpnStatus").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Text");
+            foreach (string t in new[] { "VpnSub", "VpnTimer", "VpnTraffic" }) Text(t).SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : t == "VpnTimer" ? "Muted" : "TextSub");
             Fade(E<UIElement>("VpnTrackOn"), on ? 1 : 0, anim);
             Slide(E<Ellipse>("VpnKnob"), on ? 28 : 0, anim);
             E<FrameworkElement>("VpnCard").Opacity = server != null ? 1 : 0.6;
@@ -358,7 +315,6 @@ namespace ZapretLauncher
             E<Button>("BtnVpnPing").IsEnabled = cfg.VpnServers.Count > 0 && !vpnPinging;
             E<Button>("BtnVpnBest").IsEnabled = cfg.VpnServers.Count > 1 && !vpnPinging;
             E<Button>("BtnVpnSpeed").IsEnabled = cfg.VpnServers.Any(s => !Awg.IsAwg(s.Link)) && !vpnPinging && !vpnSpeedTesting;
-            UpdatePowerVpn();
             trayState = null;   // значок трея — с меткой VPN или без
             Text("VpnModeText").Text = T(cfg.VpnMode == "all"
                 ? "Весь интернет идёт через сервер VPN. Обход zapret в это время не нужен."
@@ -418,12 +374,7 @@ namespace ZapretLauncher
                     : !useTabs || (x.code ?? "") == vpnTab)
                 .OrderBy(x => ServerList.Rank(PingOf(x.s))).ThenBy(x => x.i).ToList();   // работающие — наверх, быстрые первыми
             foreach (var x in shown) servers.Children.Add(ServerRow(x.s, x.i, x.code));
-            if (shown.Count == 0 && cfg.VpnServers.Count > 0)
-            {
-                TextBlock none = new TextBlock { Text = T("Ничего не найдено"), FontSize = 12, Margin = new Thickness(2, 2, 0, 6) };
-                none.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-                servers.Children.Add(none);
-            }
+            if (shown.Count == 0 && cfg.VpnServers.Count > 0) servers.Children.Add(EmptyState("", "Ничего не найдено", "Проверьте написание или сократите запрос", true));
 
             FillPresets(E<StackPanel>("VpnPresets"), cfg.VpnDomains, ToggleVpnPreset);
 
@@ -440,11 +391,8 @@ namespace ZapretLauncher
             FillItemList(items, list, query, true, async value => { list.Remove(value); await ApplyVpnChanges(); },
                          VpnSitesKind ? (Func<SitePreset, Task>)ToggleVpnPreset : null);
             if (list.Count == 0)
-            {
-                TextBlock empty = new TextBlock { Text = T(VpnSitesKind ? "Список пуст — добавьте сайты, которым нужен VPN" : "Список пуст — добавьте программы, которым нужен VPN"), FontSize = 12, Margin = new Thickness(2, 4, 0, 0) };
-                empty.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-                items.Children.Add(empty);
-            }
+                items.Children.Add(VpnSitesKind ? EmptyState("", "Список пуст", "Добавьте сайты, которым нужен VPN", true)
+                                                : EmptyState("", "Список пуст", "Добавьте программы, которым нужен VPN", true));
         }
     }
 }

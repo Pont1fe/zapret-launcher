@@ -21,7 +21,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "4.0.7";
+        public const string Value = "4.1.0";
     }
 
     static class App
@@ -47,9 +47,9 @@ namespace ZapretLauncher
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("styles.xaml"))
                 app.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Load(s));
-            Theme.Apply(cfg.Theme, cfg.Transparent, cfg.Accent);
+            Theme.Apply(cfg.Theme, cfg.Transparent, cfg.Accent, File.Exists(Paths.Wallpaper));
 
-            if (uninstall) return Uninstaller.Interactive();
+            if (uninstall) return args.Contains("--quiet") ? Uninstaller.Quiet() : Uninstaller.Interactive();
 
             bool created;
             mutex = new Mutex(true, MutexName, out created);
@@ -66,6 +66,14 @@ namespace ZapretLauncher
                 return 0;
             }
             owned = true;
+            // ошибка вне окна (фоновый поток) закрывает процесс — успеваем записать, что случилось
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                Exception ex = e.ExceptionObject as Exception;
+                if (ex == null) return;
+                try { Log.Write("Лаунчер аварийно закрылся: " + ex); } catch { }
+                Report.SaveCrash(ex, cfg);
+            };
 
             app.DispatcherUnhandledException += (s, e) =>
             {
@@ -165,6 +173,14 @@ namespace ZapretLauncher
             }
         }
 
+        // Без вопросов и окон — так удаляют winget и Scoop (QuietUninstallString); итог — код выхода и строка в журнале
+        public static int Quiet()
+        {
+            CloseOtherInstances();
+            try { Remove(true).GetAwaiter().GetResult(); return 0; }
+            catch (Exception e) { Log.Write("Не удалось удалить полностью: " + e.Message); return 1; }
+        }
+
         static void CloseOtherInstances()
         {
             foreach (Process p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Paths.Exe)))
@@ -188,7 +204,7 @@ namespace ZapretLauncher
         public static readonly string[] OwnFiles = {
             "ZapretLauncher.exe", "ZapretLauncher.exe.old", "ZapretLauncher.exe.new", "ZapretLauncher.prev.exe", "ZapretLauncherCmd.exe",
             "launcher.json", "launcher.json.tmp", "launcher.json.broken", "launcher.log", "launcher.log.1", "history.txt", "hosts.backup",
-            "site-presets.json", "telegram-hosts.txt", "command.txt", "autostart-task.xml" };
+            "site-presets.json", "telegram-hosts.txt", "command.txt", "autostart-task.xml", "crash.txt", "crash.old.txt", "wallpaper.img" };
 
         public static async Task Remove(bool deleteFiles)
         {

@@ -3,6 +3,32 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/demo-en.gif)
 
+### 4.1.0 — A new look / Новый вид
+
+**What's new / Что нового**
+
+- 🩺 “Why isn't it working?” on the home page: the launcher checks the internet, DNS, zapret, conflicting programs and the sites one by one, names the cause in plain words and fixes it with one button / Кнопка «Почему не работает?» на главной: лаунчер по шагам проверяет интернет, DNS, zapret, мешающие программы и сайты, называет причину простыми словами и исправляет её одной кнопкой
+- 🏁 “Find best strategy” is now a race: every strategy gets its own lane, a dot for every site it opened or missed, the leader gets a star — and at the finish you see who won / «Подобрать стратегию» — теперь гонка: у каждой стратегии своя дорожка, точка на каждый открытый или неоткрытый сайт, у лидера звёздочка, а на финише видно победителя
+- 🌙 Ready-made themes “Night”, “Ocean” and “Sunset”, and your own picture as the window background (Settings → Appearance). Switching a theme or accent spreads in a circle from where you click / Готовые темы «Ночь», «Океан» и «Закат» и своя картинка на фоне окна (Настройки → «Оформление»). Смена темы или цвета расходится кругом от места нажатия
+- 🖱️ Drag & drop: drop an app shortcut, an .exe, a link or a site address onto the window — it's added to the bypass or the VPN, depending on the page you're on / Перетаскивание: бросьте в окно ярлык, .exe, ссылку или адрес сайта — они добавятся в обход или VPN, смотря на какой вы странице
+- 🤖 A little robot lives next to the date on the home page: it sleeps when the bypass is off, looks around while the launcher is busy, smiles when everything opens and gets upset when something doesn't / У даты на главной живёт робот: спит, когда обход выключен, оглядывается, пока лаунчер занят, улыбается, когда всё открывается, и расстраивается, когда что-то не так
+- 📄 Subscriptions and pasted configs in Clash (YAML) and JSON (sing-box, Xray) formats work too — every server becomes a regular link / Подписки и вставленные настройки в формате Clash (YAML) и JSON (sing-box, Xray) тоже подходят — каждый сервер превращается в обычную ссылку
+- 🌐 Up to three of your own sites in Settings → “My sites on the home page”, each with its own card on the home page and in the tray mini window / До трёх своих сайтов в Настройках → «Мои сайты на главной», у каждого — своя карточка на главной и в мини-окне у трея
+- 💥 If the launcher ever crashes, it saves what happened (without keys or addresses) and offers to open a GitHub issue with the error on the next start / Если лаунчер вдруг упадёт, он запишет, что случилось (без ключей и адресов), и при следующем запуске предложит открыть заявку на GitHub с текстом ошибки
+- 📦 Install with Scoop (see README); a quiet uninstall `--uninstall --quiet` for scripts / Установка через Scoop (см. README); тихое удаление `--uninstall --quiet` для скриптов
+
+**The new look / Новый вид**
+
+- 🎨 A new, airy look: a floating violet menu on the left and a home page that shows everything at once — the bypass card, the sites, the current and backup strategies, VPN with its speed, and the last 24 hours with a ring of how long the bypass worked. The full strategy list opens from “all ›” or the search / Новый «воздушный» вид: плавающее фиолетовое меню слева и главная, где сразу видно всё — карточка обхода, сайты, текущая и запасная стратегии, VPN со скоростью и последние сутки с кольцом, сколько обход работал. Полный список стратегий открывается по «все ›» или через поиск
+- 🔝 The window title bar is replaced by a top bar with strategy search, “Report” and “Find best strategy”; drag the window by any empty spot of it / Вместо заголовка окна — верхняя панель с поиском стратегии, «Отчётом» и «Подобрать стратегию»; окно перетаскивается за любое пустое место на ней
+- 📈 Site cards show whether a site opened noticeably faster or slower than usual / Карточки сайтов показывают, открылся ли сайт заметно быстрее или медленнее обычного
+- 🪟 The window is bigger now (1240×760 by default), and compact view is gone — the tray mini window is there for a quick look / Окно стало больше (по умолчанию 1240×760), а компактный вид убран — для быстрого взгляда есть мини-окно из трея
+- 💜 The light theme is a soft lavender, and new installs get the violet accent / Светлая тема стала мягко-лавандовой, а новые установки получают фиолетовый акцент
+- 🧩 VPN, Domains, Settings, Log, the strategy list, the tray mini window and the installer got the same look / Страницы VPN, «Домены», «Настройки», «Журнал», список стратегий, мини-окно у трея и установщик — в том же стиле
+- 🖼️ Site cards show real Discord, YouTube and Telegram logos, and your own sites show their icon; milliseconds count up smoothly and the 24-hour ring grows when the window opens / На карточках сайтов — настоящие логотипы Discord, YouTube и Telegram, у своих сайтов — их значок; миллисекунды плавно досчитываются, а кольцо суток вырастает при открытии окна
+- 🌑 A deeper dark theme: thin card outlines, a glowing ring, cards light up under the mouse. Empty lists and searches with no results now say what to do next / Тёмная тема глубже: тонкий контур у карточек, светящееся кольцо, подсветка карточек при наведении. Пустые списки и поиск без результатов подсказывают, что делать дальше
+- 🧪 Under the hood: logic moved out of the window into tested classes; 416 automatic checks and a separate test of the window itself / Внутри: логика вынесена из окна в отдельные классы с тестами; 416 автоматических проверок и отдельный тест самого окна
+
 ### 4.0.7 — Locked for real / Защита до конца
 
 - 🔐 The launcher folder protection from 4.0.6 is now complete: the folder's owner also becomes Administrators. Before, if the folder had been created without admin rights (for example, when unpacking an old version by hand), its owner could take the write access back without admin rights / Защита папки лаунчера из 4.0.6 доведена до конца: владельцем папки тоже становятся администраторы. Раньше, если папку создавали без прав администратора (например, распаковывая старую версию вручную), её владелец мог вернуть себе право на запись и без прав администратора

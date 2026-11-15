@@ -60,8 +60,6 @@ for ($i = 0; $i -lt $sizes.Count; $i++) {
 }
 foreach ($fr in $frames) { $w.Write($fr) }
 $w.Close()
-$logo = Join-Path $obj 'logo.png'
-(New-AppBitmap 112).Save($logo, [Drawing.Imaging.ImageFormat]::Png)
 
 function Invoke-Csc([string[]]$CscArgs) {
     & $csc /nologo /target:winexe /optimize+ /codepage:65001 /platform:anycpu $CscArgs
@@ -113,7 +111,7 @@ $inst = Join-Path $root 'installer'
 Invoke-Csc @(
     "/out:$(Join-Path $dist 'ZapretLauncherSetup.exe')", "/win32icon:$ico", "/win32manifest:$(Join-Path $inst 'app.manifest')",
     '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Management.dll', '/r:Microsoft.CSharp.dll', '/r:System.Core.dll',
-    "/resource:$launcherExe,ZapretLauncher.exe", "/resource:$logo,logo.png",
+    "/resource:$launcherExe,ZapretLauncher.exe",
     (Join-Path $inst 'Setup.cs'), $setupVersion
 )
 Get-ChildItem $dist -Filter *.exe | Select-Object Name, Length, @{ n = 'Version'; e = { $_.VersionInfo.FileVersion } }

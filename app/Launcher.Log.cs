@@ -1,4 +1,4 @@
-// Журнал, диалоги и уведомления
+﻿// Журнал, диалоги и уведомления
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -37,26 +37,6 @@ namespace ZapretLauncher
         // В памяти — последние строки; на странице — с фильтром «только важное» и поиском, новые строки дописываются на лету
         readonly List<LogLine> logLines = new List<LogLine>();
         readonly System.Collections.ObjectModel.ObservableCollection<LogLine> logView = new System.Collections.ObjectModel.ObservableCollection<LogLine>();
-        static readonly string[] LogErrors = { "ошибка", "Ошибка", "Не удалось", "не удалось", "Exception", "не работает", "упал", "остановилось",
-                                               "error", "Error", "failed", "Could not", "Couldn't", "isn't working", "stopped right" };
-        static readonly string[] LogWarnings = { "Сторож", "Внимание", "не отвечает", "не открывается", "перестала", "блокирует",
-                                                 "Watchdog", "Warning", "not responding", "doesn't open", "stopped working", "blocks" };
-        static readonly string[] LogGood = { "Запущена стратегия", "Лучшая стратегия", "Новая стратегия", "VPN подключён", "обновлён до",
-                                             "Started strategy", "Best strategy", "New strategy", "VPN connected", "updated to" };
-
-        static LogLine ParseLog(string line)
-        {
-            LogLine l = new LogLine { Raw = line, Time = "", Text = line, Kind = "" };
-            if (line.StartsWith("[") && line.IndexOf("] ") > 0)
-            {
-                int end = line.IndexOf("] ");
-                l.Time = line.Substring(1, end - 1);
-                l.Text = line.Substring(end + 2);
-            }
-            else if (line.StartsWith("   ") || line.StartsWith("\t")) { l.Kind = "trace"; l.Text = line.Trim(); return l; }   // строки стека после ошибки
-            l.Kind = LogErrors.Any(k => l.Text.Contains(k)) ? "err" : LogWarnings.Any(k => l.Text.Contains(k)) ? "warn" : LogGood.Any(k => l.Text.Contains(k)) ? "ok" : "";
-            return l;
-        }
 
         bool LogShown(LogLine l)
         {
@@ -70,21 +50,21 @@ namespace ZapretLauncher
             foreach (string part in text.Replace("\r", "").Split('\n'))
             {
                 if (part.Trim().Length == 0) continue;
-                LogLine l = ParseLog(part);
+                LogLine l = Formats.ParseLog(part);
                 logLines.Add(l);
                 if (LogShown(l)) logView.Add(l);
             }
             if (logLines.Count > 3000) { logLines.RemoveRange(0, 1000); FilterLog(); return; }
             ListBox list = E<ListBox>("LogList");
             if (list.IsVisible && logView.Count > 0) list.ScrollIntoView(logView[logView.Count - 1]);
-            E<FrameworkElement>("LogEmpty").Visibility = logView.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            ShowEmpty("LogEmpty", logView.Count == 0, "", "Ничего не найдено", "Снимите фильтр или измените запрос");
         }
 
         void FilterLog()
         {
             logView.Clear();
             foreach (LogLine l in logLines) if (LogShown(l)) logView.Add(l);
-            E<FrameworkElement>("LogEmpty").Visibility = logView.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            ShowEmpty("LogEmpty", logView.Count == 0, "", "Ничего не найдено", "Снимите фильтр или измените запрос");
             if (logView.Count > 0) E<ListBox>("LogList").ScrollIntoView(logView[logView.Count - 1]);
         }
 
@@ -133,6 +113,35 @@ namespace ZapretLauncher
             }
             catch (Exception e) { Log.Write("Не удалось собрать отчёт: " + e.Message); Ask(T("Не удалось собрать отчёт: ") + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); }
             finally { b.Content = T(label); b.IsEnabled = true; }
+        }
+
+        // Прошлый запуск упал (см. Report.SaveCrash): один раз предлагаем открыть заявку с текстом ошибки.
+        // Окно скрыто (автозапуск) — спросим, когда его откроют
+        string pendingCrash;
+
+        void CheckCrash()
+        {
+            try
+            {
+                if (!File.Exists(Report.CrashFile)) return;
+                pendingCrash = File.ReadAllText(Report.CrashFile);
+                File.Copy(Report.CrashFile, Report.CrashOld, true);
+                File.Delete(Report.CrashFile);
+            }
+            catch (Exception e) { Log.Write("Отчёт о падении: " + e.Message); return; }
+            Log.Write("Прошлый запуск лаунчера закончился аварийно");
+            if (window.IsVisible) ShowCrashOffer();
+        }
+
+        void ShowCrashOffer()
+        {
+            string text = pendingCrash;
+            pendingCrash = null;
+            if (text == null || Ask("Прошлый запуск лаунчера закончился аварийно. Сообщить разработчику?\n\nОткроется заявка на GitHub с текстом ошибки — без ключей и адресов серверов. Перед отправкой её можно проверить.",
+                                    MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            string url = Report.IssueUrl(Consts.LauncherRepo, Consts.Version, Report.IssueSystem(cfg), T("Лаунчер аварийно закрылся") + ":\n\n" + Report.CrashSummary(text));
+            // через explorer, чтобы браузер открылся без прав администратора
+            try { Process.Start("explorer.exe", "\"" + url + "\""); } catch (Exception e) { Log.Write("Не удалось открыть браузер: " + e.Message); }
         }
 
         // ---------- Диалоги и уведомления ----------

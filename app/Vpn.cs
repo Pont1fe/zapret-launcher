@@ -86,6 +86,7 @@ namespace ZapretLauncher
             if (Awg.LooksLikeConf(text)) return new List<VpnServer> { Awg.FromConf(text, null) };   // вставили содержимое файла AmneziaWG
             bool subscription = text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
             if (subscription) text = DecodeSubscription(await FetchSubscription(text));
+            else text = SubFormats.ToLinks(text) ?? text;   // вставили содержимое подписки Clash или JSON
             List<VpnServer> list = new List<VpnServer>();
             Exception firstError = null;
             string[] links = text.Split(new[] { '\r', '\n', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim()).Where(IsLink).ToArray();
@@ -112,14 +113,17 @@ namespace ZapretLauncher
             return list;
         }
 
-        // Подписка — обычно base64 со списком ссылок, иногда сразу список
+        // Подписка — обычно base64 со списком ссылок, иногда сразу список, а у некоторых провайдеров — Clash (YAML) или JSON
         static string DecodeSubscription(string body)
         {
             string t = body.Trim();
             if (IsLink(t.Split('\n')[0].Trim())) return t;
             string b = B64(t.Replace("\r", "").Replace("\n", ""));
             if (b != null && b.Split('\n').Any(l => IsLink(l.Trim()))) return b;
-            if (t.StartsWith("{") || t.StartsWith("proxies:")) throw new Exception("Подписка в формате JSON/Clash пока не поддерживается — нужна подписка со ссылками");
+            string converted = SubFormats.ToLinks(t);
+            if (converted == "") throw new Exception("В подписке нет серверов, которые лаунчер умеет подключать (vless, vmess, trojan, shadowsocks без плагина, hysteria2, tuic)");
+            if (converted != null) return converted;
+            if (t.StartsWith("{") || t.StartsWith("[") || t.StartsWith("proxies:")) throw new Exception("Не удалось прочитать подписку в формате JSON/Clash");
             return t;
         }
 
@@ -910,7 +914,8 @@ namespace ZapretLauncher
             long up, down, total, expire;
             v.TryGetValue("upload", out up); v.TryGetValue("download", out down); v.TryGetValue("total", out total); v.TryGetValue("expire", out expire);
             SubscriptionInfo info = new SubscriptionInfo { Used = up + down, Total = total };
-            if (expire > 0) info.Expire = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(expire).ToLocalTime();
+            // заголовок присылает провайдер: число за пределами дат (например, миллисекунды вместо секунд) — срок не показываем, а не падаем
+            if (expire > 0 && expire < 253402300000) info.Expire = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(expire).ToLocalTime();
             return info;
         }
 

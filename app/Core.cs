@@ -1,4 +1,4 @@
-// Ядро: пути, настройки, журнал, общие утилиты и GitHub API
+﻿// Ядро: пути, настройки, журнал, общие утилиты и GitHub API
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -23,6 +23,7 @@ namespace ZapretLauncher
         public static readonly string Config = Path.Combine(Root, "launcher.json");
         public static readonly string Log = Path.Combine(Root, "launcher.log");
         public static readonly string History = Path.Combine(Root, "history.txt");
+        public static readonly string Wallpaper = Path.Combine(Root, "wallpaper.img");   // своя картинка за окном (любой формат, что читает Windows)
         public static readonly string HostsCache = Path.Combine(Root, "telegram-hosts.txt");
         public static readonly string HostsBackup = Path.Combine(Root, "hosts.backup");
         public static readonly string TgDir = Path.Combine(Root, "tgproxy");
@@ -93,7 +94,7 @@ namespace ZapretLauncher
         public double WindowWidth { get; set; }
         public double WindowHeight { get; set; }
         public bool WindowMaximized { get; set; }
-        public bool Compact { get; set; }      // компактный вид: только правая панель
+        public bool Compact { get; set; }      // не используется: компактный вид убран; поле остаётся, чтобы старый config.json читался как есть
         public string SecureDns { get; set; }  // "" — выключен; cloudflare / google / quad9 / adguard
         public List<string> DnsAdapters { get; set; }   // адаптеры, на которых лаунчер поменял DNS (чтобы вернуть как было)
         public string IpsetUpdated { get; set; }        // когда список IPSet обновлялся автоматически (yyyy-MM-dd)
@@ -118,6 +119,7 @@ namespace ZapretLauncher
         [ScriptIgnore] public static bool Fresh { get; private set; }
         [ScriptIgnore] public static bool Broken { get; private set; }   // launcher.json был, но не прочитался — настройки по умолчанию
         public List<string> Favorites { get; set; }
+        public List<string> MySites { get; set; }   // свои сайты для карточек на главной (до трёх); сторож их не учитывает
         public List<string> CollapsedGroups { get; set; }            // свёрнутые группы в списке стратегий
         public Dictionary<string, string> PickScores { get; set; }   // стратегия -> "открылось/всего/среднее мс" из последнего подбора
         public Dictionary<string, string> PickDetails { get; set; }  // стратегия -> "Сайт=мс;Сайт=-1" (-1 — не открылся) из последнего подбора
@@ -130,10 +132,11 @@ namespace ZapretLauncher
         public Config()
         {
             Strategy = "general.bat"; AutoUpdate = true; Watchdog = true; VpnPause = true; NetworkProfilesEnabled = true; Toasts = true;
-            Language = "auto"; Theme = "dark"; Accent = "teal"; Scale = 100;
+            Language = "auto"; Theme = "dark"; Accent = "violet"; Scale = 100;   // новые установки — фиолетовый акцент
             SkipVersion = ""; LauncherRepo = Consts.LauncherRepo; PickDate = "";
             NetworkProfiles = new Dictionary<string, NetProfile>();
             Favorites = new List<string>();
+            MySites = new List<string>();
             CollapsedGroups = new List<string>();
             PickScores = new Dictionary<string, string>();
             PickDetails = new Dictionary<string, string>();
@@ -169,6 +172,7 @@ namespace ZapretLauncher
             if (raw != null && !raw.Contains("\"OnboardingDone\"")) c.OnboardingDone = true;
             Fresh = raw == null;
             if (c.Favorites == null) c.Favorites = new List<string>();
+            if (c.MySites == null) c.MySites = new List<string>();
             if (c.PickScores == null) c.PickScores = new Dictionary<string, string>();
             if (c.PickDetails == null) c.PickDetails = new Dictionary<string, string>();
             if (c.BlockedSites == null) c.BlockedSites = new List<string>();

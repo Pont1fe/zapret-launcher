@@ -1,4 +1,4 @@
-// Страница «Домены»: список, наборы сайтов, поиск, добавление списком и из файла (общие части — и для VPN)
+﻿// Страница «Домены»: список, наборы сайтов, поиск, добавление списком и из файла (общие части — и для VPN)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -34,9 +34,8 @@ namespace ZapretLauncher
             string query = domains.Count > 8 ? E<TextBox>("DomainSearch").Text.Trim() : "";
             // наборы — только в «Обходить»; в исключениях домены идут по одному
             FillItemList(E<StackPanel>("DomainItems"), domains, query, false, RemoveDomain, DomainKind == "general" ? (Func<SitePreset, Task>)RemoveDomainPreset : null);
-            E<FrameworkElement>("DomainEmpty").Visibility = domains.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
-            Text("DomainEmptyText").Text = T(DomainKind == "general" ? "Своих доменов пока нет — добавьте сайт, который нужно разблокировать, или выберите готовый набор"
-                                                                      : "Исключений нет — сюда добавляют сайты, которые ломаются от обхода");
+            if (DomainKind == "general") ShowEmpty("DomainEmpty", domains.Count == 0, "", "Своих доменов пока нет", "Добавьте сайт, который нужно разблокировать, или выберите готовый набор");
+            else ShowEmpty("DomainEmpty", domains.Count == 0, "", "Исключений нет", "Сюда добавляют сайты, которые ломаются от обхода");
             // наборы — только для списка «Обходить»: исключать целые сервисы незачем
             E<FrameworkElement>("DomainPresetBox").Visibility = DomainKind == "general" ? Visibility.Visible : Visibility.Collapsed;
             if (DomainKind == "general") FillPresets(E<StackPanel>("DomainPresets"), domains, ToggleDomainPreset);
@@ -58,7 +57,7 @@ namespace ZapretLauncher
             if (added.Count == 0 && bad.Count == 0) return false;
             List<string> current = Zapret.UserDomains(DomainKind);
             List<string> fresh = added.Where(d => !current.Contains(d)).Distinct().ToList();
-            Text("DomainInfo").Text = AddedInfo(fresh.Count, added.Count, bad, "Не похоже на домен", "Этот домен уже есть в списке",
+            Text("DomainInfo").Text = Formats.AddedInfo(fresh.Count, added.Count, bad, "Не похоже на домен", "Этот домен уже есть в списке",
                                                 "Можно сразу несколько — через пробел, запятую или вставить списком. Поддомены учитываются автоматически.");
             if (fresh.Count == 0) return false;
             Zapret.SaveUserDomains(DomainKind, current.Concat(fresh));
@@ -67,15 +66,6 @@ namespace ZapretLauncher
             AutoBackup();
             await RestartIfRunning();
             return true;
-        }
-
-        // Итог добавления: сколько добавлено, что уже было, что не распознано (первые несколько)
-        static string AddedInfo(int fresh, int found, List<string> bad, string badText, string dupText, string normalText)
-        {
-            string s = fresh > 1 ? T("Добавлено") + ": " + fresh : fresh == 0 && found > 0 ? T(dupText) : "";
-            if (bad.Count > 0)
-                s += (s.Length > 0 ? ". " : "") + T(badText) + ": " + string.Join(", ", bad.Take(5)) + (bad.Count > 5 ? " (+" + (bad.Count - 5) + ")" : "");
-            return s.Length > 0 ? s : T(normalText);
         }
 
         async Task ToggleDomainPreset(SitePreset p)
@@ -137,7 +127,7 @@ namespace ZapretLauncher
                 del.Click += async delegate { await removeSet(p); };
                 Grid.SetColumn(del, 2);
                 row.Children.Add(del);
-                Border card = new Border { Child = row, CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 9, 8, 9), Margin = new Thickness(0, 0, 0, 6) };
+                Border card = new Border { Child = row, CornerRadius = new CornerRadius(16), Padding = new Thickness(12, 10, 8, 10), Margin = new Thickness(0, 0, 0, 6) };
                 card.SetResourceReference(Border.BackgroundProperty, "Card");
                 host.Children.Add(card);
                 shown++;
@@ -156,7 +146,7 @@ namespace ZapretLauncher
                 del.Click += async delegate { await removeOne(value); };
                 Grid.SetColumn(del, 1);
                 row.Children.Add(del);
-                Border card = new Border { Child = row, CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6) };
+                Border card = new Border { Child = row, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 7, 8, 7), Margin = new Thickness(0, 0, 0, 6) };
                 card.SetResourceReference(Border.BackgroundProperty, "Card");
                 host.Children.Add(card);
                 shown++;
@@ -167,12 +157,38 @@ namespace ZapretLauncher
                 more.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
                 host.Children.Add(more);
             }
-            if (shown == 0 && query.Length > 0)
-            {
-                TextBlock none = new TextBlock { Text = T("Ничего не найдено"), FontSize = 12, Margin = new Thickness(2, 2, 0, 6) };
-                none.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-                host.Children.Add(none);
-            }
+            if (shown == 0 && query.Length > 0) host.Children.Add(EmptyState("", "Ничего не найдено", "Проверьте написание или сократите запрос", true));
+        }
+
+        // Пустой список или поиск без результатов: значок в кружке, заголовок и подсказка, что делать дальше
+        static FrameworkElement EmptyState(string glyph, string title, string hint, bool compact = false)
+        {
+            double size = compact ? 44 : 64;
+            StackPanel p = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 340,
+                                            Margin = new Thickness(16, compact ? 10 : 24, 16, compact ? 10 : 24) };
+            Grid icon = new Grid { Width = size, Height = size, HorizontalAlignment = HorizontalAlignment.Center };
+            Ellipse circle = new Ellipse();
+            circle.SetResourceReference(Shape.FillProperty, "AccentSoft");
+            TextBlock g = new TextBlock { Text = glyph, FontSize = size * 0.4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            g.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
+            g.SetResourceReference(TextBlock.ForegroundProperty, "Accent");
+            icon.Children.Add(circle);
+            icon.Children.Add(g);
+            p.Children.Add(icon);
+            p.Children.Add(new TextBlock { Text = T(title), FontSize = compact ? 13 : 14.5, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center,
+                                           TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, compact ? 8 : 12, 0, 0) });
+            TextBlock h = new TextBlock { Text = T(hint), FontSize = 12, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+            h.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+            p.Children.Add(h);
+            return p;
+        }
+
+        // То же в готовом месте окна (ContentControl в разметке): пересобирается при каждом показе — текст зависит от вкладки и языка
+        void ShowEmpty(string name, bool show, string glyph, string title, string hint)
+        {
+            ContentControl c = E<ContentControl>(name);
+            c.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            c.Content = show ? EmptyState(glyph, title, hint) : null;
         }
 
         readonly Dictionary<string, string> presetTabs = new Dictionary<string, string>();   // открытая вкладка наборов на каждой странице

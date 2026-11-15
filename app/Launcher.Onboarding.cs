@@ -50,22 +50,31 @@ namespace ZapretLauncher
                 card.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 card.ColumnDefinitions.Add(new ColumnDefinition());
                 card.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                card.Children.Add(PicBadge("", "Accent", Brushes.White, 40));
+                // как карточка обхода на главной: цвет акцента, светлый текст, щит на светлой плитке
+                Border shield = (Border)PicBadge("", "CardRaised", null, 40);
+                ((TextBlock)shield.Child).SetResourceReference(TextBlock.ForegroundProperty, "Accent");
+                card.Children.Add(shield);
                 StackPanel t = PicText(T("Обход работает"), T("Стратегия") + ": ALT2", 15);
+                foreach (TextBlock line in t.Children) line.SetResourceReference(TextBlock.ForegroundProperty, "AccentText");
                 Grid.SetColumn(t, 1);
                 card.Children.Add(t);
-                FrameworkElement toggle = PicToggle(true);
+                Border toggle = (Border)PicToggle(true);
+                toggle.Background = new SolidColorBrush(Color.FromArgb(0x59, 255, 255, 255));   // на цвете акцента — полупрозрачная белая дорожка
                 Grid.SetColumn(toggle, 2);
                 card.Children.Add(toggle);
-                p.Children.Add(PicCard(card, true));
+                Border power = PicCard(card, false);
+                power.Background = new LinearGradientBrush(Theme.Color("Accent"), Theme.Color("AccentHover"), 45);
+                power.Padding = new Thickness(14, 12, 14, 12);
+                p.Children.Add(power);
                 UniformGrid sites = new UniformGrid { Columns = 3, Margin = new Thickness(0, 8, -8, 0) };
                 foreach (string[] s in new[] { new[] { "Discord", "742" }, new[] { "YouTube", "688" }, new[] { "Telegram", "455" } })
                 {
-                    string[] look = SiteLook(s[0]);
                     Grid row = new Grid();
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                     row.ColumnDefinitions.Add(new ColumnDefinition());
-                    row.Children.Add(PicBadge(look[0], null, Brushes.White, 22, look[1]));
+                    FrameworkElement badge = SiteBadge(s[0], 22);
+                    badge.Margin = new Thickness(0, 0, 8, 0);
+                    row.Children.Add(badge);
                     StackPanel st = PicText(s[0], s[1] + " " + T("мс"), 12);
                     Grid.SetColumn(st, 1);
                     row.Children.Add(st);
@@ -126,8 +135,8 @@ namespace ZapretLauncher
                         ms.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
                         c.Children.Add(ms);
                     }
-                    Border chip = new Border { Child = c, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 6), BorderThickness = new Thickness(1) };
-                    chip.SetResourceReference(Border.BackgroundProperty, s[0] == "ALT2" ? "AccentSoft" : "Card");
+                    Border chip = new Border { Child = c, CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 6), BorderThickness = new Thickness(s[0] == "ALT2" ? 1.5 : 0) };
+                    chip.SetResourceReference(Border.BackgroundProperty, s[0] == "ALT2" ? "AccentSoft" : "WindowBg");
                     chip.SetResourceReference(Border.BorderBrushProperty, s[0] == "ALT2" ? "Accent" : "Line");
                     chips.Children.Add(chip);
                 }
@@ -172,9 +181,10 @@ namespace ZapretLauncher
 
         static Border PicCard(UIElement child, bool accent)
         {
-            Border b = new Border { Child = child, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10, 12, 10), BorderThickness = new Thickness(1) };
-            b.SetResourceReference(Border.BackgroundProperty, accent ? "AccentSoft" : "Card");
-            b.SetResourceReference(Border.BorderBrushProperty, accent ? "AccentBorder" : "Line");
+            // как карточки на главной: скругление 16, без рамки; обычная — на фоне окна, выбранная — мягкий акцент с рамкой акцента
+            Border b = new Border { Child = child, CornerRadius = new CornerRadius(16), Padding = new Thickness(12, 10, 12, 10), BorderThickness = new Thickness(accent ? 1.5 : 0) };
+            b.SetResourceReference(Border.BackgroundProperty, accent ? "AccentSoft" : "WindowBg");
+            if (accent) b.SetResourceReference(Border.BorderBrushProperty, "Accent");
             return b;
         }
 

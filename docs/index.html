@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zapret Launcher</title>
+<meta name="description" content="Discord, YouTube и Telegram снова работают — одним нажатием. Удобная оболочка для zapret со встроенным VPN для Windows 10 и 11.">
+<meta property="og:title" content="Zapret Launcher">
+<meta property="og:description" content="Discord, YouTube и Telegram снова работают — одним нажатием. Бесплатно, с открытым кодом.">
+<meta property="og:image" content="screenshots/main-light-ru.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='26' fill='%237558F7'/%3E%3Cg transform='translate(18 16) scale(.64)'%3E%3Cpath d='M50,8 C64,16 76,18 88,18 L88,46 C88,70 72,86 50,94 C28,86 12,70 12,46 L12,18 C24,18 36,16 50,8 Z' fill='white'/%3E%3Cpath d='M35,33 L65,33 L35,67 L65,67' fill='none' stroke='%237558F7' stroke-width='9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #F3F2FA; --card: #FFFFFF; --edge: transparent; --text: #16152B; --sub: #3B3955; --muted: #7E7C98;
+    --accent: #7558F7; --accent-hover: #6343E8; --accent-soft: #ECE8FE; --shadow: 0 18px 40px -18px rgba(59, 47, 143, .28);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D0E11; --card: #191B20; --edge: rgba(255, 255, 255, .08); --text: #ECEEF2; --sub: #C3C6CE; --muted: #8B8E98;
+      --accent: #7F65F8; --accent-hover: #9580FA; --accent-soft: #1E1A33; --shadow: 0 18px 50px -20px rgba(117, 88, 247, .35);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 18px; color: var(--text); }
+  .brand:hover { text-decoration: none; }
+  .logo { width: 40px; height: 40px; border-radius: 12px; background: var(--accent); display: grid; place-items: center; flex: none; }
+  .logo svg { width: 26px; height: 26px; }
+  nav { display: flex; gap: 18px; font-size: 15px; }
+  nav a { color: var(--muted); }
+
+  .hero { text-align: center; padding: 48px 0 28px; }
+  .hero h1 { font-size: clamp(32px, 6vw, 54px); line-height: 1.08; margin: 0 auto 16px; max-width: 760px; letter-spacing: -.02em; }
+  .hero p { color: var(--sub); font-size: clamp(17px, 2.4vw, 20px); max-width: 640px; margin: 0 auto 30px; }
+  .download { display: inline-flex; align-items: center; gap: 12px; background: var(--accent); color: #fff; font-size: 19px; font-weight: 600;
+              padding: 17px 34px; border-radius: 18px; box-shadow: 0 14px 30px -12px var(--accent); transition: background .15s, transform .15s; }
+  .download:hover { background: var(--accent-hover); text-decoration: none; transform: translateY(-1px); }
+  .download svg { width: 22px; height: 22px; }
+  .meta { margin-top: 14px; color: var(--muted); font-size: 14px; }
+  .meta a { color: var(--muted); text-decoration: underline; }
+
+  .demo { margin: 36px auto 0; border-radius: 22px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--edge); background: var(--card); }
+  .demo img { display: block; width: 100%; height: auto; }
+
+  section { padding: 56px 0 8px; }
+  h2 { font-size: clamp(24px, 3.6vw, 32px); margin: 0 0 22px; letter-spacing: -.01em; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--edge); border-radius: 22px; padding: 24px; box-shadow: var(--shadow); }
+  .card h3 { margin: 14px 0 8px; font-size: 18px; }
+  .card p { margin: 0; color: var(--sub); font-size: 15px; }
+  .icon { width: 48px; height: 48px; border-radius: 50%; background: var(--accent-soft); display: grid; place-items: center; }
+  .icon svg { width: 24px; height: 24px; stroke: var(--accent); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .steps { counter-reset: s; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 0; margin: 0; list-style: none; }
+  .steps li { counter-increment: s; background: var(--card); border: 1px solid var(--edge); border-radius: 22px; padding: 22px 24px; box-shadow: var(--shadow); color: var(--sub); font-size: 15px; }
+  .steps li::before { content: counter(s); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; margin-bottom: 12px; }
+  .steps b { color: var(--text); }
+
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; }
+  .shots figure { margin: 0; background: var(--card); border: 1px solid var(--edge); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); }
+  .shots img { display: block; width: 100%; height: auto; }
+  .shots figcaption { padding: 10px 16px 12px; color: var(--muted); font-size: 14px; }
+
+  .faq details { background: var(--card); border: 1px solid var(--edge); border-radius: 18px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .faq summary { cursor: pointer; list-style: none; padding: 18px 52px 18px 22px; font-weight: 600; position: relative; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: ""; position: absolute; right: 22px; top: 50%; width: 9px; height: 9px; border: solid var(--muted); border-width: 0 2px 2px 0;
+                        transform: translateY(-70%) rotate(45deg); transition: transform .15s; }
+  .faq details[open] summary::after { transform: translateY(-30%) rotate(-135deg); }
+  .faq .a { padding: 0 22px 18px; color: var(--sub); font-size: 15px; }
+  .faq .a p { margin: 0 0 8px; }
+  .faq .a p:last-child { margin: 0; }
+  kbd { font: inherit; font-weight: 600; color: var(--text); background: var(--accent-soft); border-radius: 6px; padding: 1px 6px; }
+
+  footer { margin-top: 64px; padding: 28px 0 40px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--edge); }
+  footer p { margin: 0 0 6px; }
+  footer a { color: var(--muted); text-decoration: underline; }
+
+  @media (max-width: 760px) {
+    .cards, .steps, .shots { grid-template-columns: 1fr; }
+    nav a.hide-sm { display: none; }
+    .hero { padding-top: 24px; }
+    .download { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="./">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 100 100"><path d="M50,8 C64,16 76,18 88,18 L88,46 C88,70 72,86 50,94 C28,86 12,70 12,46 L12,18 C24,18 36,16 50,8 Z" fill="#fff"/>
+          <path d="M35,33 L65,33 L35,67 L65,67" fill="none" stroke="#7558F7" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      Zapret Launcher
+    </a>
+    <nav>
+      <a class="hide-sm" href="#features">Возможности</a>
+      <a class="hide-sm" href="#faq">Вопросы</a>
+      <a href="https://github.com/Pont1fe/zapret-launcher">GitHub</a>
+      <a href="https://github.com/Pont1fe/zapret-launcher/blob/main/README.md" lang="en">English</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>Discord, YouTube и&nbsp;Telegram снова работают — одним нажатием</h1>
+      <p>Удобная оболочка для zapret со встроенным VPN. Без <code>.bat</code>-файлов и консоли: лаунчер сам найдёт рабочую стратегию, обновит её и починит, если что-то сломается.</p>
+      <a class="download" href="https://github.com/Pont1fe/zapret-launcher/releases/latest/download/ZapretLauncherSetup.exe">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        Скачать для Windows
+      </a>
+      <div class="meta"><span id="version">Последняя версия</span> · Windows 10 и 11 · бесплатно, открытый код · <a href="https://github.com/Pont1fe/zapret-launcher/releases">все версии</a></div>
+      <div class="demo"><img src="screenshots/demo-ru.gif" alt="Zapret Launcher: включение обхода, VPN, домены и настройки" width="1240" height="760"></div>
+    </div>
+
+    <section id="features">
+      <h2>Что умеет</h2>
+      <div class="cards">
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h3>Обход одной кнопкой</h3>
+          <p>Автоподбор проверяет стратегии на Discord, YouTube, видео и Telegram и включает лучшую. Сторож перезапустит упавший обход и сам подберёт новую стратегию, если сайты перестали открываться.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg></div>
+          <h3>Встроенный VPN</h3>
+          <p>Ключи vless, vmess, trojan, ss, hysteria2, tuic, AmneziaWG, подписки (в том числе Clash и JSON) и QR-коды. Через VPN — только нужные сайты или всё, кроме российских: банки и Госуслуги работают как обычно.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg></div>
+          <h3>Само обновляется</h3>
+          <p>zapret, прокси Telegram и сам лаунчер обновляются без вашего участия. Не понравилась новая версия — верните прошлую одной кнопкой. Тёмная и светлая темы, русский и английский.</p>
+        </div>
+      </div>
+      <div class="shots">
+        <figure><img src="screenshots/vpn-ru.png" alt="Страница VPN" loading="lazy" width="1240" height="760"><figcaption>VPN: серверы по странам, пинг, подписка</figcaption></figure>
+        <figure><img src="screenshots/main-light-ru.png" alt="Главная в светлой теме" loading="lazy" width="1240" height="760"><figcaption>Главная в светлой теме</figcaption></figure>
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>Установка — минута</h2>
+      <ol class="steps">
+        <li><b>Скачайте</b> ZapretLauncherSetup.exe кнопкой выше.</li>
+        <li><b>Запустите и нажмите «Установить».</b> Лаунчер встанет в C:\ZapretLauncher и сам скачает свежий zapret.</li>
+        <li><b>Нажмите карточку обхода</b> или «Подобрать стратегию» — лаунчер найдёт ту, что работает у вашего провайдера.</li>
+      </ol>
+    </section>
+
+    <section id="faq" class="faq">
+      <h2>Частые вопросы</h2>
+      <details>
+        <summary>Windows пишет «Система Windows защитила ваш компьютер»</summary>
+        <div class="a"><p>Это SmartScreen: он предупреждает о любой программе, у которой ещё мало скачиваний. Нажмите <kbd>Подробнее</kbd> → <kbd>Выполнить в любом случае</kbd>.</p>
+          <p>Код лаунчера открыт, а установщик собирает GitHub Actions прямо из исходников — это видно на странице релиза.</p></div>
+      </details>
+      <details>
+        <summary>Антивирус ругается на WinDivert</summary>
+        <div class="a"><p>WinDivert — драйвер, через который работает сам zapret: без него обход невозможен. Антивирусы часто отмечают его просто потому, что он перехватывает сетевой трафик.</p>
+          <p>Добавьте папку <code>C:\ZapretLauncher</code> в исключения антивируса.</p></div>
+      </details>
+      <details>
+        <summary>Discord или YouTube всё равно не открывается</summary>
+        <div class="a"><p>Нажмите на главной <kbd>Почему не работает?</kbd> — лаунчер по шагам проверит интернет, DNS, мешающие программы, обход и сайты, скажет, в чём дело, и предложит исправить.</p>
+          <p>Чаще всего помогает <kbd>Подобрать стратегию</kbd>: у разных провайдеров работают разные. Если Discord завис на подключении, в меню значка в трее есть <kbd>Починить Discord</kbd> — он закроет Discord, очистит кэш и откроет заново.</p></div>
+      </details>
+      <details>
+        <summary>Сайт не открывается ни с одной стратегией</summary>
+        <div class="a"><p>Значит, провайдер блокирует сам адрес сервера, и zapret тут бессилен. Лаунчер это замечает и подсказывает пустить такой сайт через встроенный VPN — только его, остальное пойдёт как раньше.</p></div>
+      </details>
+      <details>
+        <summary>Как добавить VPN?</summary>
+        <div class="a"><p>Откройте страницу VPN и вставьте ключ (<code>vless://…</code> и другие) или адрес подписки. Подходят и подписки в формате Clash или JSON. Ключ можно отсканировать с QR-кода — с картинки или прямо с экрана.</p>
+          <p>Для AmneziaWG и Amnezia Premium добавьте файл из приложения Amnezia кнопкой <kbd>Файл AmneziaWG…</kbd>.</p></div>
+      </details>
+      <details>
+        <summary>Куда уходят мои ключи VPN?</summary>
+        <div class="a"><p>Никуда: они хранятся только на вашем компьютере, в настройках лаунчера. Даже отчёт для разработчика собирается без ключей, адреса подписки и адресов серверов.</p></div>
+      </details>
+      <details>
+        <summary>Зачем права администратора?</summary>
+        <div class="a"><p>Их требует драйвер WinDivert — без них zapret не перехватит трафик. Автозапуск устроен через планировщик Windows, поэтому при входе в систему запрос UAC не появляется.</p></div>
+      </details>
+      <details>
+        <summary>Как удалить?</summary>
+        <div class="a"><p>Как любую программу: «Параметры» → «Приложения» → «Установленные приложения» → Zapret Launcher → «Удалить». Лаунчер остановит обход и VPN и уберёт всё, что ставил.</p></div>
+      </details>
+      <details>
+        <summary>Что-то сломалось — куда писать?</summary>
+        <div class="a"><p>На странице «Журнал» нажмите <kbd>Сообщить о проблеме</kbd>: лаунчер сохранит отчёт на рабочий стол и откроет <a href="https://github.com/Pont1fe/zapret-launcher/issues/new/choose">заявку на GitHub</a> с уже заполненными версиями. Останется описать проблему и приложить архив.</p></div>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>Zapret Launcher — неофициальная оболочка. Сам обход — <a href="https://github.com/Flowseal/zapret-discord-youtube">zapret-discord-youtube</a> (Flowseal) и <a href="https://github.com/bol-van/zapret">zapret</a> (bol-van); VPN — <a href="https://github.com/SagerNet/sing-box">sing-box</a>, <a href="https://github.com/XTLS/Xray-core">Xray</a> и <a href="https://github.com/amnezia-vpn/amneziawg-windows-client">AmneziaWG</a>. Всё это лаунчер скачивает из релизов их авторов.</p>
+    <p><a href="https://github.com/Pont1fe/zapret-launcher">Исходный код</a> · <a href="https://github.com/Pont1fe/zapret-launcher/blob/main/LICENSE">лицензия MIT</a></p>
+  </footer>
+</div>
+<script>
+  // номер последней версии — с GitHub; не ответил — остаётся «Последняя версия»
+  fetch('https://api.github.com/repos/Pont1fe/zapret-launcher/releases/latest')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { if (j && j.tag_name) document.getElementById('version').textContent = 'Версия ' + j.tag_name.replace(/^v/, ''); })
+    .catch(function () {});
+</script>
+</body>
+</html>

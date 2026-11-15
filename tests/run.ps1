@@ -50,7 +50,7 @@ Section 'Списки доменов и приложений' {
         Check ("домен " + $c[0]) (Call Zapret NormalizeDomain $c[0]) $c[1]
     }
     foreach ($c in @(@('"C:\Program Files\Spotify\Spotify.exe"', 'Spotify.exe'), @('discord', 'discord.exe'), @('Telegram.EXE', 'Telegram.EXE'), @('  ', ''), @('a|b', ''))) {
-        Check ("приложение " + $c[0]) (Call Launcher NormalizeApp $c[0]) $c[1]
+        Check ("приложение " + $c[0]) (Call Routes NormalizeApp $c[0]) $c[1]
     }
 }
 
@@ -59,7 +59,7 @@ Section 'Готовые наборы' {
     $groups = Field SitePresets Groups
     foreach ($p in $presets) {
         foreach ($d in $p.Domains) { if ((Call Zapret NormalizeDomain $d) -cne $d) { Fail "$($p.Name): домен $d" 'не в нормальной форме' } }
-        foreach ($a in $p.Apps) { if ((Call Launcher NormalizeApp $a) -cne $a) { Fail "$($p.Name): программа $a" 'не в нормальной форме' } }
+        foreach ($a in $p.Apps) { if ((Call Routes NormalizeApp $a) -cne $a) { Fail "$($p.Name): программа $a" 'не в нормальной форме' } }
         if (-not ($groups -contains $p.Group)) { Fail "$($p.Name): вкладка" "неизвестная вкладка $($p.Group)" }
         try { [Windows.Media.ColorConverter]::ConvertFromString($p.Color) | Out-Null } catch { Fail "$($p.Name): цвет" $p.Color }
         if ($p.Domains.Count -eq 0) { Fail "$($p.Name): домены" 'пустой набор' }
@@ -129,7 +129,7 @@ Section 'Стратегии' {
         Check ("название " + $c[0]) (Call Zapret Title $c[0]) $c[1]
         Check ("значок " + $c[0]) (Call Zapret Badge $c[0]) $c[2]
         Check ("цвет " + $c[0]) (Call Zapret Color $c[0]) $c[3]
-        Check ("группа " + $c[0]) (Call Launcher GroupOf $c[0]) $c[4]
+        Check ("группа " + $c[0]) (Call Strategies GroupOf $c[0]) $c[4]
     }
 }
 
@@ -184,9 +184,124 @@ Section 'Ключи VPN' {
     Throws 'зашифрованная ссылка Happ' { (Call Vpn Parse 'happ://crypt3/abc').GetAwaiter().GetResult() } 'Happ'
     Throws 'ключ AmneziaVPN' { (Call Vpn Parse 'vpn://AAAA_3icabc').GetAwaiter().GetResult() } 'AmneziaVPN'
     Check 'подписка в base64' (Call Vpn DecodeSubscription (B64 "vless://a@h1.example.com:443`nvless://b@h2.example.com:443")) "vless://a@h1.example.com:443`nvless://b@h2.example.com:443"
-    Throws 'подписка Clash' { Call Vpn DecodeSubscription 'proxies: []' } 'JSON/Clash'
+    Throws 'подписка Clash без серверов' { Call Vpn DecodeSubscription 'proxies: []' } 'нет серверов'
+    Throws 'испорченный JSON' { Call Vpn DecodeSubscription '{"outbounds": [' } 'JSON/Clash'
     $info = Call Vpn ParseUserInfo 'upload=1073741824; download=2147483648; total=10737418240; expire=0'
     Check 'сведения о подписке' ("{0} {1} {2}" -f $info.Used, $info.Total, ($null -eq $info.Expire)) '3221225472 10737418240 True'
+    $info = Call Vpn ParseUserInfo 'upload=1; download=2; total=0; expire=1795000000000'
+    Check 'срок подписки в миллисекундах — без срока, без ошибки' ("{0} {1}" -f $info.Used, ($null -eq $info.Expire)) '3 True'
+}
+
+Section 'Подписки Clash и JSON' {
+    # каждый сервер становится обычной ссылкой — проверяем, что из неё собирается тот же сервер
+    $links = { param($text) $r = Call SubFormats ToLinks $text; if ($null -eq $r) { @() } else { @($r.Split("`n") | Where-Object { $_ }) } }
+    $clash = @'
+mixed-port: 7890
+proxies:
+  - name: "🇳🇱 Амстердам"
+    type: vless
+    server: nl.example.com
+    port: 443
+    uuid: 11111111-2222-3333-4444-555555555555
+    network: tcp
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: PBKxyz
+      short-id: ab12
+  - {name: DE ws, type: vmess, server: de.example.com, port: 8443, uuid: 22222222-2222-3333-4444-555555555555, alterId: 0, cipher: auto, tls: true, servername: de.example.com, network: ws, ws-opts: {path: /ray, headers: {Host: cdn.example.com}}}
+  - name: trojan-grpc   # комментарий
+    type: trojan
+    server: tr.example.org
+    port: 443
+    password: "p@ss:word #1"
+    sni: tr.example.org
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+  - name: ss
+    type: ss
+    server: 198.51.100.4
+    port: 8388
+    cipher: chacha20-ietf-poly1305
+    password: secret
+  - name: ss-obfs
+    type: ss
+    server: 198.51.100.5
+    port: 8388
+    cipher: aes-128-gcm
+    password: x
+    plugin: obfs
+  - name: hy2
+    type: hysteria2
+    server: hy.example.net
+    port: 443
+    password: hpw
+    sni: hy.example.net
+    skip-cert-verify: true
+  - name: wg
+    type: wireguard
+    server: wg.example.net
+    port: 51820
+proxy-groups:
+  - name: auto
+    type: url-test
+    proxies:
+      - "🇳🇱 Амстердам"
+'@
+    $l = & $links $clash
+    Check 'Clash: серверы, которые лаунчер умеет (ss с плагином и wireguard — нет)' $l.Count 5
+    $o = Call Vpn BuildOutbound $l[0]
+    Check 'Clash vless reality' ("{0} {1}:{2} {3} {4} {5} {6} {7}" -f $o['type'], $o['server'], $o['server_port'], $o['uuid'], $o['flow'], $o['tls']['server_name'], $o['tls']['reality']['public_key'], $o['tls']['reality']['short_id']) 'vless nl.example.com:443 11111111-2222-3333-4444-555555555555 xtls-rprx-vision www.microsoft.com PBKxyz ab12'
+    Check 'Clash: имя с флагом и кириллицей' ((Call Vpn Parse $l[0]).GetAwaiter().GetResult()[0].Name) '🇳🇱 Амстердам'
+    $o = Call Vpn BuildOutbound $l[1]
+    Check 'Clash vmess ws в скобках' ("{0} {1}:{2} {3} {4} {5}" -f $o['type'], $o['server'], $o['server_port'], $o['transport']['path'], $o['transport']['headers']['Host'], $o['tls']['server_name']) 'vmess de.example.com:8443 /ray cdn.example.com de.example.com'
+    $o = Call Vpn BuildOutbound $l[2]
+    Check 'Clash trojan grpc: пароль со спецзнаками' ("{0} {1} {2} {3}" -f $o['type'], $o['password'], $o['transport']['service_name'], $o['tls']['server_name']) 'trojan p@ss:word #1 gun tr.example.org'
+    $o = Call Vpn BuildOutbound $l[3]
+    Check 'Clash shadowsocks' ("{0} {1} {2} {3}" -f $o['type'], $o['server'], $o['method'], $o['password']) 'shadowsocks 198.51.100.4 chacha20-ietf-poly1305 secret'
+    $o = Call Vpn BuildOutbound $l[4]
+    Check 'Clash hysteria2' ("{0} {1} {2} {3}" -f $o['type'], $o['password'], $o['tls']['server_name'], $o['tls']['insecure']) 'hysteria2 hpw hy.example.net True'
+    Check 'Clash: прокси списком на том же отступе' (& $links "proxies:`n- {name: a, type: trojan, server: t.example.com, port: 443, password: pw}`n- name: b`n  type: vless`n  server: v.example.com`n  port: 443`n  uuid: u1").Count 2
+
+    $singbox = @'
+{"outbounds": [
+  {"type": "selector", "tag": "proxy", "outbounds": ["NL"]},
+  {"type": "vless", "tag": "NL", "server": "nl.example.com", "server_port": 443, "uuid": "u-nl", "flow": "xtls-rprx-vision",
+   "tls": {"enabled": true, "server_name": "www.microsoft.com", "utls": {"enabled": true, "fingerprint": "firefox"}, "reality": {"enabled": true, "public_key": "PBK", "short_id": "01"}}},
+  {"type": "trojan", "tag": "TR", "server": "tr.example.org", "server_port": 443, "password": "pw", "tls": {"enabled": true, "server_name": "tr.example.org"},
+   "transport": {"type": "ws", "path": "/w", "headers": {"Host": "cdn.example.org"}}},
+  {"type": "tuic", "tag": "TU", "server": "tu.example.com", "server_port": 443, "uuid": "u-t", "password": "tp", "congestion_control": "bbr", "tls": {"enabled": true, "server_name": "tu.example.com", "alpn": ["h3"]}},
+  {"type": "direct", "tag": "direct"}
+]}
+'@
+    $l = & $links $singbox
+    Check 'sing-box: только серверы (selector и direct пропущены)' $l.Count 3
+    $o = Call Vpn BuildOutbound $l[0]
+    Check 'sing-box vless reality' ("{0} {1} {2} {3} {4}" -f $o['uuid'], $o['flow'], $o['tls']['utls']['fingerprint'], $o['tls']['reality']['public_key'], $o['tls']['reality']['short_id']) 'u-nl xtls-rprx-vision firefox PBK 01'
+    $o = Call Vpn BuildOutbound $l[1]
+    Check 'sing-box trojan ws' ("{0} {1} {2}" -f $o['password'], $o['transport']['path'], $o['transport']['headers']['Host']) 'pw /w cdn.example.org'
+    $o = Call Vpn BuildOutbound $l[2]
+    Check 'sing-box tuic' ("{0} {1} {2} {3}" -f $o['uuid'], $o['password'], $o['congestion_control'], ($o['tls']['alpn'] -join ',')) 'u-t tp bbr h3'
+
+    $xray = @'
+[{"remarks": "Германия xhttp", "outbounds": [
+   {"protocol": "vless", "tag": "proxy", "settings": {"vnext": [{"address": "de.example.com", "port": 443, "users": [{"id": "u-de", "encryption": "none"}]}]},
+    "streamSettings": {"network": "xhttp", "security": "reality", "realitySettings": {"serverName": "www.google.com", "fingerprint": "chrome", "publicKey": "XPBK", "shortId": "aa"},
+                       "xhttpSettings": {"path": "/x", "mode": "packet-up"}}},
+   {"protocol": "freedom", "tag": "direct"}]},
+ {"remarks": "SS", "outbounds": [{"protocol": "shadowsocks", "settings": {"servers": [{"address": "203.0.113.9", "port": 8388, "method": "aes-256-gcm", "password": "sp"}]}}]}]
+'@
+    $l = & $links $xray
+    Check 'Xray: по серверу из каждой настройки' $l.Count 2
+    $x = (Call Vpn BuildXrayConfig $l[0] 10808) | ConvertFrom-Json
+    $st = $x.outbounds[0].streamSettings
+    Check 'Xray vless xhttp reality' ("{0} {1} {2} {3} {4}" -f $x.outbounds[0].settings.vnext[0].address, $st.network, $st.xhttpSettings.path, $st.xhttpSettings.mode, $st.realitySettings.publicKey) 'de.example.com xhttp /x packet-up XPBK'
+    Check 'Xray: имя из remarks' ((Call Vpn Parse $l[1]).GetAwaiter().GetResult()[0].Name) 'SS'
+    Check 'обычная ссылка — не Clash и не JSON' ($null -eq (Call SubFormats ToLinks 'vless://a@h.example.com:443')) 'True'
+    Check 'вставленный Clash тоже разбирается' ((Call Vpn Parse $clash).GetAwaiter().GetResult().Count) 5
 }
 
 Section 'AmneziaWG' {
@@ -289,15 +404,15 @@ Section 'Журнал' {
     foreach ($c in @(@('[31.10 10:15:58] Сторож: не открывается YouTube (проверка 1 из 5)', 'warn'), @('[31.10 10:16:59] Не удалось показать уведомление', 'err'),
                      @('[31.10 10:17:10] Запущена стратегия: ALT', 'ok'), @('   в ZapretLauncher.Launcher.CreateFlyout()', 'trace'), @('[31.10 10:17:10] Обход остановлен', ''),
                      @('[31.10 10:17:10] Watchdog: not opening: YouTube (check 1 of 5)', 'warn'), @('[31.10 10:17:10] VPN connected: X', 'ok'))) {
-        Check ("вид строки '$($c[0].Substring(17, [Math]::Min(30, $c[0].Length - 17)))'") (Call Launcher ParseLog $c[0]).Kind $c[1]
+        Check ("вид строки '$($c[0].Substring(17, [Math]::Min(30, $c[0].Length - 17)))'") (Call Formats ParseLog $c[0]).Kind $c[1]
     }
-    Check 'время отделяется от текста' ("{0}|{1}" -f (Call Launcher ParseLog '[31.10 10:17:10] Обход остановлен').Time, (Call Launcher ParseLog '[31.10 10:17:10] Обход остановлен').Text) '31.10 10:17:10|Обход остановлен'
+    Check 'время отделяется от текста' ("{0}|{1}" -f (Call Formats ParseLog '[31.10 10:17:10] Обход остановлен').Time, (Call Formats ParseLog '[31.10 10:17:10] Обход остановлен').Text) '31.10 10:17:10|Обход остановлен'
 }
 
 Section 'Итог добавления' {
     Call I18n Init 'ru'
-    Check 'много нераспознанных' (Call Launcher AddedInfo 3 3 (List 'a', 'b', 'c', 'd', 'e', 'f', 'g') 'Не похоже на домен' 'dup' 'normal') 'Добавлено: 3. Не похоже на домен: a, b, c, d, e (+2)'
-    Check 'только повторы' (Call Launcher AddedInfo 0 2 (List) 'bad' 'Этот домен уже есть в списке' 'normal') 'Этот домен уже есть в списке'
+    Check 'много нераспознанных' (Call Formats AddedInfo 3 3 (List 'a', 'b', 'c', 'd', 'e', 'f', 'g') 'Не похоже на домен' 'dup' 'normal') 'Добавлено: 3. Не похоже на домен: a, b, c, d, e (+2)'
+    Check 'только повторы' (Call Formats AddedInfo 0 2 (List) 'bad' 'Этот домен уже есть в списке' 'normal') 'Этот домен уже есть в списке'
 }
 
 Section 'Сторож' {
@@ -391,39 +506,103 @@ Section 'Тестовое ядро: проверка и скорость' {
 }
 
 Section 'Экспорт и импорт маршрутов' {
-    $file = Call Launcher RoutesFile (List 'deepl.com', 'chatgpt.com') (List 'Spotify.exe')
+    $file = Call Routes RoutesFile (List 'deepl.com', 'chatgpt.com') (List 'Spotify.exe')
     $d = List @(); $a = List @(); $bad = List @()
-    Call Launcher SplitRoutes $file $d $a $bad
+    Call Routes SplitRoutes $file $d $a $bad
     Check 'файл → те же сайты' ($d -join ',') 'deepl.com,chatgpt.com'
     Check 'файл → те же программы' ($a -join ',') 'Spotify.exe'
     Check 'комментарии в файле не мешают' $bad.Count '0'
     $d = List @(); $a = List @(); $bad = List @()
-    Call Launcher SplitRoutes "https://www.DeepL.com/translator`n`"C:\Program Files\Spotify\Spotify.exe`"`ndiscord.exe`nsite.com/path`ndeepl.com`n<плохо>`n# коммент" $d $a $bad
+    Call Routes SplitRoutes "https://www.DeepL.com/translator`n`"C:\Program Files\Spotify\Spotify.exe`"`ndiscord.exe`nsite.com/path`ndeepl.com`n<плохо>`n# коммент" $d $a $bad
     Check 'чужой список: сайты' ($d -join ',') 'deepl.com,site.com'
     Check 'чужой список: программы' ($a -join ',') 'Spotify.exe,discord.exe'
     Check 'чужой список: мусор отдельно' ($bad -join ',') '<плохо>'
 }
 
+Section 'Кольцо «За сутки»' {
+    $ring = { param($share) Call Launcher RingArc ([double]$share) ([double]22) ([double]25) }
+    Check 'кольцо: пусто — ничего не рисуем' ((& $ring 0).IsEmpty()) 'True'
+    Check 'кольцо: 100% — полный круг' ((& $ring 1).GetType().Name) 'EllipseGeometry'
+    $g = & $ring 0.25; $seg = $g.Figures[0].Segments[0]
+    Check 'кольцо: четверть — от верха вправо' ("{0},{1} -> {2},{3} large={4}" -f $g.Figures[0].StartPoint.X, $g.Figures[0].StartPoint.Y, [Math]::Round($seg.Point.X, 3), [Math]::Round($seg.Point.Y, 3), $seg.IsLargeArc) '25,3 -> 47,25 large=False'
+    Check 'кольцо: больше половины — большая дуга' ((& $ring 0.75).Figures[0].Segments[0].IsLargeArc) 'True'
+    $e = { param($p) [Math]::Round((Call Launcher EaseOut ([double]$p)), 3).ToString([Globalization.CultureInfo]::InvariantCulture) }
+    Check 'плавные числа: начало, середина, конец' ('{0} {1} {2}' -f (& $e 0), (& $e 0.5), (& $e 1)) '0 0.875 1'
+    $wave = { param($x, $y) Call Launcher WaveRadius (New-Object Windows.Point $x, $y) (New-Object Windows.Size 300, 400) }
+    Check 'волна темы: из угла — до противоположного угла, из центра — до любого' ("{0} {1} {2}" -f (& $wave 0 0), (& $wave 150 200), (& $wave 300 0)) '500 250 500'
+}
+Section 'Мои сайты на главной' {
+    $parse = { param($text) $m = (TypeOf Home).GetMethod('ParseMySites', $all); $a = [object[]]@($text, $null); $r = $m.Invoke($null, $a); @{ List = $(if ($r) { $r -join ',' } else { $null }); Error = $a[1] } }
+    Check 'адреса через запятую и с новой строки' ((& $parse "https://www.RuTracker.org/forum, steamcommunity.com`nkinozal.tv").List) 'rutracker.org,steamcommunity.com,kinozal.tv'
+    Check 'повтор не считается' ((& $parse 'a.com, a.com, https://a.com/x').List) 'a.com'
+    Check 'пусто — убрать свои сайты' ((& $parse '  ').List -eq $null -and (& $parse '  ').Error -eq $null) 'True'
+    $r = & $parse 'a.com, b.com, c.com, d.com'
+    Check 'больше трёх — ошибка' ("{0}|{1}" -f ($null -eq $r.List), $r.Error) 'True|Не больше 3 сайтов'
+    $r = & $parse 'a.com, не сайт'
+    Check 'не адрес — ошибка с этим словом' ("{0}|{1}" -f ($null -eq $r.List), $r.Error) 'True|Не похоже на адрес сайта: не'
+    # сетка карточек: зазор 14, у краёв ноль, между рядами 14
+    $m = { param($n, $cols, $count) $t = Call Home SiteCardMargin $n $cols $count; [string]::Format([Globalization.CultureInfo]::InvariantCulture, "{0} {1} {2} {3}", [Math]::Round($t.Left, 2), $t.Top, [Math]::Round($t.Right, 2), $t.Bottom) }
+    Check 'первая карточка в ряду' (& $m 0 3 6) '0 0 9.33 14'
+    Check 'средняя: зазор с соседями по 14' ("{0}+{1}" -f (& $m 0 3 3).Split(' ')[2], (& $m 1 3 3).Split(' ')[0]) '9.33+4.67'
+    Check 'последняя в последнем ряду' (& $m 5 3 6) '9.33 0 0 0'
+    Check 'одна карточка — без отступов' (& $m 0 1 1) '0 0 0 0'
+    # значки своих сайтов: favicon в .ico или .png читается, мусор — нет; в имя файла идёт только похожее на домен
+    Add-Type -AssemblyName System.Drawing, PresentationCore
+    $bmp = New-Object Drawing.Bitmap 32, 32
+    $png = New-Object IO.MemoryStream; $bmp.Save($png, [Drawing.Imaging.ImageFormat]::Png)
+    $ico = New-Object IO.MemoryStream; [Drawing.Icon]::FromHandle($bmp.GetHicon()).Save($ico)
+    Check 'favicon .png' ((Call Launcher DecodeIcon $png.ToArray()).PixelWidth) '32'
+    Check 'favicon .ico' ($null -ne (Call Launcher DecodeIcon $ico.ToArray())) 'True'
+    Check 'не картинка — глобус' ($null -eq (Call Launcher DecodeIcon ([Text.Encoding]::UTF8.GetBytes('<html>404</html>')))) 'True'
+    Check 'домен годится в имя файла' (Call Home SafeHost 'rutracker.org') 'True'
+    Check 'путь вместо домена — нет' ("{0}{1}{2}" -f (Call Home SafeHost '..\..\x.org'), (Call Home SafeHost 'localhost'), (Call Home SafeHost $null)) 'FalseFalseFalse'
+}
+Section 'Приветствие и плашка скорости' {
+    $res = [Activator]::CreateInstance([Collections.Generic.List``1].MakeGenericType((TypeOf 'SiteResult')))
+    foreach ($n in @(@('Discord', $true), @('YouTube', $false))) { $r = [Activator]::CreateInstance((TypeOf 'SiteResult')); $r.Name = $n[0]; $r.Ok = $n[1]; $res.Add($r) }
+    $g = { param($state, $checking) (Call Home GreetingTitle $state $checking $res) -replace "`n", ' | ' }
+    Check 'приветствие: выключен' (& $g 'off' $false) 'Обход выключен. | Включить — один клик.'
+    Check 'приветствие: пауза из-за VPN' (& $g 'pause' $false) 'Обход на паузе. | Работает VPN.'
+    Check 'приветствие: идёт проверка' (& $g 'on' $true) 'Обход работает. | Проверяю сайты…'
+    Check 'приветствие: один сайт не открывается' (& $g 'on' $false) 'Обход работает. | Не открывается: YouTube.'
+    $res[1].Ok = $true
+    Check 'приветствие: всё открывается' (& $g 'on' $false) 'Обход работает. | Всё открывается.'
+    $long = [Activator]::CreateInstance((TypeOf 'SiteResult')); $long.Name = 'steamcommunity.com'; $long.Ok = $false; $res.Add($long)
+    Check 'длинный адрес — не в крупный заголовок' (& $g 'on' $false) 'Обход работает. | Не всё открывается.'
+    # запасная стратегия на главной
+    $list = { param([string[]]$items) $l = New-Object 'Collections.Generic.List[string]'; foreach ($i in $items) { $l.Add($i) }; ,$l }
+    $scores = New-Object 'Collections.Generic.Dictionary[string,string]'
+    $scores['b.bat'] = '3/3/700'; $scores['c.bat'] = '3/3/500'; $scores['d.bat'] = '0/3/0'; $scores['gone.bat'] = '3/3/100'
+    $strats = & $list @('a.bat', 'b.bat', 'c.bat', 'd.bat')
+    Check 'запасная: избранная важнее подбора' (Call Strategies BackupStrategy 'a.bat' $strats (& $list @('a.bat', 'd.bat')) $scores) 'd.bat'
+    Check 'запасная: без избранных — лучшая по подбору' (Call Strategies BackupStrategy 'a.bat' $strats (& $list @()) $scores) 'c.bat'
+    Check 'запасная: текущую и удалённую не предлагаем' ([string](Call Strategies BackupStrategy 'c.bat' (& $list @('c.bat', 'd.bat')) (& $list @()) $scores)) ''
+    $d = { param([int[]]$h) $l = New-Object 'Collections.Generic.List[int]'; foreach ($v in $h) { $l.Add($v) }; [string](Call Home SpeedDelta $l) }
+    Check 'скорость: быстрее обычного' (& $d @(500, 480, 470, 495, 455)) '-6'
+    Check 'скорость: медленнее обычного' (& $d @(400, 400, 480)) '20'
+    Check 'скорость: последняя не удалась — нет плашки' (& $d @(400, 400, (-1))) ''
+    Check 'скорость: мало данных — нет плашки' (& $d @(400, 380)) ''
+}
 Section 'Напоминание о подписке' {
     $now = [DateTime]'2026-11-06 12:00'
     function Info($days, [long]$usedGb = 0, [long]$totalGb = 0) {
         $i = [Activator]::CreateInstance((TypeOf 'Vpn+SubscriptionInfo')); $i.Used = $usedGb * 1GB; $i.Total = $totalGb * 1GB
         if ($null -ne $days) { $i.Expire = $now.AddDays($days) }; $i
     }
-    function Warn($info) { $w = Call Launcher SubscriptionWarnings $info $now; ($w.GetEnumerator() | Sort-Object Key | ForEach-Object { $_.Key -replace '^expire \d{12}', 'expire' -replace '^traffic \d+', 'traffic' }) -join ',' }
+    function Warn($info) { $w = Call VpnInfo SubscriptionWarnings $info $now; ($w.GetEnumerator() | Sort-Object Key | ForEach-Object { $_.Key -replace '^expire \d{12}', 'expire' -replace '^traffic \d+', 'traffic' }) -join ',' }
     Check 'нет сведений — молчим' (Warn $null) ''
     Check 'больше трёх дней — молчим' (Warn (Info 5)) ''
     Check 'бессрочная без лимита — молчим' (Warn (Info $null 500 0)) ''
     Check 'за три дня' (Warn (Info 2.5)) 'expire 3'
     Check 'за сутки' (Warn (Info 0.5)) 'expire 1'
     Check 'закончилась' (Warn (Info -0.1)) 'expire 0'
-    $text = (Call Launcher SubscriptionWarnings (Info 2.5) $now).Values | Select-Object -First 1
+    $text = (Call VpnInfo SubscriptionWarnings (Info 2.5) $now).Values | Select-Object -First 1
     Check 'текст: дата и сколько дней' ($text.Contains('09.11.2026') -and $text.Contains('осталось дней: 3')) 'True'
     Check 'трафик 95%' (Warn (Info 30 95 100)) 'traffic 90'
     Check 'трафик кончился, и срок подходит' (Warn (Info 1.5 100 100)) 'expire 3,traffic 100'
     Check 'трафик 50% — молчим' (Warn (Info 30 50 100)) ''
-    $a = (Call Launcher SubscriptionWarnings (Info 2) $now).Keys | Select-Object -First 1
-    $b = (Call Launcher SubscriptionWarnings (Info 32) ($now.AddDays(30))).Keys | Select-Object -First 1
+    $a = (Call VpnInfo SubscriptionWarnings (Info 2) $now).Keys | Select-Object -First 1
+    $b = (Call VpnInfo SubscriptionWarnings (Info 32) ($now.AddDays(30))).Keys | Select-Object -First 1
     Check 'после продления — новое напоминание' ($a -ne $b -and $null -ne $b) 'True'
 }
 
@@ -475,8 +654,18 @@ Section 'Отчёт без секретов' {
     $system = Call Report IssueSystem $cfg
     Check 'заявка: версии и режимы' ($system.Contains('strategy: ALT9') -and $system.Contains('VPN: off') -and $system.Contains('vless') -and $system.Contains('(subscription)')) 'True'
     Check 'заявка: без сайтов, серверов и ключей' ($system.Contains('deepl.com') -or $system.Contains('Германия') -or $system.Contains('example') -or $system.Contains('11111111') -or $system.Contains('secretToken')) 'False'
-    $url = Call Report IssueUrl 'Pont1fe/zapret-launcher' '4.0.5' "Windows: 10`nzapret: 1.9 & co"
+    $url = Call Report IssueUrl 'Pont1fe/zapret-launcher' '4.0.5' "Windows: 10`nzapret: 1.9 & co" $null
     Check 'заявка: адрес формы' $url 'https://github.com/Pont1fe/zapret-launcher/issues/new?template=bug.yml&version=4.0.5&system=Windows%3A%2010%0Azapret%3A%201.9%20%26%20co'
+    $urlP = Call Report IssueUrl 'Pont1fe/zapret-launcher' '4.0.8' 'W' "сбой: a & b"
+    Check 'заявка: описание проблемы — отдельным полем' ($urlP.EndsWith('&system=W&problem=' + [Uri]::EscapeDataString('сбой: a & b'))) 'True'
+    # падение: время, версия и ошибка — без ключей и адресов серверов; в заявку идёт только начало
+    $ex = New-Object Exception ('Не подключился к h.example.com: ' + $s1.Link)
+    $crash = Call Report CrashText $ex $cfg (Get-Date '2026-11-12T18:00:00')
+    Check 'падение: время, версия, тип ошибки' ($crash.StartsWith('12.11.2026 18:00:00 · ') -and $crash.Contains('System.Exception')) 'True'
+    Check 'падение: без ключа и адреса сервера' ($crash.Contains('11111111') -or $crash.Contains('h.example.com')) 'False'
+    $long = (1..40 | ForEach-Object { "строка $_" }) -join "`n"
+    Check 'падение: в заявку — первые 14 строк' ((Call Report CrashSummary $long).Split("`n").Count) '14'
+    Check 'падение: длинная строка обрезается' ((Call Report CrashSummary ('x' * 3000)).Length) '1501'
 }
 
 Section 'Не пускать мимо VPN' {
@@ -499,6 +688,27 @@ Section 'Не пускать мимо VPN' {
     Check 'без блокировки — как раньше, через VPN' (@($normal.route.rules | Where-Object { $_.domain_suffix -contains 'deepl.com' -and $_.outbound -eq 'proxy' }).Count) '1'
 }
 
+Section 'Установщик: куда ставить' {
+    # только проверки пути — сама установка (права папки, реестр) не вызывается
+    Copy-Item (Join-Path (Split-Path $Exe) 'ZapretLauncherSetup.exe') (Join-Path $work 'ZapretLauncherSetup.exe') -Force
+    $inst = [Reflection.Assembly]::LoadFile((Join-Path $work 'ZapretLauncherSetup.exe')).GetType('Installer', $true)
+    $bad = { param($d) $inst.GetMethod('IsBadPath').Invoke($null, @([string]$d)) }
+    $foreign = { param($d) $inst.GetMethod('IsForeignFolder').Invoke($null, @([string]$d)) }
+    Check 'корень диска — нельзя' (& $bad 'D:\') 'True'
+    Check 'корень без слеша — нельзя' (& $bad 'D:') 'True'
+    Check 'относительный путь — нельзя' (& $bad 'ZapretLauncher') 'True'
+    Check 'сетевая папка-корень — нельзя' (& $bad '\\server\share') 'True'
+    Check 'обычная папка — можно' (& $bad 'C:\ZapretLauncher') 'False'
+    $tmp = Join-Path $work 'install-target'
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Check 'папки ещё нет — можно' (& $foreign $tmp) 'False'
+    New-Item -ItemType Directory $tmp | Out-Null
+    Check 'пустая папка — можно' (& $foreign $tmp) 'False'
+    Set-Content (Join-Path $tmp 'photo.jpg') 'x'
+    Check 'чужие файлы — нельзя' (& $foreign $tmp) 'True'
+    Set-Content (Join-Path $tmp 'ZapretLauncher.exe') 'x'
+    Check 'папка с лаунчером — обновление можно' (& $foreign $tmp) 'False'
+}
 Section 'Надёжность и защита' {
     # список ключей: сервер с неподдерживаемым транспортом пропускается, один такой ключ — понятная ошибка
     $list = (Call Vpn Parse "vless://u@a.example.com:443?type=kcp#Bad`nvless://u@b.example.com:443?security=tls#Good").Result
@@ -554,6 +764,67 @@ Section 'Надёжность и защита' {
     Check 'папка: «Прошедшие проверку» могут менять' (Call Shell OthersCanWrite $d) 'True'
 }
 
+Section 'Перетаскивание в окно' {
+    $drop = { param($files, $text) $a = New-Object 'System.Collections.Generic.List[string]'; $s = New-Object 'System.Collections.Generic.List[string]'; Call Routes ParseDrop (List @($files)) $text $a $s; @{ Apps = ($a -join '|'); Sites = ($s -join '|') } }
+    $r = & $drop @('C:\Program Files\Spotify\Spotify.exe', 'C:\docs\readme.txt', 'C:\Program Files\Spotify\Spotify.exe', 'C:\Games\My Game.exe') ''
+    Check 'программы: только .exe, пути целиком, без повторов' $r.Apps 'C:\Program Files\Spotify\Spotify.exe|C:\Games\My Game.exe'
+    $r = & $drop @() "https://www.YouTube.com/watch?v=1 и discord.gg/abc`nпросто текст"
+    Check 'сайты из ссылки и текста' $r.Sites 'youtube.com|discord.gg'
+    $r = & $drop @() ((1..25 | ForEach-Object { "site$_.com" }) -join ' ')
+    Check 'сайтов не больше 20' ($r.Sites.Split('|').Count) (Field Routes DropSitesMax)
+    $hint = { param($apps, $sites, $page) Call Launcher DropHintText (List @($apps)) (List @($sites)) $page }
+    Check 'подсказка: программа — через VPN' (& $hint @('C:\Program Files\Spotify\Spotify.exe') @() '') 'Отпустите: Spotify.exe — через VPN'
+    Check 'подсказка: на «Доменах» — в обход, длинный список сокращён' (& $hint @() @('a.com', 'b.com', 'c.com') 'Domains') 'Отпустите: a.com, b.com и ещё 1 — в обход'
+    Check 'подсказка: вкладка «Не трогать»' (& $hint @() @('a.com') 'Exclude') 'Отпустите: a.com — в «Не трогать»'
+    Check 'подсказка: сайт вместе с программой — туда же, в VPN' (& $hint @('C:\x\Spotify.exe') @('a.com') '') 'Отпустите: Spotify.exe — через VPN; a.com — через VPN'
+    Check 'подсказка: вне «Доменов» и VPN — спрошу' (& $hint @() @('a.com') '') 'Отпустите: a.com — спрошу: в обход или через VPN'
+}
+
+Section 'Темы и картинка на фоне' {
+    $pal = { param($theme, $dark, $transparent, $accent, $wallpaper) Call Theme Palette $theme $dark $transparent $accent $wallpaper }
+    Check 'Ночь: чёрный фон' ((& $pal 'night' $true $false 'violet' $false)['WindowBg']) '#000000'
+    $ocean = & $pal 'ocean' $true $false 'teal' $false
+    Check 'Океан: свой фон и бирюзовый акцент' ("{0} {1}" -f $ocean['MidBg'], $ocean['Accent']) '#0A1B25 #1FB89A'
+    Check 'Океан: мягкий акцент посчитан под синий фон, а не взят из тёмной темы' ($ocean['AccentSoft'] -ne '#1A2F2B') 'True'
+    Check 'Закат: тёплые подписи' ((& $pal 'sunset' $true $false 'orange' $false)['Muted']) '#A58A98'
+    Check 'готовые темы — с акцентом из списка' ((Field Theme PresetAccents).Values | Where-Object { -not (Field Theme Accents).ContainsKey($_) }).Count 0
+    $wp = & $pal 'dark' $true $false 'teal' $true
+    Check 'картинка: панели и карточки полупрозрачные' ("{0} {1}" -f $wp['MidBg'], $wp['CardRaised']) '#99121317 #D9191B20'
+    Check 'картинка: фон окна остаётся плотным' $wp['WindowBg'] '#0D0E11'
+    Check 'с Mica картинка не учитывается' ((& $pal 'dark' $true $true 'teal' $true)['MidBg']) '#33000000'
+    Check 'светлая тема без изменений' ((& $pal 'light' $false $false 'teal' $false)['WindowBg']) '#F3F2FA'
+    Add-Type -AssemblyName System.Drawing
+    $dir = Join-Path $env:TEMP ('zl-wp-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $dir | Out-Null
+    $bmp = New-Object Drawing.Bitmap 2400, 1200; $bmp.Save("$dir\big.png", [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    [IO.File]::WriteAllText("$dir\bad.png", 'not a picture')
+    $img = Call Launcher LoadWallpaper "$dir\big.png"
+    Check 'картинка: крупная уменьшается до 1600 по ширине' $img.PixelWidth 1600
+    Check 'картинка: битый файл — не загружается' ($null -eq (Call Launcher LoadWallpaper "$dir\bad.png")) 'True'
+    Remove-Item $dir -Recurse -Force
+}
+
+Section 'Гонка стратегий' {
+    $fill = { param($ok, $total) [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', (Call Launcher RaceFill $ok $total)) }
+    Check 'дорожка: доля открытых сайтов' (& $fill 3 4) '0.75'
+    Check 'дорожка: ни одного — короткий отрезок, а не пусто' ("{0} {1}" -f (& $fill 0 4), (& $fill 0 0)) '0.04 0.04'
+    Check 'дорожка: не длиннее финиша' (& $fill 5 4) '1'
+    Check 'лидер: стратегия, сайты и скорость' (Call Launcher RaceLeaderText 'ALT2' 3 4 420) 'Лидер: ALT2 · 3/4 · 420 мс'
+    Check 'лидер без скорости — без «мс»' (Call Launcher RaceLeaderText 'ALT2' 0 4 0) 'Лидер: ALT2 · 0/4'
+}
+Section 'Талисман' {
+    $srType = TypeOf SiteResult
+    function Res([bool[]]$ok) { $l = [Activator]::CreateInstance([System.Collections.Generic.List`1].MakeGenericType($srType)); foreach ($o in $ok) { $r = [Activator]::CreateInstance($srType); $r.Name = 'x'; $r.Ok = $o; $l.Add($r) }; , $l }
+    $mood = { param($state, $checking, $busy, $res) Call Launcher MascotMood $state $checking $busy $res }
+    Check 'выключен — спит' (& $mood 'off' $false $false $null) 'sleep'
+    Check 'включается — занят, а не спит' (& $mood 'off' $false $true $null) 'busy'
+    Check 'проверка сайтов — занят' (& $mood 'on' $true $false (Res @($true))) 'busy'
+    Check 'всё открывается — радуется' (& $mood 'on' $false $false (Res @($true, $true, $true))) 'happy'
+    Check 'что-то не открывается — хмурится' (& $mood 'on' $false $false (Res @($true, $false))) 'sad'
+    Check 'сбой обхода — хмурится' (& $mood 'error' $false $false $null) 'sad'
+    Check 'пауза на время VPN — спокоен' (& $mood 'pause' $false $false (Res @($false))) 'calm'
+    Check 'ещё не проверял — спокоен' (& $mood 'on' $false $false $null) 'calm'
+    Check 'подсказка у каждого настроения своя' ((@('sleep', 'busy', 'sad', 'happy', 'calm') | ForEach-Object { Call Launcher MascotTip $_ } | Select-Object -Unique).Count) 5
+}
 Section 'Перевод' {
     Call I18n Init 'en'
     $cyr = New-Object Text.RegularExpressions.Regex '[А-Яа-яЁё]'
@@ -582,11 +853,49 @@ Section 'Перевод' {
         $t = Call I18n T $s
         if ($cyr.IsMatch($t)) { Fail "перевод '$s'" $t } else { Ok $s }
     }
+    # пустые состояния: заголовок и подсказка переводятся
+    foreach ($s in 'Проверьте написание или сократите запрос', 'Снимите фильтр или измените запрос', 'Своих доменов пока нет', 'Исключений нет',
+                   'Сюда добавляют сайты, которые ломаются от обхода', 'Добавьте сайт, который нужно разблокировать, или выберите готовый набор',
+                   'Добавьте сайты, которым нужен VPN', 'Добавьте программы, которым нужен VPN', 'Стратегий пока нет', 'Они появятся, когда скачается zapret', 'Список пуст') {
+        if ($cyr.IsMatch((Call I18n T $s))) { Fail "перевод '$s'" } else { Ok $s }
+    }
     Field SitePresets All | ForEach-Object { $_.Group } | Select-Object -Unique | ForEach-Object { if ($cyr.IsMatch((Call I18n T $_))) { Fail "перевод вкладки '$_'" } }
     # «Что нового» показывается и на английском — каждый пункт каждой версии должен переводиться
     $whatsNew = Field Launcher WhatsNew
     foreach ($kv in $whatsNew.GetEnumerator()) { foreach ($item in $kv.Value) { if ($cyr.IsMatch((Call I18n T $item))) { Fail "перевод «Что нового» $($kv.Key)" $item } } }
     Check 'в «Что нового» есть текущая версия' ($whatsNew.ContainsKey((Field AppVersion Value))) 'True'
+}
+
+Section 'Почему не работает?' {
+    $cyr = New-Object Text.RegularExpressions.Regex '[А-Яа-яЁё]'   # после раздела «Перевод» язык — английский
+    function Cf([string]$kind, [string]$text) { $c = [Activator]::CreateInstance((TypeOf Conflict)); $c.Kind = $kind; $c.Text = $text; $c }
+    function Why($internet = $true, $dns = $true, $secure = $false, $installed = $true, $conflicts = @(), $running = $true, $paused = $false, $failing = @(), $blocked = @()) {
+        $cl = [Activator]::CreateInstance([System.Collections.Generic.List`1].MakeGenericType((TypeOf Conflict)))
+        foreach ($c in $conflicts) { $cl.Add($c) }
+        $v = Call Diagnosis Diagnose $internet $dns $secure $installed $cl $running $paused (List @($failing)) (List @($blocked))
+        "{0}|{1}" -f $v.Title, $v.Fix
+    }
+    Check 'нет интернета — дальше не проверяем' (Why -internet $false -failing 'Discord') 'Нет интернета|'
+    Check 'zapret не скачан' (Why -installed $false -failing 'Discord') 'zapret не установлен|install'
+    Check 'мешает GoodbyeDPI — закрыть' (Why -conflicts @(Cf 'dpi' 'Запущен GoodbyeDPI') -failing 'YouTube') 'Мешает другая программа обхода|conflicts'
+    Check 'чужой драйвер мешает, даже когда сайты открываются' (Why -conflicts @(Cf 'driver' 'Драйвер WinDivert из другой папки')) 'Мешает другая программа обхода|conflicts'
+    Check 'всё открывается' (Why) 'Всё работает|'
+    Check 'всё открывается, хотя обход выключен' (Why -running $false) 'Всё работает|'
+    Check 'обход выключен' (Why -running $false -failing 'Discord') 'Обход выключен|start'
+    Check 'пауза на время VPN — не «выключен»' (Why -running $false -paused $true -failing 'Discord') 'Стратегия не подходит|pick'
+    Check 'чужой VPN — решает пользователь' (Why -conflicts @(Cf 'vpn' 'Интернет идёт через VPN «WireGuard»') -failing 'Discord') 'Включён другой VPN|'
+    Check 'DNS подменён — защищённый DNS' (Why -dns $false -failing 'YouTube') 'Провайдер подменяет адреса сайтов|dns'
+    Check 'DNS подменён, но защищённый уже включён — дальше' (Why -dns $false -secure $true -failing 'YouTube') 'Стратегия не подходит|pick'
+    Check 'режут по адресу — VPN' (Why -failing 'Telegram' -blocked 'Telegram') 'Сайт заблокирован по адресу|vpn'
+    Check 'по адресу только часть — подбор' (Why -failing 'Telegram', 'Discord' -blocked 'Telegram') 'Стратегия не подходит|pick'
+    $ip = { param([string[]]$a) Call Diagnosis BadDnsAnswer ([Net.IPAddress[]]@($a | ForEach-Object { [Net.IPAddress]::Parse($_) })) }
+    Check 'DNS: обычный адрес — верно' (& $ip '162.159.135.232') 'False'
+    Check 'DNS: заглушки и домашние адреса — подмена' ("{0}{1}{2}{3}{4}" -f (& $ip '0.0.0.0'), (& $ip '127.0.0.1'), (& $ip '10.10.34.36'), (& $ip '192.168.1.1'), (& $ip '172.20.0.5')) 'TrueTrueTrueTrueTrue'
+    Check 'DNS: пустой ответ — подмена' (Call Diagnosis BadDnsAnswer ([Net.IPAddress[]]@())) 'True'
+    foreach ($s in 'Нет интернета', 'Мешает другая программа обхода', 'Нажмите «Исправить» — лаунчер уберёт помеху и перезапустит обход.', 'Всё работает', 'Включён другой VPN', 'Провайдер подменяет адреса сайтов', 'Сайт заблокирован по адресу', 'Стратегия не подходит',
+                   'Лаунчер подберёт стратегию, которая работает у вашего провайдера.', 'Проверяю по шагам — это займёт несколько секунд', 'Мешающие программы и драйвер WinDivert') {
+        if ($cyr.IsMatch((Call I18n T $s))) { Fail "перевод '$s'" } else { Ok $s }
+    }
 }
 
 ''

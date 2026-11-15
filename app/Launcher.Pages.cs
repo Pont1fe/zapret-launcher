@@ -1,4 +1,4 @@
-// Страницы и настройки: переключение страниц, список стратегий, обновление интерфейса, переключатели
+﻿// Страницы и настройки: переключение страниц, список стратегий, обновление интерфейса, переключатели
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -66,16 +66,17 @@ namespace ZapretLauncher
 
         void ShowPage(string name)
         {
-            // подсветка в боковом меню переезжает к выбранному пункту
-            RadioButton nav = E<RadioButton>("Nav" + name);
+            // подсветка в боковом меню переезжает к выбранному пункту; полный список стратегий — часть «Обхода»
+            string section = name == "Strategies" ? "Home" : name;
+            RadioButton nav = E<RadioButton>("Nav" + section);
             if (nav != null && nav.IsLoaded)
             {
-                double y = nav.TranslatePoint(new Point(0, 0), E<Grid>("Sidebar")).Y - 11;
+                double y = nav.TranslatePoint(new Point(0, 0), E<Grid>("NavGroup")).Y - 3;
                 TranslateTransform pill = E<Border>("NavPill").RenderTransform as TranslateTransform;
                 if (pill == null || pill.IsFrozen) { pill = new TranslateTransform(); E<Border>("NavPill").RenderTransform = pill; }
                 pill.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(y, new Duration(TimeSpan.FromMilliseconds(260))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut } });
             }
-            string[] pages = { "Strategies", "Vpn", "Domains", "Settings", "Log" };   // в порядке бокового меню
+            string[] pages = { "Home", "Strategies", "Vpn", "Domains", "Settings", "Log" };   // в порядке бокового меню
             int index = Array.IndexOf(pages, name);
             // страница въезжает с той стороны, куда двинулись по меню: ниже — снизу, выше — сверху
             double from = index >= pageIndex ? 14 : -14;
@@ -102,6 +103,15 @@ namespace ZapretLauncher
             if (name == "Settings") UpdateFilterUi();
         }
 
+        // Полный список стратегий: открывается из «Обхода» (карточка, «все N», поиск сверху)
+        void ShowStrategyList()
+        {
+            if (pageIndex == 1) return;
+            RadioButton home = E<RadioButton>("NavHome");
+            if (home.IsChecked != true) home.IsChecked = true;
+            ShowPage("Strategies");
+        }
+
         // ---------- Интерфейс ----------
         void UpdateTitle()
         {
@@ -113,19 +123,6 @@ namespace ZapretLauncher
             Text("LauncherRollbackTitle").Text = prev != null ? T("Вернуть лаунчер версии") + " " + prev : T("Вернуть прошлую версию лаунчера");
         }
 
-        static readonly string[] GroupOrder = { "Избранное", "Основная", "ALT", "FAKE TLS", "SIMPLE FAKE", "Экспериментальные", "Другие" };
-
-        static string GroupOf(string file)
-        {
-            string t = Zapret.Title(file);
-            if (t == "Стандартная") return "Основная";
-            if (t.StartsWith("ALT")) return "ALT";
-            if (t.StartsWith("FAKE TLS")) return "FAKE TLS";
-            if (t.StartsWith("SIMPLE FAKE")) return "SIMPLE FAKE";
-            if (t.StartsWith("EXP")) return "Экспериментальные";
-            return "Другие";
-        }
-
         void UpdateStrategyList()
         {
             filling = true;
@@ -134,7 +131,7 @@ namespace ZapretLauncher
                 .Where(i => query.Length == 0 || i.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || i.File.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
                 .ToList();
             List<StrategyItem> ordered = items.Select((i, n) => new { i, n })
-                .OrderBy(x => Array.IndexOf(GroupOrder, cfg.Favorites.Contains(x.i.File) ? "Избранное" : GroupOf(x.i.File))).ThenBy(x => x.n)
+                .OrderBy(x => Array.IndexOf(Strategies.GroupOrder, cfg.Favorites.Contains(x.i.File) ? "Избранное" : Strategies.GroupOf(x.i.File))).ThenBy(x => x.n)
                 .Select(x => x.i).ToList();
             // при поиске показываем все группы, иначе свёрнутые остаются свёрнутыми
             foreach (StrategyItem i in ordered) i.GroupOpen = query.Length > 0 || !cfg.CollapsedGroups.Contains(i.Group);
@@ -143,18 +140,33 @@ namespace ZapretLauncher
             ListBox list = E<ListBox>("StrategyList");
             list.ItemsSource = view;
             list.SelectedItem = ordered.FirstOrDefault(i => i.File == cfg.Strategy);
+            if (query.Length > 0) ShowEmpty("StrategyEmpty", ordered.Count == 0, "", "Ничего не найдено", "Проверьте написание или сократите запрос");
+            else ShowEmpty("StrategyEmpty", ordered.Count == 0, "", "Стратегий пока нет", "Они появятся, когда скачается zapret");
             filling = false;
             Text("CurrentBadge").Text = Zapret.Badge(cfg.Strategy);
             E<Border>("CurrentBadgeBg").Background = B(Zapret.Color(cfg.Strategy));
             Text("CurrentName").Text = T(Zapret.Title(cfg.Strategy));
+            Text("CurrentFile").Text = cfg.Strategy;
+            List<string> all = Zapret.Strategies();
+            E<Button>("HomeAllStrategies").Content = (I18n.English ? "all " : "все ") + all.Count + " ›";
+            // запасная на главной: избранная или лучшая по последнему подбору
+            homeAlt = Strategies.BackupStrategy(cfg.Strategy, all, cfg.Favorites, cfg.PickScores);
+            E<FrameworkElement>("HomeAlt").Visibility = homeAlt != null ? Visibility.Visible : Visibility.Collapsed;
+            if (homeAlt == null) return;
+            Text("HomeAltBadge").Text = Zapret.Badge(homeAlt);
+            E<Border>("HomeAltBadgeBg").Background = B(Zapret.Color(homeAlt));
+            Text("HomeAltName").Text = T(Zapret.Title(homeAlt));
+            Text("HomeAltSub").Text = homeAlt + " · " + T(cfg.Favorites.Contains(homeAlt) ? "избранная" : "запасная");
         }
+
+        string homeAlt;
 
         StrategyItem ToItem(string file)
         {
             bool fav = cfg.Favorites.Contains(file);
             StrategyItem i = new StrategyItem();
             i.File = file; i.Title = T(Zapret.Title(file)); i.Badge = Zapret.Badge(file); i.Color = Zapret.Color(file);
-            i.Group = T(fav ? "★ Избранное" : GroupOf(file));
+            i.Group = T(fav ? "★ Избранное" : Strategies.GroupOf(file));
             i.StarGlyph = fav ? "\uE735" : "\uE734";
             i.StarColor = fav ? R("Wait") : R("Faint");
             i.StarTip = T(fav ? "Убрать из избранного" : "В избранное");
@@ -216,7 +228,7 @@ namespace ZapretLauncher
             {
                 if (running)
                 {
-                    Text("PowerStatus").Text = T(Zapret.ServiceRunning ? "Работает служба zapret" : "Обход работает");
+                    Text("PowerStatus").Text = T(Zapret.ServiceRunning ? "Служба zapret" : "Включён");   // подпись «ОБХОД» над ним уже есть
                     string timer = "";
                     try { TimeSpan t = DateTime.Now - proc.StartTime; timer = ((int)t.TotalHours).ToString("00") + ":" + t.ToString(@"mm\:ss"); } catch { }
                     Text("PowerTimer").Text = T("Работает") + " " + timer + "  ·  " + T(Zapret.Title(cfg.Strategy));
@@ -225,14 +237,14 @@ namespace ZapretLauncher
                 }
                 else if (pausedByVpn)
                 {
-                    Text("PowerStatus").Text = T("Пауза: включён VPN");
+                    Text("PowerStatus").Text = T("Пауза");
                     Text("PowerTimer").Text = vpnName ?? " ";
                     Text("PowerHint").Text = T("Обход вернётся, когда VPN отключат");
                     Text("PowerHint").Visibility = Visibility.Visible;
                 }
                 else
                 {
-                    Text("PowerStatus").Text = T(local != null ? "Обход выключен" : "zapret не установлен");
+                    Text("PowerStatus").Text = T(local != null ? "Выключен" : "zapret не установлен");
                     Text("PowerTimer").Text = " ";
                     Text("PowerHint").Text = T("Нажмите, чтобы включить");
                     Text("PowerHint").Visibility = Visibility.Collapsed;
@@ -265,6 +277,7 @@ namespace ZapretLauncher
             if (launcherLatest != null && Util.TestNewer(launcherLatest.Version, Consts.Version))
                 Text("LauncherVersionText").Text = "Zapret Launcher " + Consts.Version + " — " + T("доступна") + " " + launcherLatest.Version + ", " + T("обновить");
             UpdateNetStatus();
+            UpdateGreeting();
             UpdateFlyout();
             UpdateTray();
         }
@@ -282,9 +295,10 @@ namespace ZapretLauncher
             E<CheckBox>("SwTelegram").IsChecked = cfg.Telegram;
             E<ToggleButton>("ChipTelegram").IsChecked = cfg.Telegram;
             E<RadioButton>(I18n.English ? "LangEn" : "LangRu").IsChecked = true;
-            E<RadioButton>(cfg.Theme == "light" ? "ThemeLight" : cfg.Theme == "system" ? "ThemeSystem" : "ThemeDark").IsChecked = true;
-            string accentKey = Theme.Accents.ContainsKey(cfg.Accent) || cfg.Accent == "system" ? cfg.Accent : "teal";
-            E<RadioButton>("Accent" + char.ToUpper(accentKey[0]) + accentKey.Substring(1)).IsChecked = true;
+            E<TextBox>("MySitesBox").Text = string.Join(", ", cfg.MySites);
+            string themeKey = cfg.Theme == "light" || cfg.Theme == "system" || Theme.IsPreset(cfg.Theme) ? cfg.Theme : "dark";
+            E<RadioButton>("Theme" + char.ToUpper(themeKey[0]) + themeKey.Substring(1)).IsChecked = true;
+            SelectAccentSwatch();
             E<RadioButton>("Scale" + cfg.Scale).IsChecked = true;
             E<CheckBox>("SwSecureDns").IsChecked = cfg.SecureDns.Length > 0;
             string dnsKey = SecureDns.Providers.ContainsKey(cfg.SecureDns) ? cfg.SecureDns : "cloudflare";
@@ -355,8 +369,19 @@ namespace ZapretLauncher
         {
             if (cfg.Theme == theme) return;
             cfg.Theme = theme;
+            // у готовой темы свой акцент; потом его можно сменить кружками ниже
+            if (Theme.IsPreset(theme)) { cfg.Accent = Theme.PresetAccents[theme]; SelectAccentSwatch(); }
             cfg.Save();
             ApplyTheme();
+        }
+
+        void SelectAccentSwatch()
+        {
+            string key = Theme.Accents.ContainsKey(cfg.Accent) || cfg.Accent == "system" ? cfg.Accent : "teal";
+            bool was = filling;
+            filling = true;
+            E<RadioButton>("Accent" + char.ToUpper(key[0]) + key.Substring(1)).IsChecked = true;
+            filling = was;
         }
     }
 }

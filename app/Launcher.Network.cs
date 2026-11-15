@@ -1,4 +1,4 @@
-// Сеть: профили сетей, защищённый DNS, проверка сайта, файл hosts, карточки сайтов
+﻿// Сеть: профили сетей, защищённый DNS, проверка сайта, файл hosts, карточки сайтов
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -208,7 +208,7 @@ namespace ZapretLauncher
 
         // ---------- Карточки сайтов ----------
         // «Видео» (серверы googlevideo) проверяется при подборе и сторожем, но карточкой не показывается
-        IEnumerable<string> VisibleSites() { return Sites.Targets(cfg.Telegram, false).Select(t => t.Key).Where(k => k != "Видео"); }
+        IEnumerable<string> VisibleSites() { return Sites.Targets(cfg.Telegram, false).Select(t => t.Key).Where(k => k != "Видео").Concat(cfg.MySites); }
 
         void SiteState(string site, out string color, out string https, out string tcp)
         {
@@ -228,11 +228,13 @@ namespace ZapretLauncher
         {
             // окно скрыто — карточки не перестраиваем (их соберёт показ окна), обновляем только мини-окно
             if (!window.IsVisible) { UpdateFlyout(); return; }
+            if (cfg.MySites.Count > 0) FetchFavicons();
             UniformGrid panel = E<UniformGrid>("SitePanel");
             panel.Children.Clear();
             bool stagger = animateCards && !siteChecking;
             animateCards = false;
-            int n = 0;
+            int n = 0, count = VisibleSites().Count();
+            panel.Columns = Math.Max(1, Math.Min(3, count));   // со своими сайтами — два ряда по три
             foreach (string site in VisibleSites())
             {
                 string color, https, tcp;
@@ -243,11 +245,8 @@ namespace ZapretLauncher
 
                 // значок сервиса, название и точка состояния
                 Grid head = new Grid();
-                string[] look = SiteLook(site);
-                Border badge = new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(8), Background = B(look[1]), HorizontalAlignment = HorizontalAlignment.Left };
-                TextBlock glyph = new TextBlock { Text = look[0], FontSize = 13, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                glyph.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
-                badge.Child = glyph;
+                FrameworkElement badge = SiteBadge(site, 26);
+                badge.HorizontalAlignment = HorizontalAlignment.Left;
                 head.Children.Add(badge);
                 head.Children.Add(new TextBlock { Text = T(site), FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(34, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
                 Ellipse dot = new Ellipse { Width = 8, Height = 8, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
@@ -259,7 +258,12 @@ namespace ZapretLauncher
                 TextBlock big = new TextBlock { Margin = new Thickness(0, 10, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
                 if (r != null && r.Ok && !siteChecking)
                 {
-                    big.Inlines.Add(new System.Windows.Documents.Run(r.Ms.ToString()) { FontSize = 24, FontWeight = FontWeights.SemiBold });
+                    System.Windows.Documents.Run ms = new System.Windows.Documents.Run(r.Ms.ToString()) { FontSize = 24, FontWeight = FontWeights.SemiBold };
+                    big.Inlines.Add(ms);
+                    int was;
+                    if (!shownMs.TryGetValue(site, out was)) was = 0;   // первый результат — счёт с нуля, дальше — от прошлого значения
+                    shownMs[site] = r.Ms;
+                    Tween("ms:" + site, was, r.Ms, v => ms.Text = Math.Round(v).ToString());
                     System.Windows.Documents.Run unit = new System.Windows.Documents.Run(" " + T("мс")) { FontSize = 12 };
                     unit.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "Muted");
                     big.Inlines.Add(unit);
@@ -272,8 +276,28 @@ namespace ZapretLauncher
                     big.Margin = new Thickness(0, 14, 0, 6);
                     big.SetResourceReference(TextBlock.ForegroundProperty, color == "Fail" ? "Fail" : "TextSub");
                 }
-                content.Children.Add(big);
-                TextBlock t = new TextBlock { Text = blocked ? T("по адресу — поможет VPN") + " →" : tcp, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), TextWrapping = TextWrapping.Wrap };
+                // плашка «↓7%»: последняя проверка заметно быстрее (зелёная) или медленнее (жёлтая) обычного
+                List<int> hist;
+                int? delta = r != null && r.Ok && !siteChecking && siteHistory.TryGetValue(site, out hist) ? Home.SpeedDelta(hist) : null;
+                if (delta.HasValue && Math.Abs(delta.Value) >= 5)
+                {
+                    string tone = delta < 0 ? "Ok" : "Wait";
+                    Grid chip = new Grid { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 8, 0, 0),
+                        ToolTip = delta < 0 ? (I18n.English ? Math.Abs(delta.Value) + "% faster than usual" : "на " + Math.Abs(delta.Value) + "% быстрее обычного")
+                                            : (I18n.English ? delta + "% slower than usual" : "на " + delta + "% медленнее обычного") };
+                    Border tint = new Border { CornerRadius = new CornerRadius(7), Opacity = 0.15 };
+                    tint.SetResourceReference(Border.BackgroundProperty, tone);
+                    TextBlock pct = new TextBlock { Text = (delta < 0 ? "↓" : "↑") + Math.Abs(delta.Value) + "%", FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 2, 6, 2) };
+                    pct.SetResourceReference(TextBlock.ForegroundProperty, tone);
+                    chip.Children.Add(tint);
+                    chip.Children.Add(pct);
+                    Grid line = new Grid();
+                    line.Children.Add(big);
+                    line.Children.Add(chip);
+                    content.Children.Add(line);
+                }
+                else content.Children.Add(big);
+                TextBlock t =new TextBlock { Text = blocked ? T("по адресу — поможет VPN") + " →" : tcp, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), TextWrapping = TextWrapping.Wrap };
                 t.SetResourceReference(TextBlock.ForegroundProperty, blocked ? "AccentHover" : "Muted");
                 content.Children.Add(t);
 
@@ -288,34 +312,252 @@ namespace ZapretLauncher
                 };
                 content.Children.Add(sparkHost);
 
-                Border card = new Border { Child = content, CornerRadius = new CornerRadius(14), Padding = new Thickness(12, 12, 12, 10), Margin = new Thickness(0, 0, 8, 8) };
+                Border card = new Border { Child = content, CornerRadius = new CornerRadius(22), Padding = new Thickness(16, 14, 16, 12), Margin = Home.SiteCardMargin(n, panel.Columns, count) };
                 card.SetResourceReference(Border.BackgroundProperty, "CardRaised");
+                card.SetResourceReference(Border.BorderBrushProperty, "CardEdge");
+                card.BorderThickness = new Thickness(1);
                 if (siteChecking) Shimmer(card);
                 else if (stagger) AppearLater(card, n);
-                FrameworkElement item = LiftOnHover(card, SiteUrl(site), site, blocked ? (Action)OpenVpnRoutes : null);
+                FrameworkElement item = LiftOnHover(card, Home.SiteUrl(site), site, blocked ? (Action)OpenVpnRoutes : null);
                 if (blocked) item.ToolTip = T("Провайдер блокирует этот сайт по адресу — ни одна стратегия zapret его не открыла. Нажмите, чтобы пустить его через VPN");
                 panel.Children.Add(item);
                 n++;
             }
+            UpdateGreeting();
             UpdateFlyout();
         }
 
-        // Значок (Segoe MDL2) и фирменный цвет сервиса для карточки
-        static string[] SiteLook(string site)
+        // Главная: приветствие (дата, итог в две строки, пояснение), карточки-иллюстрации и карточка VPN. Зовётся раз в секунду из UpdateUi
+        void UpdateGreeting()
         {
-            if (site == "Discord") return new[] { "", "#5865F2" };
-            if (site == "YouTube") return new[] { "", "#FF2D2D" };
-            if (site == "Telegram") return new[] { "", "#2AABEE" };
-            return new[] { "", "#6B7280" };
+            string state = cardState ?? "off";
+            List<SiteResult> res = siteResults == null ? null : siteResults.Where(r => VisibleSites().Contains(r.Name)).ToList();
+            System.Globalization.CultureInfo culture = new System.Globalization.CultureInfo(I18n.English ? "en-US" : "ru-RU");
+            Text("GreetDate").Text = DateTime.Now.ToString(I18n.English ? "dddd, MMMM d" : "dddd, d MMMM", culture);
+            // пока лаунчер занят (включает обход, подбирает, обновляется), состояние бывает «выключен» — оставляем прежний итог
+            if (!busy || Text("GreetTitle").Text.Trim().Length == 0) Text("GreetTitle").Text = Home.GreetingTitle(state, siteChecking, res);
+            string strategy = T(Zapret.Title(cfg.Strategy));
+            string watch = I18n.English ? "Watchdog checks sites every " + HealthInterval().TotalMinutes + " min." : "Сторож проверяет сайты каждые " + HealthInterval().TotalMinutes + " мин.";
+            // стратегия видна в карточках ниже, поэтому здесь — только то, чего больше нигде нет
+            string names = state == "on" && !siteChecking ? Home.FailingNames(res) : "";
+            string sub = state == "on" ? (names.Length > Home.GreetNamesMax ? T("Не открывается:") + " " + names + "." + (cfg.Watchdog ? " " : "") : "") + (cfg.Watchdog ? watch : "")
+                       : state == "pause" ? T("Обход вернётся, когда VPN отключат")
+                       : state == "error" ? T("Подробности — в журнале")
+                       : T("Нажмите на карточку обхода, чтобы включить");
+            Text("GreetSub").Text = sub;
+            Text("GreetSub").Visibility = sub.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            // стратегия: что показал последний подбор
+            string score, pick = null;
+            if (cfg.PickScores.TryGetValue(cfg.Strategy, out score))
+            {
+                string[] p = score.Split('/');
+                if (p.Length == 3 && p[1] != "0") pick = I18n.English ? "opened " + p[0] + " of " + p[1] + " sites in the last pick" : "открыла " + p[0] + " из " + p[1] + " сайтов на подборе";
+            }
+            Text("IllStratTitle").Text = (I18n.English ? "Strategy " : "Стратегия ") + strategy;
+            Text("IllStratSub").Text = pick ?? T("Нажмите, чтобы выбрать другую");
+
+            // VPN: сервер, пинг на значке
+            VpnServer s = CurrentServer;
+            int ping;
+            bool hasPing = s != null && vpnPing.TryGetValue(s.Link, out ping) && ping >= 0;
+            string server = s == null ? "" : Vpn.DisplayName(s.Name);
+            Text("IllVpnTitle").Text = T(s == null ? "VPN не настроен" : vpnRunning ? "VPN под рукой" : cfg.VpnOn ? "Подключение…" : "VPN выключен");
+            Text("IllVpnSub").Text = s == null ? T("Добавьте ключ — выбранные сайты пойдут через VPN") : server + (cfg.VpnOn && !vpnRunning ? "" : " · " + T(vpnRunning ? "только выбранные сайты" : "включается в один клик"));
+            E<FrameworkElement>("IllVpnBadge").Visibility = vpnRunning && hasPing ? Visibility.Visible : Visibility.Collapsed;
+            if (hasPing) Text("IllVpnBadgeText").Text = vpnPing[s.Link].ToString();
+
+            // сторож
+            Text("IllWatchTitle").Text = T(cfg.Watchdog ? "Сторож на посту" : "Сторож спит");
+            Text("IllWatchSub").Text = T(cfg.Watchdog ? "Сломается — сам починит" : "Включите — обход будет чиниться сам");
+
+            // карточка VPN
+            string code = s == null ? null : Vpn.CountryCode(s.Name);
+            Border flag = E<Border>("HomeVpnFlag");
+            if (flag.Child == null || (string)flag.Tag != (code ?? ""))
+            {
+                flag.Tag = code ?? "";
+                flag.Child = FlagElement(code, 34, 24);
+            }
+            Text("HomeVpnName").Text = s == null ? T("Сервер не добавлен") : server;
+            Text("HomeVpnInfo").Text = s == null ? T("Ключ добавляется на странице VPN") : (hasPing ? vpnPing[s.Link] + " " + T("мс") + " · " : "") + T(vpnRunning ? "подключён" : "выключен");
+            Text("HomeVpnSpeed").Text = vpnRunning && vpnSpeedText.Length > 0 ? vpnSpeedText.Split(new[] { "  ·  " }, StringSplitOptions.None)[0] : " ";
+            DrawHomeVpn();
+            UpdateIllustrations();
+            UpdateMascot(MascotMood(state, siteChecking, busy || picking, res));
         }
 
-        static string SiteUrl(string site)
+        // Картинки на карточках главной показывают состояние: сторож спит — щит бледный и «zZ»; VPN выключен — глобус серый,
+        // подключается — вокруг крутится пунктир; идёт подбор — галочка стратегии сменяется крутящимися стрелками
+        bool illVpnSpinning, illStratSpinning;
+
+        void UpdateIllustrations()
         {
-            if (site == "Discord") return "https://discord.com/app";
-            if (site == "YouTube") return "https://www.youtube.com/";
-            if (site == "Telegram") return "https://web.telegram.org/";
-            return null;
+            bool watch = cfg.Watchdog;
+            E<Ellipse>("IllWatchCircle").SetResourceReference(Shape.FillProperty, watch ? "AccentSoft" : "IconBg");
+            E<UIElement>("IllWatchShield").Opacity = watch ? 1 : 0.6;
+            TextBlock mark = Text("IllWatchCheck");
+            mark.Text = watch ? "" : "zZ";
+            if (watch) mark.SetResourceReference(TextBlock.FontFamilyProperty, "Icons"); else mark.FontFamily = new FontFamily("Segoe UI");
+            mark.FontSize = watch ? 21 : 16;
+            mark.SetResourceReference(TextBlock.ForegroundProperty, watch ? "Accent" : "Faint");
+
+            bool connecting = cfg.VpnOn && !vpnRunning && CurrentServer != null;
+            E<Ellipse>("IllVpnCircle").SetResourceReference(Shape.FillProperty, vpnRunning || connecting ? "AccentSoft" : "IconBg");
+            Text("IllVpnGlobe").SetResourceReference(TextBlock.ForegroundProperty, vpnRunning || connecting ? "Accent" : "Faint");
+            UIElement spin = E<UIElement>("IllVpnSpin");
+            if (Spin(spin, connecting, ref illVpnSpinning, 2.4)) Fade(spin, connecting ? 1 : 0, TimeSpan.FromMilliseconds(200));
+
+            TextBlock check = Text("IllStratCheck");
+            check.Text = picking ? "" : "";
+            Spin(check, picking, ref illStratSpinning, 1.2);
+            if (picking)
+            {
+                Text("IllStratTitle").Text = T("Идёт подбор");
+                Text("IllStratSub").Text = Text("PowerStatus").Text;   // «Подбор 5 / 19» — тот же счётчик, что на карточке обхода
+            }
         }
+
+        // Вращение по кругу, пока on; true — если состояние поменялось (анимация запущена или остановлена)
+        static bool Spin(UIElement e, bool on, ref bool state, double seconds)
+        {
+            if (on == state) return false;
+            state = on;
+            RotateTransform r = new RotateTransform();
+            e.RenderTransform = r;
+            if (on) r.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, new Duration(TimeSpan.FromSeconds(seconds))) { RepeatBehavior = RepeatBehavior.Forever });
+            return true;
+        }
+
+        // Скорость VPN за последние минуты — линия на карточке главной
+        void DrawHomeVpn()
+        {
+            Canvas c = E<Canvas>("HomeVpnGraph");
+            c.Children.Clear();
+            double w = c.ActualWidth, h = c.Height;
+            if (!vpnRunning || vpnSpeeds.Count < 2 || w <= 0) return;
+            double max = Math.Max(1, vpnSpeeds.Max());
+            Polyline line = new Polyline { StrokeThickness = 2, StrokeLineJoin = PenLineJoin.Round };
+            line.SetResourceReference(Shape.StrokeProperty, "Accent");
+            for (int i = 0; i < vpnSpeeds.Count; i++) line.Points.Add(new Point(w * i / (vpnSpeeds.Count - 1), h - 2 - vpnSpeeds[i] / max * (h - 4)));
+            c.Children.Add(line);
+        }
+
+        // Кнопка «Сохранить» у «Моих сайтов»: новый список — в настройки, карточки — сразу, затем проверка
+        async Task SaveMySites()
+        {
+            string error;
+            List<string> list = Home.ParseMySites(E<TextBox>("MySitesBox").Text, out error);
+            TextBlock info = Text("MySitesInfo");
+            info.Visibility = Visibility.Visible;
+            info.SetResourceReference(TextBlock.ForegroundProperty, list == null ? "Fail" : "Muted");
+            if (list == null) { info.Text = error; return; }
+            foreach (string old in cfg.MySites.Where(s => !list.Contains(s))) siteHistory.Remove(old);   // убранный сайт не вернётся со старым графиком
+            cfg.MySites = list;
+            cfg.Save();
+            AutoBackup();
+            E<TextBox>("MySitesBox").Text = string.Join(", ", list);
+            if (siteResults != null) siteResults.RemoveAll(r => !VisibleSites().Contains(r.Name));
+            BuildSitePanel();
+            info.Text = T(list.Count == 0 ? "Свои сайты убраны" : "Сохранено — проверяю…");
+            if (list.Count == 0) return;
+            await PingNow();
+            info.Text = T("Сохранено");
+        }
+
+        // Значок сайта: у трёх сервисов — их логотип (белым на фирменном цвете, контуры в сетке 24×24),
+        // у своих сайтов — их favicon, пока его нет — глобус на сером
+        static readonly Dictionary<string, string[]> Brands = new Dictionary<string, string[]>
+        {
+            { "Discord", new[] { "#5865F2", "F0 M6.5,6.3 C8,5.6 9.5,5.3 10.2,5.2 L10.6,6 C11.5,5.9 12.5,5.9 13.4,6 L13.8,5.2 C14.5,5.3 16,5.6 17.5,6.3 C19.6,9.4 20.4,12.6 20.2,16.4 C18.6,17.6 17,18.3 15.6,18.7 L14.8,17.4 C15.4,17.2 15.9,16.9 16.4,16.6 L16.1,16.3 C13.4,17.6 10.6,17.6 7.9,16.3 L7.6,16.6 C8.1,16.9 8.6,17.2 9.2,17.4 L8.4,18.7 C7,18.3 5.4,17.6 3.8,16.4 C3.6,12.6 4.4,9.4 6.5,6.3 Z M7.9,13.1 A1.4,1.55 0 1 0 10.7,13.1 A1.4,1.55 0 1 0 7.9,13.1 Z M13.3,13.1 A1.4,1.55 0 1 0 16.1,13.1 A1.4,1.55 0 1 0 13.3,13.1 Z" } },
+            { "YouTube", new[] { "#FF0033", "M9.6,7.6 L16.8,12 L9.6,16.4 Z" } },
+            { "Telegram", new[] { "#2AABEE", "M5.9,11.4 L17.6,6.9 C18.2,6.7 18.7,7 18.5,7.9 L16.5,17.4 C16.3,18.1 15.9,18.3 15.3,17.9 L12.2,15.6 L10.7,17 C10.5,17.2 10.4,17.3 10.1,17.3 L10.3,14.2 L15.9,9.1 C16.2,8.9 15.9,8.7 15.5,9 L8.6,13.4 L5.6,12.4 C5,12.2 5,11.8 5.9,11.4 Z" } },
+        };
+        static readonly string FaviconDir = System.IO.Path.Combine(Paths.Root, "favicons");
+        static readonly Dictionary<string, ImageSource> favicons = new Dictionary<string, ImageSource>();
+        readonly HashSet<string> faviconTried = new HashSet<string>();
+
+        static FrameworkElement SiteBadge(string site, double size)
+        {
+            string[] brand;
+            ImageSource icon = Brands.ContainsKey(site) ? null : Favicon(site);
+            Border b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size * 0.3), VerticalAlignment = VerticalAlignment.Center };
+            if (Brands.TryGetValue(site, out brand))
+            {
+                b.Background = B(brand[0]);
+                System.Windows.Shapes.Path logo = new System.Windows.Shapes.Path { Data = Geometry.Parse(brand[1]), Fill = Brushes.White };
+                if (site == "YouTube") { logo.Stroke = Brushes.White; logo.StrokeThickness = 1.4; logo.StrokeLineJoin = PenLineJoin.Round; }   // скруглённые углы треугольника
+                Canvas grid = new Canvas { Width = 24, Height = 24 };
+                grid.Children.Add(logo);
+                b.Child = new Viewbox { Child = grid, Width = size * 0.8, Height = size * 0.8 };
+            }
+            else if (icon != null)
+            {
+                b.Background = Brushes.White;   // favicon рисуют под светлую вкладку браузера: чёрный значок GitHub на тёмной плитке пропал бы
+                b.Child = new Image { Source = icon, Width = size * 0.62, Height = size * 0.62 };
+                RenderOptions.SetBitmapScalingMode(b.Child, BitmapScalingMode.HighQuality);
+            }
+            else
+            {
+                b.Background = B("#6B7280");
+                TextBlock globe = new TextBlock { Text = "", FontSize = size * 0.5, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                globe.SetResourceReference(TextBlock.FontFamilyProperty, "Icons");
+                b.Child = globe;
+            }
+            return b;
+        }
+
+        static ImageSource Favicon(string host)
+        {
+            ImageSource img;
+            if (!Home.SafeHost(host)) return null;
+            if (favicons.TryGetValue(host, out img)) return img;
+            string file = System.IO.Path.Combine(FaviconDir, host + ".ico");
+            try { img = File.Exists(file) ? DecodeIcon(File.ReadAllBytes(file)) : null; } catch { img = null; }
+            if (img != null) favicons[host] = img;
+            return img;
+        }
+
+        // .ico, .png, .gif — что отдаст сайт; из нескольких размеров берём самый крупный. SVG и мусор — null
+        public static ImageSource DecodeIcon(byte[] data)
+        {
+            try
+            {
+                System.Windows.Media.Imaging.BitmapDecoder d = System.Windows.Media.Imaging.BitmapDecoder.Create(new MemoryStream(data),
+                    System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                System.Windows.Media.Imaging.BitmapFrame best = d.Frames.OrderByDescending(f => f.PixelWidth).First();
+                best.Freeze();
+                return best;
+            }
+            catch { return null; }
+        }
+
+        // shortcut: берём только /favicon.ico, без разбора <link rel="icon"> в HTML — у сайтов без него остаётся глобус
+        async void FetchFavicons()
+        {
+            bool got = false;
+            foreach (string host in cfg.MySites.ToList())
+            {
+                if (!Home.SafeHost(host) || Favicon(host) != null || !faviconTried.Add(host)) continue;   // одна попытка за запуск: сайт мог быть заблокирован
+                try
+                {
+                    using (System.Threading.CancellationTokenSource cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(8)))
+                    {
+                        System.Net.Http.HttpResponseMessage r = await Util.Http.GetAsync("https://" + host + "/favicon.ico", cts.Token);
+                        long? len = r.Content.Headers.ContentLength;
+                        if (!r.IsSuccessStatusCode || len > FaviconMaxBytes) continue;
+                        byte[] data = await r.Content.ReadAsByteArrayAsync();
+                        if (data.Length > FaviconMaxBytes || DecodeIcon(data) == null) continue;
+                        Directory.CreateDirectory(FaviconDir);
+                        File.WriteAllBytes(System.IO.Path.Combine(FaviconDir, host + ".ico"), data);
+                        got = true;
+                    }
+                }
+                catch { }
+            }
+            if (got) BuildSitePanel();
+        }
+        const int FaviconMaxBytes = 256 * 1024;
 
         // Карточка приподнимается при наведении (тень и сдвиг вверх), клик открывает сайт в браузере.
         // Тень — у отдельной подложки: эффект на самой карточке размыл бы текст
@@ -332,9 +574,14 @@ namespace ZapretLauncher
         {
             Grid wrap = new Grid { Margin = card.Margin };
             card.Margin = new Thickness(0);
-            Border under = new Border { CornerRadius = card.CornerRadius, Opacity = 0 };
+            // в светлой теме мягкая тень видна всегда (карточки «парят»), при наведении — сильнее; в тёмной чёрной тени не видно —
+            // там при наведении карточка мягко светится цветом акцента
+            double rest = Theme.Dark ? 0 : 0.55;
+            Border under = new Border { CornerRadius = card.CornerRadius, Opacity = rest };
             under.SetResourceReference(Border.BackgroundProperty, "CardRaised");
-            under.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Direction = 270, Opacity = Theme.Dark ? 0.5 : 0.18, Color = Colors.Black };
+            under.Effect = Theme.Dark
+                ? new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 26, ShadowDepth = 0, Opacity = 0.45, Color = Theme.Color("Accent") }
+                : new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 30, ShadowDepth = 7, Direction = 270, Opacity = 0.16, Color = Theme.Color("Shadow") };
             wrap.Children.Add(under);
             wrap.Children.Add(card);
             if (url == null && onClick == null) return wrap;
@@ -346,7 +593,7 @@ namespace ZapretLauncher
             Action<bool> lift = up =>
             {
                 tr.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(up ? -3 : 0, d) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
-                under.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(up ? 1 : 0, d));
+                under.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(up ? 1 : rest, d));
             };
             wrap.MouseEnter += delegate { lift(true); };
             wrap.MouseLeave += delegate { lift(false); };

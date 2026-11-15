@@ -33,6 +33,13 @@
 2. Run it and click “Install”. The launcher goes to `C:\ZapretLauncher` and downloads the latest zapret on first start.
 3. Click the big on/off card — or “Find best strategy” and let the launcher find the one that works with your ISP.
 
+Or with [Scoop](https://scoop.sh) — it downloads the same installer and runs it:
+
+```
+scoop bucket add zapret-launcher https://github.com/Pont1fe/zapret-launcher
+scoop install zapret-launcher
+```
+
 > Windows SmartScreen may warn that the app is unsigned: “More info” → “Run anyway”. Antivirus software may flag the WinDivert driver that zapret needs — add the launcher folder to exclusions.
 
 ## What it does
@@ -62,7 +69,7 @@
 - **Secure DNS** (DNS over HTTPS), **Game Filter**, **IPSet** and your own domains right in the window, no `service.bat` needed.
 - **Settings backup** to a file and back — handy when reinstalling Windows.
 - **Save report** and **Report a problem**: logs and system info in one archive (without VPN keys or server addresses); “Report a problem” also opens a new GitHub issue with the versions filled in.
-- Dark and light themes, accent color, interface scale, Mica background, compact view.
+- Dark and light themes, accent color, interface scale, Mica background.
 - Windows notifications with action buttons, start with Windows without a UAC prompt, taskbar icon menu.
 - Russian and English interface; uninstall from Windows “Installed apps”.
 
@@ -78,6 +85,12 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ```
 powershell -ExecutionPolicy Bypass -File tests\run.ps1
+```
+
+UI tests open a copy of the window in demo mode (no bypass, VPN or updates) and click through it: page navigation, the drag area of the top bar, 130% scale:
+
+```
+powershell -STA -ExecutionPolicy Bypass -File tests\ui.ps1
 ```
 
 Releases are built by GitHub Actions: bump `AppVersion` in `app/App.cs`, update `RELEASE_NOTES.md` and push a tag `vX.Y.Z`. If the tests fail, the release is not published.

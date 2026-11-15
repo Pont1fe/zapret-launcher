@@ -6,7 +6,7 @@
         ShowInTaskbar="False" Topmost="True" ShowActivated="True"
         Foreground="{DynamicResource Text}" FontFamily="Segoe UI" FontSize="13" UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Display" RenderOptions.BitmapScalingMode="HighQuality">
-  <Border x:Name="FlyCard" Margin="12" CornerRadius="18" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="18,16">
+  <Border x:Name="FlyCard" Margin="12" CornerRadius="24" Background="{DynamicResource WindowBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="16,14,16,16">
     <Border.Effect>
       <DropShadowEffect BlurRadius="28" ShadowDepth="4" Opacity="0.35" Color="Black"/>
     </Border.Effect>
@@ -20,30 +20,30 @@
                 HorizontalAlignment="Right" ToolTip="Открыть окно лаунчера"/>
       </Grid>
 
-      <Grid x:Name="FlyToggle" Margin="0,14,0,0" Height="76" Cursor="Hand" Background="Transparent">
-        <Border CornerRadius="16" Background="{DynamicResource Card}" BorderBrush="{DynamicResource Line}" BorderThickness="1"/>
-        <Border x:Name="FlyActive" CornerRadius="16" BorderBrush="{DynamicResource ActiveBorder}" BorderThickness="1" Opacity="0">
+      <Grid x:Name="FlyToggle" Margin="0,14,0,0" Height="84" Cursor="Hand" Background="Transparent">
+        <Border CornerRadius="22" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1"/>
+        <Border x:Name="FlyActive" CornerRadius="22" Opacity="0">
           <Border.Background>
             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-              <GradientStop Color="{DynamicResource ActiveFromColor}" Offset="0"/>
-              <GradientStop Color="{DynamicResource ActiveToColor}" Offset="1"/>
+              <GradientStop Color="{DynamicResource AccentColor}" Offset="0"/>
+              <GradientStop Color="{DynamicResource AccentHoverColor}" Offset="1"/>
             </LinearGradientBrush>
           </Border.Background>
         </Border>
         <!-- Жёлтый — пауза из-за VPN, красный — ошибка: цвет задаётся в коде -->
-        <Border x:Name="FlyState" CornerRadius="16" BorderThickness="1" Opacity="0"/>
-        <Grid Margin="16,0">
+        <Border x:Name="FlyState" CornerRadius="22" BorderThickness="1" Opacity="0"/>
+        <Grid Margin="18,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition/>
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
           <StackPanel VerticalAlignment="Center">
-            <TextBlock x:Name="FlyStatus" Text="" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="FlyStatus" Text="" FontSize="17" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
             <TextBlock x:Name="FlyStrategy" Text="" FontSize="11" Foreground="{DynamicResource TextSub}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
           </StackPanel>
           <Grid Grid.Column="1" Width="50" Height="28" VerticalAlignment="Center">
             <Border CornerRadius="14" Background="{DynamicResource TrackOff}"/>
-            <Border x:Name="FlyTrackOn" CornerRadius="14" Background="{DynamicResource Accent}" Opacity="0"/>
+            <Border x:Name="FlyTrackOn" CornerRadius="14" Background="#59FFFFFF" Opacity="0"/>   <!-- на карточке цвета акцента — полупрозрачная белая дорожка -->
             <Ellipse x:Name="FlyKnob" Width="20" Height="20" Fill="White" HorizontalAlignment="Left" Margin="4,0">
               <Ellipse.RenderTransform>
                 <TranslateTransform X="0"/>
@@ -54,9 +54,9 @@
       </Grid>
 
       <!-- Встроенный VPN: виден, если добавлен хотя бы один сервер -->
-      <Grid x:Name="FlyVpn" Margin="0,8,0,0" Height="44" Cursor="Hand" Background="Transparent" Visibility="Collapsed">
-        <Border CornerRadius="12" Background="{DynamicResource Card}" BorderBrush="{DynamicResource Line}" BorderThickness="1"/>
-        <Grid Margin="14,0">
+      <Grid x:Name="FlyVpn" Margin="0,8,0,0" Height="48" Cursor="Hand" Background="Transparent" Visibility="Collapsed">
+        <Border CornerRadius="16" Background="{DynamicResource CardRaised}"/>
+        <Grid Margin="16,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition/>
             <ColumnDefinition Width="Auto"/>
@@ -77,7 +77,7 @@
         </Grid>
       </Grid>
 
-      <UniformGrid x:Name="FlySites" Rows="1" Margin="0,12,0,0"/>
+      <UniformGrid x:Name="FlySites" Margin="0,12,-6,-6"/>   <!-- у карточек отступ 6 справа и снизу — компенсируем у краёв -->
 
       <Grid Margin="0,14,0,0">
         <Grid.ColumnDefinitions>

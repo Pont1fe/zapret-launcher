@@ -1,4 +1,4 @@
-// Установщик Zapret Launcher: копирует ZapretLauncher.exe, создаёт ярлыки и запись в «Установленных приложениях».
+﻿// Установщик Zapret Launcher: копирует ZapretLauncher.exe, создаёт ярлыки и запись в «Установленных приложениях».
 // Сборка: build.ps1 в корне (встроенный в Windows csc.exe, C# 5). Ключи: /S — без окна, /D=путь — папка установки.
 using System;
 using System.Diagnostics;
@@ -80,6 +80,11 @@ static class Installer
         return File.Exists(Path.Combine(dir, ExeName)) || File.Exists(Path.Combine(dir, "ZapretLauncher.ps1"));
     }
 
+    // Куда ставить нельзя: папку закрывают от изменений без прав администратора (владелец и права — на всё внутри),
+    // поэтому не корень диска и не относительный путь, и не чужая непустая папка
+    public static bool IsBadPath(string dir) { return !Path.IsPathRooted(dir) || Path.GetPathRoot(dir).TrimEnd('\\') == dir.TrimEnd('\\'); }
+    public static bool IsForeignFolder(string dir) { return Directory.Exists(dir) && Directory.EnumerateFileSystemEntries(dir).Any() && !HasLauncher(dir); }
+
     public static string ExistingLocation()
     {
         using (RegistryKey k = Hklm().OpenSubKey(UninstallKey))
@@ -148,6 +153,9 @@ static class Installer
 
     public static void Install(string dir, bool desktop, bool startMenu, bool launch)
     {
+        // окно установки уже предложило подпапку; здесь — для тихой установки (/S /D=...), до любых изменений
+        if (IsBadPath(dir) || IsForeignFolder(dir))
+            throw new Exception("Not installing to " + dir + ": choose an empty folder, not a drive root / Не ставлю в " + dir + ": нужна пустая папка, а не корень диска");
         Directory.CreateDirectory(dir);
         // Отсюда лаунчер запускает программы с правами администратора — менять папку может только администратор
         // (папка в корне диска иначе наследует «изменение» для всех пользователей)
@@ -172,6 +180,7 @@ static class Installer
             k.SetValue("DisplayIcon", exe);
             k.SetValue("InstallLocation", dir);
             k.SetValue("UninstallString", "\"" + exe + "\" --uninstall");
+            k.SetValue("QuietUninstallString", "\"" + exe + "\" --uninstall --quiet");   // для winget и Scoop
             k.SetValue("URLInfoAbout", "https://github.com/Pont1fe/zapret-launcher");
             k.SetValue("EstimatedSize", 40000, RegistryValueKind.DWord);
             k.SetValue("NoModify", 1, RegistryValueKind.DWord);
@@ -191,13 +200,17 @@ static class Installer
 
 class SetupForm : Form
 {
-    static readonly Color Bg = Color.FromArgb(25, 26, 31);
-    static readonly Color Card = Color.FromArgb(30, 32, 37);
-    static readonly Color Line = Color.FromArgb(44, 46, 53);
-    static readonly Color Text1 = Color.FromArgb(236, 238, 242);
-    static readonly Color Muted = Color.FromArgb(139, 142, 152);
-    static readonly Color Accent = Color.FromArgb(31, 184, 154);
-    static readonly Color AccentText = Color.FromArgb(11, 31, 27);
+    // светлая лавандовая тема и фиолетовый акцент — как у лаунчера (app/Theme.cs, LightColors)
+    static readonly Color Bg = Color.FromArgb(243, 242, 250);
+    static readonly Color Card = Color.White;
+    static readonly Color Line = Color.FromArgb(228, 225, 242);
+    static readonly Color Text1 = Color.FromArgb(22, 21, 43);
+    static readonly Color Muted = Color.FromArgb(126, 124, 152);
+    static readonly Color Accent = Color.FromArgb(106, 77, 244);
+    static readonly Color AccentHover = Color.FromArgb(124, 97, 255);
+    static readonly Color AccentText = Color.White;
+    static readonly Color Ok = Color.FromArgb(31, 168, 102);
+    static readonly Color Fail = Color.FromArgb(214, 69, 69);
 
     // Русский для русской Windows, иначе английский
     static readonly bool En = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName != "ru";
@@ -226,10 +239,40 @@ class SetupForm : Form
         Font = new Font("Segoe UI", 10f);
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-        PictureBox logo = new PictureBox();
-        logo.Image = Image.FromStream(new MemoryStream(Installer.Resource("logo.png")));
-        logo.SizeMode = PictureBoxSizeMode.Zoom;
+        // логотип как в верхней панели лаунчера: «Z» на скруглённой фиолетовой плитке
+        Panel logo = new Panel();
         logo.SetBounds(28, 26, 56, 56);
+        logo.Paint += (s, e) =>
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            Rectangle r = new Rectangle(0, 0, logo.Width - 1, logo.Height - 1);
+            int d = r.Width * 32 / 100;   // радиус скругления — как 13 из 40 у плитки лаунчера
+            using (System.Drawing.Drawing2D.GraphicsPath p = new System.Drawing.Drawing2D.GraphicsPath())
+            using (System.Drawing.Drawing2D.LinearGradientBrush b = new System.Drawing.Drawing2D.LinearGradientBrush(r, AccentHover, Accent, 45f))
+            using (System.Drawing.Drawing2D.GraphicsPath shield = new System.Drawing.Drawing2D.GraphicsPath())
+            using (System.Drawing.Drawing2D.GraphicsPath z = new System.Drawing.Drawing2D.GraphicsPath())
+            using (Pen pen = new Pen(Accent, r.Width * 0.09f * 0.52f) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+            {
+                // логотип лаунчера, как в верхней панели и у значка: белый щит с «Z» в координатах 0..100, по центру плитки
+                shield.AddBezier(50, 8, 64, 16, 76, 18, 88, 18); shield.AddLine(88, 18, 88, 46); shield.AddBezier(88, 46, 88, 70, 72, 86, 50, 94);
+                shield.AddBezier(50, 94, 28, 86, 12, 70, 12, 46); shield.AddLine(12, 46, 12, 18); shield.AddBezier(12, 18, 24, 18, 36, 16, 50, 8); shield.CloseFigure();
+                z.AddLines(new[] { new PointF(35, 33), new PointF(65, 33), new PointF(35, 67), new PointF(65, 67) });
+                using (System.Drawing.Drawing2D.Matrix m = new System.Drawing.Drawing2D.Matrix())
+                {
+                    float k = r.Width * 0.52f / 100f;   // щит — примерно половина плитки, как 26 из 40 в лаунчере (через 100 единиц)
+                    m.Translate(r.Width / 2f, r.Height / 2f); m.Scale(k, k); m.Translate(-50, -50);
+                    shield.Transform(m); z.Transform(m);
+                }
+                p.AddArc(r.X, r.Y, d, d, 180, 90); p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+                p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+                p.CloseFigure();
+                g.FillPath(b, p);
+                g.FillPath(Brushes.White, shield);
+                g.DrawPath(pen, z);
+            }
+        };
         Controls.Add(logo);
 
         Label title = MakeLabel("Zapret Launcher", 100, 26, 420, 32);
@@ -259,7 +302,7 @@ class SetupForm : Form
         };
 
         existing = MakeLabel("", 28, 170, 504, 22);
-        existing.ForeColor = Color.FromArgb(44, 211, 177);
+        existing.ForeColor = Ok;
 
         chkDesktop = MakeCheck(L("Ярлык на рабочем столе", "Desktop shortcut"), 28, 204);
         chkStart = MakeCheck(L("Ярлык в меню «Пуск» (нужен для уведомлений)", "Start menu shortcut (needed for notifications)"), 28, 234);
@@ -279,8 +322,8 @@ class SetupForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        int on = 1, round = 2;   // тёмный заголовок (Windows 10 2004+ / 11) и скруглённые углы (Windows 11)
-        try { DwmSetWindowAttribute(Handle, 20, ref on, 4); DwmSetWindowAttribute(Handle, 33, ref round, 4); } catch { }
+        int round = 2;   // скруглённые углы (Windows 11); заголовок окна — светлый, как сама тема
+        try { DwmSetWindowAttribute(Handle, 33, ref round, 4); } catch { }
     }
 
     Label MakeLabel(string text, int x, int y, int w, int h)
@@ -313,6 +356,7 @@ class SetupForm : Form
         b.FlatAppearance.BorderSize = accent ? 0 : 1;
         b.FlatAppearance.BorderColor = Line;
         b.BackColor = accent ? Accent : Card;
+        b.FlatAppearance.MouseOverBackColor = accent ? AccentHover : Color.FromArgb(240, 238, 249);
         b.ForeColor = accent ? AccentText : Text1;
         b.Cursor = Cursors.Hand;
         b.SetBounds(x, y, w, h);
@@ -335,16 +379,16 @@ class SetupForm : Form
     {
         if (done) { Close(); return; }
         string dir = pathBox.Text.Trim();
-        if (!Path.IsPathRooted(dir) || Path.GetPathRoot(dir).TrimEnd('\\') == dir.TrimEnd('\\'))
+        if (Installer.IsBadPath(dir))
         {
             MessageBox.Show(this, L("Укажите папку, а не корень диска, например C:\\ZapretLauncher.", "Choose a folder, not a drive root, e.g. C:\\ZapretLauncher."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         // в непустую чужую папку не ставим: лаунчер живёт в своей папке, и её закрывают от изменений без прав администратора
-        if (Directory.Exists(dir) && Directory.EnumerateFileSystemEntries(dir).Any() && !Installer.HasLauncher(dir))
+        if (Installer.IsForeignFolder(dir))
         {
             string sub = Path.Combine(dir, "ZapretLauncher");
-            if (Directory.Exists(sub) && Directory.EnumerateFileSystemEntries(sub).Any() && !Installer.HasLauncher(sub))
+            if (Installer.IsForeignFolder(sub))
             {
                 MessageBox.Show(this, L("Папка не пустая — выберите пустую папку для лаунчера.", "The folder is not empty — choose an empty folder for the launcher."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -370,7 +414,7 @@ class SetupForm : Form
             bool wasRunning = Installer.CloseRunningLauncher();
             Installer.Install(dir, chkDesktop.Checked, chkStart.Checked, chkLaunch.Checked || wasRunning);
             done = true;
-            status.ForeColor = Color.FromArgb(120, 220, 160);
+            status.ForeColor = Ok;
             status.Text = L("Готово! Zapret Launcher ", "Done! Zapret Launcher ") + Installer.Version + L(" установлен в ", " is installed to ") + dir +
                 (chkLaunch.Checked || wasRunning ? L(" и запущен.", " and running.") : ".");
             btnInstall.Text = L("Закрыть", "Close");
@@ -378,7 +422,7 @@ class SetupForm : Form
         }
         catch (Exception e)
         {
-            status.ForeColor = Color.FromArgb(255, 138, 138);
+            status.ForeColor = Fail;
             status.Text = L("Ошибка: ", "Error: ") + e.Message;
             btnInstall.Enabled = btnCancel.Enabled = btnBrowse.Enabled = true;
         }

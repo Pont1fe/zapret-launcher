@@ -1,4 +1,4 @@
-// Оформление: тема, масштаб, размер окна, анимации, история за сутки
+﻿// Оформление: тема, масштаб, размер окна, анимации, история за сутки
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -25,14 +25,16 @@ namespace ZapretLauncher
     partial class Launcher
     {
         // ---------- Оформление ----------
-        // Смена темы или акцента: снимок старого вида поверх окна плавно растворяется — без мигания
+        // Смена темы или акцента: снимок старого вида остаётся поверх окна, а новый вид расходится из точки клика кругом.
+        // Мышь вне окна (сменили с клавиатуры или сама система) — круг из центра; анимация в Windows выключена — сразу
         void ApplyTheme()
         {
             Image snapshot = window.IsVisible ? Snapshot() : null;
             Grid root = E<Grid>("Root");
             if (snapshot != null) root.Children.Add(snapshot);
-            Theme.Apply(cfg.Theme, cfg.Transparent, cfg.Accent);
-            Theme.ApplyWindow(window);
+            Theme.Apply(cfg.Theme, cfg.Transparent, cfg.Accent, File.Exists(Paths.Wallpaper));
+            Theme.ApplyWindow(window, TopBarHeight * cfg.Scale / 100.0);
+            ShowWallpaper();
             visualActive = null;
             cardState = null;
             UpdateStrategyList();
@@ -40,9 +42,78 @@ namespace ZapretLauncher
             UpdateUi();
             RenderHistory();
             if (snapshot == null) return;
-            DoubleAnimation fade = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(320))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-            fade.Completed += delegate { root.Children.Remove(snapshot); };
-            snapshot.BeginAnimation(UIElement.OpacityProperty, fade);
+            if (!SystemParameters.ClientAreaAnimation) { root.Children.Remove(snapshot); return; }
+            Size size = new Size(root.ActualWidth, root.ActualHeight);
+            Point mouse = Mouse.GetPosition(root);
+            Point from = new Rect(size).Contains(mouse) ? mouse : new Point(size.Width / 2, size.Height / 2);
+            EllipseGeometry hole = new EllipseGeometry(from, 0, 0);
+            snapshot.Clip = new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(new Rect(size)), hole);
+            DoubleAnimation grow = new DoubleAnimation(0, WaveRadius(from, size), new Duration(TimeSpan.FromMilliseconds(560))) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut } };
+            grow.Completed += delegate { root.Children.Remove(snapshot); };
+            hole.BeginAnimation(EllipseGeometry.RadiusXProperty, grow);
+            hole.BeginAnimation(EllipseGeometry.RadiusYProperty, grow);
+        }
+
+        // ---------- Картинка за окном ----------
+        // С прозрачным фоном (Mica) не показывается: сквозь окно и так видно обои Windows
+        void ShowWallpaper()
+        {
+            Image img = E<Image>("Wallpaper");
+            ImageSource src = Theme.Transparent || !File.Exists(Paths.Wallpaper) ? null : LoadWallpaper(Paths.Wallpaper);
+            img.Source = src;
+            img.Visibility = src == null ? Visibility.Collapsed : Visibility.Visible;
+            img.Opacity = Theme.Dark ? 0.55 : 0.7;   // в тёмной теме приглушённее — светлое фото не спорит с текстом
+            E<FrameworkElement>("BtnWallpaperOff").Visibility = File.Exists(Paths.Wallpaper) ? Visibility.Visible : Visibility.Collapsed;
+            Text("WallpaperSub").Text = T(Theme.Transparent && File.Exists(Paths.Wallpaper) ? "Не видна, пока включён прозрачный фон (Mica)" : "Своё фото или обои за окном — размываются, чтобы текст читался");
+        }
+
+        // Уменьшенная копия (ширина 1600): окно не больше экрана, а память за огромное фото платить незачем; битый файл — null
+        public static ImageSource LoadWallpaper(string path)
+        {
+            // через свой поток, а не по адресу файла: битая картинка иначе оставляла файл занятым — ни удалить, ни заменить
+            try
+            {
+                using (FileStream fs = File.OpenRead(path))
+                {
+                    System.Windows.Media.Imaging.BitmapImage b = new System.Windows.Media.Imaging.BitmapImage();
+                    b.BeginInit();
+                    b.StreamSource = fs;
+                    b.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;   // всё прочитано сразу — поток можно закрыть
+                    b.DecodePixelWidth = 1600;
+                    b.EndInit();
+                    b.Freeze();
+                    return b;
+                }
+            }
+            catch { return null; }
+        }
+
+        const long WallpaperMaxBytes = 30L * 1024 * 1024;
+
+        void PickWallpaper()
+        {
+            Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog { Filter = T("Картинки") + "|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.webp;*.heic;*.jxr;*.tif;*.tiff" };
+            if (dlg.ShowDialog(window) != true) return;
+            if (new FileInfo(dlg.FileName).Length > WallpaperMaxBytes) { Ask("Картинка больше 30 МБ — выберите поменьше.", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+            if (LoadWallpaper(dlg.FileName) == null) { Ask("Не получилось открыть эту картинку — выберите другую (JPG или PNG).", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+            try { File.Copy(dlg.FileName, Paths.Wallpaper, true); }   // копия в папке лаунчера: оригинал можно перенести или удалить
+            catch (Exception e) { Ask(T("Не удалось сохранить картинку") + ": " + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            if (cfg.Transparent) { cfg.Transparent = false; cfg.Save(); filling = true; E<CheckBox>("SwMica").IsChecked = false; filling = false; }   // Mica закрыл бы картинку
+            Log.Write("Картинка на фоне: " + System.IO.Path.GetFileName(dlg.FileName));
+            ApplyTheme();
+        }
+
+        void RemoveWallpaper()
+        {
+            try { File.Delete(Paths.Wallpaper); } catch (Exception e) { Log.Write("Картинка на фоне: " + e.Message); }
+            ApplyTheme();
+        }
+
+        // Радиус, при котором круг из точки p закрывает всё окно, — расстояние до самого дальнего угла
+        static double WaveRadius(Point p, Size s)
+        {
+            double dx = Math.Max(p.X, s.Width - p.X), dy = Math.Max(p.Y, s.Height - p.Y);
+            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         Image Snapshot()
@@ -73,9 +144,8 @@ namespace ZapretLauncher
         void RestoreWindowSize()
         {
             double k = cfg.Scale / 100.0;
-            double w = cfg.Compact ? 520 * k : cfg.WindowWidth > 0 ? cfg.WindowWidth : 1000 * k, h = cfg.WindowHeight > 0 ? cfg.WindowHeight : 700 * k;
+            double w = cfg.WindowWidth > 0 ? cfg.WindowWidth : 1240 * k, h = cfg.WindowHeight > 0 ? cfg.WindowHeight : 760 * k;
             Rect area = SystemParameters.WorkArea;
-            if (cfg.Compact) SetCompact(true, false);
             window.Width = Math.Min(Math.Max(w, window.MinWidth), area.Width);
             window.Height = Math.Min(Math.Max(h, window.MinHeight * k), area.Height);
             if (cfg.WindowMaximized) window.WindowState = WindowState.Maximized;
@@ -100,47 +170,24 @@ namespace ZapretLauncher
             Rect r = window.RestoreBounds;
             if (!r.IsEmpty && r.Width > 0)
             {
-                if (!cfg.Compact) cfg.WindowWidth = Math.Round(r.Width);   // в компактном виде ширину обычного окна не трогаем
+                cfg.WindowWidth = Math.Round(r.Width);
                 cfg.WindowHeight = Math.Round(r.Height);
             }
             cfg.Save();
         }
 
-        // Компактный вид: только правая панель (переключатель, сайты, история), без меню и списка стратегий
-        void SetCompact(bool on, bool resize)
-        {
-            double k = cfg.Scale / 100.0;
-            if (on && resize && !cfg.Compact) SaveWindowSize();
-            cfg.Compact = on;
-            if (window.WindowState == WindowState.Maximized && resize) window.WindowState = WindowState.Normal;
-            Grid root = E<Grid>("Root");
-            root.ColumnDefinitions[0].Width = new GridLength(on ? 0 : 76);
-            root.ColumnDefinitions[1].MinWidth = on ? 0 : 400;
-            root.ColumnDefinitions[1].Width = on ? new GridLength(0) : new GridLength(5, GridUnitType.Star);
-            E<FrameworkElement>("Sidebar").Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-            E<FrameworkElement>("MidPanel").Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-            window.MinWidth = (on ? 460 : MinFullWidth) * k;
-            if (resize)
-            {
-                double right = window.Left + window.Width;
-                window.Width = on ? 520 * k : Math.Max(window.MinWidth, cfg.WindowWidth > 0 ? cfg.WindowWidth : 1000 * k);
-                window.Left = Math.Max(SystemParameters.WorkArea.Left, right - window.Width);   // окно остаётся у того же правого края
-            }
-            Button b = E<Button>("BtnCompact");
-            b.Content = on ? "" : "";
-            b.ToolTip = T(on ? "Полный вид" : "Компактный вид");
-            cfg.Save();
-        }
-
-        // полный вид: боковое меню 76 + колонки 400 и 440 из ui.xaml и запас на рамку окна
-        const double MinFullWidth = 940;
+        const double TopBarHeight = 68;   // высота верхней панели в ui.xaml: за неё окно перетаскивается
 
         void ApplyScale()
         {
             double k = cfg.Scale / 100.0;
             E<Grid>("Root").LayoutTransform = k == 1 ? Transform.Identity : new ScaleTransform(k, k);
-            window.MinWidth = (cfg.Compact ? 460 : MinFullWidth) * k;
-            window.MinHeight = 620 * k;
+            // как MinWidth/MinHeight в ui.xaml, но не больше экрана: иначе кнопки окна уйдут за край (главная прокручивается)
+            Rect area = SystemParameters.WorkArea;
+            window.MinWidth = Math.Min(1080 * k, area.Width);
+            window.MinHeight = Math.Min(680 * k, area.Height);
+            System.Windows.Shell.WindowChrome chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(window);
+            if (chrome != null && !chrome.IsFrozen) chrome.CaptionHeight = TopBarHeight * k;
             if (flyout != null) F<FrameworkElement>("FlyCard").LayoutTransform = k == 1 ? Transform.Identity : new ScaleTransform(k, k);
         }
 
@@ -171,6 +218,46 @@ namespace ZapretLauncher
 
         // ---------- История за сутки ----------
         // Полоса за 24 часа: цвет — состояние обхода в эту минуту, пусто — лаунчер не работал
+        // Дуга кольца от верхней точки по часовой стрелке: share — доля круга (0..1), r — радиус, c — центр по обеим осям
+        static Geometry RingArc(double share, double r, double c)
+        {
+            share = Math.Max(0, Math.Min(1, share));
+            if (share <= 0) return Geometry.Empty;
+            if (share >= 0.999) return new EllipseGeometry(new Point(c, c), r, r);
+            double a = share * 2 * Math.PI;
+            PathFigure f = new PathFigure { StartPoint = new Point(c, c - r) };
+            f.Segments.Add(new ArcSegment(new Point(c + r * Math.Sin(a), c - r * Math.Cos(a)), new Size(r, r), 0, share > 0.5, SweepDirection.Clockwise, true));
+            return new PathGeometry(new[] { f });
+        }
+
+        // ---------- Плавные числа ----------
+        // Значение «доезжает» до нового с замедлением в конце; новый запуск по тому же ключу перебивает старый.
+        // Если в Windows выключена анимация — сразу конечное значение
+        readonly Dictionary<string, DispatcherTimer> tweens = new Dictionary<string, DispatcherTimer>();
+
+        void Tween(string key, double from, double to, Action<double> apply, double ms = 600)
+        {
+            DispatcherTimer old;
+            if (tweens.TryGetValue(key, out old)) { old.Stop(); tweens.Remove(key); }
+            if (from == to || !SystemParameters.ClientAreaAnimation) { apply(to); return; }
+            DateTime start = DateTime.Now;
+            DispatcherTimer t = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+            t.Tick += delegate
+            {
+                double p = Math.Min(1, (DateTime.Now - start).TotalMilliseconds / ms);
+                apply(from + (to - from) * EaseOut(p));
+                if (p >= 1) { t.Stop(); tweens.Remove(key); }
+            };
+            tweens[key] = t;
+            apply(from);
+            t.Start();
+        }
+
+        static double EaseOut(double p) { return 1 - Math.Pow(1 - p, 3); }
+
+        double shownShare;   // докуда кольцо уже дорисовано; при скрытии окна — ноль, чтобы при открытии оно выросло заново
+        readonly Dictionary<string, int> shownMs = new Dictionary<string, int>();
+
         void RenderHistory()
         {
             if (!window.IsVisible) return;
@@ -198,7 +285,18 @@ namespace ZapretLauncher
                 bar.Children.Add(seg);
                 i = j + 1;
             }
-            Text("HistorySummary").Text = points.Count == 0 ? T("данных пока нет") : T("работал") + " " + Span(minutesBy['o']);
+            // кольцо: доля работы среди минут, когда лаунчер был запущен
+            double share = points.Count == 0 ? 0 : (double)minutesBy['o'] / points.Count;
+            System.Windows.Shapes.Path ring = E<System.Windows.Shapes.Path>("HistoryRing");
+            TextBlock percent = Text("HistoryPercent");
+            bool empty = points.Count == 0;
+            Tween("ring", shownShare, share, v =>
+            {
+                ring.Data = RingArc(v, 28.5, 32);   // по центру толщины дорожки: 64/2 − 7/2
+                percent.Text = empty ? "—" : Math.Round(v * 100) + "%";
+            }, 900);
+            shownShare = share;
+            Text("HistoryMonth").Text = I18n.English ? DateTime.Now.ToString("MMMM", new System.Globalization.CultureInfo("en-US")) : DateTime.Now.ToString("MMMM", new System.Globalization.CultureInfo("ru-RU")).ToLower();
             WrapPanel legend = E<WrapPanel>("HistoryLegend");
             legend.Children.Clear();
             foreach (char c in new[] { 'o', 'p', 'e', 'f' })
@@ -208,7 +306,7 @@ namespace ZapretLauncher
                 Ellipse dot = new Ellipse { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
                 dot.SetResourceReference(Shape.FillProperty, HistoryColor(c));
                 item.Children.Add(dot);
-                TextBlock t = new TextBlock { Text = T(HistoryName(c)) + " " + Span(minutesBy[c]), FontSize = 11 };
+                TextBlock t = new TextBlock { Text = T(HistoryName(c)) + " " + Formats.Span(minutesBy[c]), FontSize = 11 };
                 t.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
                 item.Children.Add(t);
                 legend.Children.Add(item);
@@ -218,12 +316,7 @@ namespace ZapretLauncher
         static string HistoryColor(char c) { return c == 'o' ? "Accent" : c == 'p' ? "Wait" : c == 'e' ? "Fail" : "Idle"; }
         static string HistoryName(char c) { return c == 'o' ? "работал" : c == 'p' ? "пауза (VPN)" : c == 'e' ? "сбой" : "выключен"; }
 
-        static string Span(int minutes)
-        {
-            return minutes >= 60 ? (minutes / 60) + " " + T("ч") + (minutes % 60 > 0 ? " " + (minutes % 60) + " " + T("мин") : "") : minutes + " " + T("мин");
-        }
-
-        // Карточка-переключатель: плавно подсвечивается бирюзовым, ползунок едет вправо
+        // Карточка обхода: плавно заливается цветом акцента, кнопка-щит светлеет
         void SetActive(bool on)
         {
             if (visualActive == on) return;
@@ -232,11 +325,16 @@ namespace ZapretLauncher
             TimeSpan d = TimeSpan.FromMilliseconds(first ? 0 : 260);
             Fade(E<UIElement>("ActiveLayer"), on ? 1 : 0, d);
             Fade(E<UIElement>("PowerIconOn"), on ? 1 : 0, d);
-            Fade(E<UIElement>("ToggleTrackOn"), on ? 1 : 0, d);
             Fade(E<UIElement>("GlowBg"), on ? 0.9 : 0, d);
-            Slide(E<Ellipse>("ToggleKnob"), on ? 28 : 0, d);
+            // включён — карточка цвета акцента, текст на ней светлый (в тёмной теме акцент яркий — текст тёмный, это AccentText)
+            Text("PowerStatus").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Text");
+            Text("PowerTimer").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "TextSub");
+            Text("PowerHint").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Muted");
+            Text("PowerCaption").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Muted");
             if (on && !first) Ripple();
+            Pulse(on);
             animateCards = true;
+            UpdateGreeting();
             // пока обход работает, подсветка карточки медленно «дышит»
             UIElement glow = E<UIElement>("GlowBg");
             if (on)
@@ -250,7 +348,28 @@ namespace ZapretLauncher
             }
         }
 
-        // Волна от значка щита при включении
+        // Пока обход работает, от кнопки «питания» раз в 2,6 с расходится и гаснет мягкое кольцо; выключен — кольца нет
+        void Pulse(bool on)
+        {
+            Border ring = E<Border>("PowerPulse");
+            ScaleTransform s = new ScaleTransform(1, 1);
+            ring.RenderTransform = s;
+            if (!on) { ring.BeginAnimation(UIElement.OpacityProperty, null); ring.Opacity = 0; return; }
+            TimeSpan grow = TimeSpan.FromSeconds(1.8), cycle = TimeSpan.FromSeconds(2.6);
+            Func<double, double, DoubleAnimationUsingKeyFrames> wave = (from, to) =>
+            {
+                DoubleAnimationUsingKeyFrames a = new DoubleAnimationUsingKeyFrames { Duration = cycle, RepeatBehavior = RepeatBehavior.Forever };
+                a.KeyFrames.Add(new LinearDoubleKeyFrame(from, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                a.KeyFrames.Add(new EasingDoubleKeyFrame(to, KeyTime.FromTimeSpan(grow), new CubicEase { EasingMode = EasingMode.EaseOut }));
+                a.KeyFrames.Add(new LinearDoubleKeyFrame(to, KeyTime.FromTimeSpan(cycle)));   // пауза до следующей волны
+                return a;
+            };
+            s.BeginAnimation(ScaleTransform.ScaleXProperty, wave(1, 1.5));
+            s.BeginAnimation(ScaleTransform.ScaleYProperty, wave(1, 1.5));
+            ring.BeginAnimation(UIElement.OpacityProperty, wave(0.6, 0));
+        }
+
+        // Волна от кнопки при включении
         void Ripple()
         {
             Ellipse r = E<Ellipse>("Ripple");
@@ -281,9 +400,9 @@ namespace ZapretLauncher
             TimeSpan d = TimeSpan.FromMilliseconds(260);
             Fade(layer, tinted ? 1 : 0, d);
             Fade(fly, tinted ? 1 : 0, d);
-            Text("PowerIcon").Text = state == "pause" ? "" : state == "error" ? "" : "";
+            Text("PowerIcon").Text = state == "pause" ? "" : state == "error" ? "" : "";   // включён и выключен — значок «питания», как у кнопки включения
             Text("PowerIcon").SetResourceReference(TextBlock.ForegroundProperty,
-                state == "on" ? "AccentText" : state == "pause" ? "Wait" : state == "error" ? "Fail" : "Muted");
+                state == "on" ? "Accent" : state == "pause" ? "Wait" : state == "error" ? "Fail" : "Muted");   // «on» — на белой плитке
         }
 
         static void Fade(UIElement e, double to, TimeSpan d)

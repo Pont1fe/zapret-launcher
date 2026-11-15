@@ -30,21 +30,40 @@ namespace ZapretLauncher
 
         void WireEvents()
         {
+            WireDrop();
             ClickSync("BtnMinimize", () => { window.WindowState = WindowState.Minimized; });
-            ClickSync("BtnCompact", () => SetCompact(!cfg.Compact, true));
             ClickSync("BtnMaximize",() => { window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; });
             E<Canvas>("HistoryBar").SizeChanged += delegate { RenderHistory(); };
             ClickSync("BtnClose", () => window.Close());
-            foreach (string p in new[] { "Strategies", "Domains", "Vpn", "Settings", "Log" })
+            foreach (string p in new[] { "Home", "Domains", "Vpn", "Settings", "Log" })
             {
                 string page = p;
                 E<RadioButton>("Nav" + p).Checked += delegate { ShowPage(page); };
             }
+            // «Обход» уже выбран, а открыт полный список стратегий — повторный клик возвращает на главную
+            ClickSync("NavHome", () => { if (pageIndex != 0) ShowPage("Home"); });
+            Click("BtnReport", () => SaveReport("BtnReport", "Отчёт", false));
+            // поиск сверху ищет по списку стратегий: печатаем — открывается список
+            TextBox topSearch = E<TextBox>("TopSearch");
+            topSearch.TextChanged += delegate
+            {
+                Text("TopSearchHint").Visibility = topSearch.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible;
+                E<TextBox>("SearchBox").Text = topSearch.Text;
+                if (topSearch.Text.Length > 0) ShowStrategyList();
+            };
+            ClickSync("HomeAllStrategies", ShowStrategyList);
+            E<FrameworkElement>("IllStrat").MouseLeftButtonUp += delegate { ShowStrategyList(); };
+            E<FrameworkElement>("IllVpn").MouseLeftButtonUp += delegate { E<RadioButton>("NavVpn").IsChecked = true; };
+            E<FrameworkElement>("HomeVpnCard").MouseLeftButtonUp += delegate { E<RadioButton>("NavVpn").IsChecked = true; };
+            E<FrameworkElement>("IllWatch").MouseLeftButtonUp += delegate { E<RadioButton>("NavSettings").IsChecked = true; };
+            E<FrameworkElement>("HomeAlt").MouseLeftButtonUp += async delegate { if (homeAlt != null) await SelectStrategy(homeAlt); };
+            E<FrameworkElement>("HomeVpnGraph").SizeChanged += delegate { DrawHomeVpn(); };
             ClickSync("NavFolder", () => Process.Start("explorer.exe", "\"" + Paths.Zapret + "\""));
             ClickSync("NavInfo", () => Process.Start("https://github.com/" + cfg.LauncherRepo));
 
             E<FrameworkElement>("PowerButton").MouseLeftButtonUp += async delegate { await ToggleBypass(); };
             Click("BtnSiteCheck", PingNow);
+            Click("BtnWhy", DiagnoseUi);
             Click("BtnPing", PingNow);
 
             TextBox search = E<TextBox>("SearchBox");
@@ -100,6 +119,10 @@ namespace ZapretLauncher
             Click("BtnVpnClipAdd", AddFromClipboard);
             Click("BtnVpnAddBlocked", AddBlockedToVpn);
             Click("BtnFixConflict", FixConflicts);
+            // «Мои сайты на главной»: сохранить список и сразу проверить
+            TextBox mySites = E<TextBox>("MySitesBox");
+            mySites.TextChanged += delegate { Text("MySitesHint").Visibility = mySites.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible; };
+            Click("BtnMySites", SaveMySites);
             Click("BtnVpnQrFile", QrFromFile);
             Click("BtnVpnQrScreen", QrFromScreen);
             Click("BtnVpnAwgFile", AwgFromFile);
@@ -224,6 +247,9 @@ namespace ZapretLauncher
             ClickSync("ThemeDark", () => SetTheme("dark"));
             ClickSync("ThemeLight", () => SetTheme("light"));
             ClickSync("ThemeSystem", () => SetTheme("system"));
+            foreach (string preset in Theme.PresetAccents.Keys) { string p = preset; ClickSync("Theme" + char.ToUpper(p[0]) + p.Substring(1), () => SetTheme(p)); }
+            ClickSync("BtnWallpaper", PickWallpaper);
+            ClickSync("BtnWallpaperOff", RemoveWallpaper);
             ClickSync("SwMica", () =>
             {
                 cfg.Transparent = E<CheckBox>("SwMica").IsChecked == true;

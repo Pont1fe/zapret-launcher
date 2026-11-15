@@ -79,8 +79,15 @@ namespace ZapretLauncher
         {
             if (flyout == null || !flyout.IsVisible) return;
             bool running = Zapret.Running;
-            F<TextBlock>("FlyStatus").Text = Text("PowerStatus").Text;
+            // в мини-окне нет подписи «ОБХОД» — короткий статус карточки разворачиваем
+            string st = Text("PowerStatus").Text;
+            F<TextBlock>("FlyStatus").Text = st == T("Включён") ? T("Обход работает") : st == T("Выключен") ? T("Обход выключен") : st == T("Пауза") ? T("Пауза: включён VPN") : st == T("Служба zapret") ? T("Работает служба zapret") : st;
             F<TextBlock>("FlyStrategy").Text = T("Стратегия") + ": " + T(Zapret.Title(cfg.Strategy));
+            // фон — как у окна (лавандовый или тёмный), карточки на нём светлее; при прозрачном фоне Mica окна нет — берём полупрозрачную карточку
+            F<Border>("FlyCard").SetResourceReference(Border.BackgroundProperty, Theme.Transparent ? "CardRaised" : "WindowBg");
+            // включён — карточка цвета акцента, текст на ней светлый, как на главной
+            F<TextBlock>("FlyStatus").SetResourceReference(TextBlock.ForegroundProperty, running ? "AccentText" : "Text");
+            F<TextBlock>("FlyStrategy").SetResourceReference(TextBlock.ForegroundProperty, running ? "AccentText" : "TextSub");
             TimeSpan d = TimeSpan.FromMilliseconds(220);
             Fade(F<UIElement>("FlyActive"), running ? 1 : 0, d);
             Fade(F<UIElement>("FlyTrackOn"), running ? 1 : 0, d);
@@ -96,22 +103,23 @@ namespace ZapretLauncher
             }
             UniformGrid sites = F<UniformGrid>("FlySites");
             sites.Children.Clear();
+            sites.Columns = Math.Max(1, Math.Min(3, VisibleSites().Count()));   // со своими сайтами — второй ряд
             foreach (string site in VisibleSites())
             {
                 string color, https, tcp;
                 SiteState(site, out color, out https, out tcp);
                 StackPanel p = new StackPanel { Margin = new Thickness(0, 0, 6, 0) };
-                StackPanel head = new StackPanel { Orientation = Orientation.Horizontal };
+                DockPanel head = new DockPanel();   // длинный адрес своего сайта обрезается многоточием
                 Ellipse dot = new Ellipse { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
                 dot.SetResourceReference(Shape.FillProperty, color);
                 head.Children.Add(dot);
-                head.Children.Add(new TextBlock { Text = T(site), FontSize = 12, FontWeight = FontWeights.SemiBold });
+                head.Children.Add(new TextBlock { Text = T(site), FontSize = 12, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = site });
                 p.Children.Add(head);
                 TextBlock ms = new TextBlock { Text = color == "Fail" ? T("недоступен") : https.Replace("HTTPS ", ""), FontSize = 11, Margin = new Thickness(13, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
                 ms.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
                 p.Children.Add(ms);
-                Border b = new Border { Child = p, CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 8, 6, 8), Margin = new Thickness(0, 0, 6, 0) };
-                b.SetResourceReference(Border.BackgroundProperty, "Card");
+                Border b = new Border { Child = p, CornerRadius = new CornerRadius(16), Padding = new Thickness(12, 10, 8, 10), Margin = new Thickness(0, 0, 6, 6) };
+                b.SetResourceReference(Border.BackgroundProperty, "CardRaised");
                 sites.Children.Add(b);
             }
         }
@@ -122,7 +130,8 @@ namespace ZapretLauncher
             if (pausedByVpn && !running) return "pause";
             if (running)
             {
-                bool allFail = !picking && siteResults != null && siteResults.Count > 0 && siteResults.All(r => !r.Ok);
+                List<SiteResult> main = siteResults == null ? null : siteResults.Where(r => !cfg.MySites.Contains(r.Name)).ToList();   // свои сайты на значок не влияют
+                bool allFail = !picking && main != null && main.Count > 0 && main.All(r => !r.Ok);
                 return allFail ? "error" : "on";
             }
             return crashed || (wantRunning && !busy) ? "error" : "off";
@@ -288,7 +297,7 @@ namespace ZapretLauncher
                 {
                     if (cfg.VpnMode == mode) return;
                     cfg.VpnMode = mode;
-                    Log.Write("VPN: режим из меню значка — " + ModeName(mode));
+                    Log.Write("VPN: режим из меню значка — " + VpnInfo.ModeName(mode));
                     await ApplyVpnChanges();
                 };
                 miVpnMode.DropDownItems.Add(item);
