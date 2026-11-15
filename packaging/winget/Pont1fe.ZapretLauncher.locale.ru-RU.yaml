@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: Pont1fe.ZapretLauncher
+PackageVersion: 4.1.0
+PackageLocale: ru-RU
+Publisher: Pont1fe
+PublisherUrl: https://github.com/Pont1fe
+PublisherSupportUrl: https://github.com/Pont1fe/zapret-launcher/issues
+PackageName: Zapret Launcher
+PackageUrl: https://github.com/Pont1fe/zapret-launcher
+License: MIT
+LicenseUrl: https://github.com/Pont1fe/zapret-launcher/blob/main/LICENSE
+Tags:
+  - zapret
+  - dpi
+  - discord
+  - youtube
+  - telegram
+  - vpn
+  - sing-box
+ReleaseNotesUrl: https://github.com/Pont1fe/zapret-launcher/releases/tag/v4.1.0
+ShortDescription: Discord, YouTube и Telegram снова работают — одним нажатием
+Description: Удобная оболочка для zapret-discord-youtube со встроенным VPN-клиентом. Сама подбирает рабочую стратегию, обновляет zapret и чинит обход, если он сломался.
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

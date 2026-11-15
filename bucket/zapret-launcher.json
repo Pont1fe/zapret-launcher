@@ -1,0 +1,28 @@
+{
+    "version":  "4.1.0",
+    "description":  "Discord, YouTube and Telegram work again in one click: a launcher for zapret with a built-in VPN client",
+    "homepage":  "https://github.com/Pont1fe/zapret-launcher",
+    "license":  "MIT",
+    "notes":  [
+                  "Installed to C:\\ZapretLauncher by its own installer (needs administrator rights).",
+                  "The launcher updates itself; scoop update is optional."
+              ],
+    "url":  "https://github.com/Pont1fe/zapret-launcher/releases/download/v4.1.0/ZapretLauncherSetup.exe#/setup.exe",
+    "hash":  "cd5a2b324d19739d2bc20ead59a18b7e80ea9c27d0b8b5315daa0e88b7f18093",
+    "installer":  {
+                      "script":  [
+                                     "Start-Process \"$dir\\setup.exe\" -ArgumentList \u0027/S\u0027 -Verb RunAs -Wait"
+                                 ]
+                  },
+    "uninstaller":  {
+                        "script":  [
+                                       "if ($cmd -ne \u0027uninstall\u0027) { return }",
+                                       "$loc = (Get-ItemProperty \u0027HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ZapretLauncher\u0027 -ErrorAction SilentlyContinue).InstallLocation",
+                                       "if ($loc -and (Test-Path \"$loc\\ZapretLauncher.exe\")) { Start-Process \"$loc\\ZapretLauncher.exe\" -ArgumentList \u0027--uninstall\u0027, \u0027--quiet\u0027 -Verb RunAs -Wait }"
+                                   ]
+                    },
+    "checkver":  "github",
+    "autoupdate":  {
+                       "url":  "https://github.com/Pont1fe/zapret-launcher/releases/download/v$version/ZapretLauncherSetup.exe#/setup.exe"
+                   }
+}

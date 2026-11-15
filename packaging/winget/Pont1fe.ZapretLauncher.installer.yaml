@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: Pont1fe.ZapretLauncher
+PackageVersion: 4.1.0
+InstallerType: exe
+Scope: machine
+InstallModes:
+  - interactive
+  - silent
+InstallerSwitches:
+  Silent: /S
+  SilentWithProgress: /S
+  InstallLocation: /D=<INSTALLPATH>
+ElevationRequirement: elevatesSelf
+UpgradeBehavior: install
+ProductCode: ZapretLauncher
+AppsAndFeaturesEntries:
+  - DisplayName: Zapret Launcher
+    Publisher: Pont1fe (zapret by Flowseal)
+    ProductCode: ZapretLauncher
+Installers:
+  - Architecture: neutral
+    InstallerUrl: https://github.com/Pont1fe/zapret-launcher/releases/download/v4.1.0/ZapretLauncherSetup.exe
+    InstallerSha256: CD5A2B324D19739D2BC20EAD59A18B7E80EA9C27D0B8B5315DAA0E88B7F18093
+ManifestType: installer
+ManifestVersion: 1.6.0
