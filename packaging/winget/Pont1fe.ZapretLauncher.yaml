@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
 PackageIdentifier: Pont1fe.ZapretLauncher
-PackageVersion: 4.1.0
+PackageVersion: 4.1.1
 DefaultLocale: ru-RU
 ManifestType: version
 ManifestVersion: 1.6.0

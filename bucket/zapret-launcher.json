@@ -1,5 +1,5 @@
 {
-    "version":  "4.1.0",
+    "version":  "4.1.1",
     "description":  "Discord, YouTube and Telegram work again in one click: a launcher for zapret with a built-in VPN client",
     "homepage":  "https://github.com/Pont1fe/zapret-launcher",
     "license":  "MIT",
@@ -7,8 +7,8 @@
                   "Installed to C:\\ZapretLauncher by its own installer (needs administrator rights).",
                   "The launcher updates itself; scoop update is optional."
               ],
-    "url":  "https://github.com/Pont1fe/zapret-launcher/releases/download/v4.1.0/ZapretLauncherSetup.exe#/setup.exe",
-    "hash":  "cd5a2b324d19739d2bc20ead59a18b7e80ea9c27d0b8b5315daa0e88b7f18093",
+    "url":  "https://github.com/Pont1fe/zapret-launcher/releases/download/v4.1.1/ZapretLauncherSetup.exe#/setup.exe",
+    "hash":  "f08cc1f269a87631fc949d94fc14bad20234ecf0b8df8cc3a7de89a2ae1703ae",
     "installer":  {
                       "script":  [
                                      "Start-Process \"$dir\\setup.exe\" -ArgumentList \u0027/S\u0027 -Verb RunAs -Wait"
