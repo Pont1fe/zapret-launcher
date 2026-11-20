@@ -40,6 +40,25 @@ function Section([string]$name, [scriptblock]$code) {
 function B64([string]$s) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($s)) }
 function List([string[]]$items) { $l = New-Object 'System.Collections.Generic.List[string]'; foreach ($i in $items) { $l.Add($i) }; , $l }
 
+Section 'Снимок сбоя' {
+    $queue = (TypeOf Log).GetField('recent', $all).GetValue($null)
+    $queue.Clear()
+    $now = [Diagnostics.Stopwatch]::GetTimestamp()
+    $old = [long]($now - 61 * [Diagnostics.Stopwatch]::Frequency)
+    try {
+        $queue.Enqueue([System.Collections.Generic.KeyValuePair[long,string]]::new($old, 'старое событие'))
+        Call Log Write 'свежее событие'
+        Check 'в снимке только свежая запись' ((Call Log Recent) -match '^\[[^\]]+\] свежее событие$') $true
+        for ($i = 1; $i -le 513; $i++) {
+            $queue.Enqueue([System.Collections.Generic.KeyValuePair[long,string]]::new($now, "событие $i"))
+        }
+        $lines = (Call Log Recent) -split '\r?\n'
+        Check 'снимок ограничен 512 событиями' $lines.Count 512
+        Check 'последнее событие сохранено' $lines[-1] 'событие 513'
+    }
+    finally { $queue.Clear() }
+}
+
 Section 'Списки доменов и приложений' {
     Check 'пробелы, запятые, строки' ((Call SitePresets SplitItems "a.com b.com,c.com;d.com`r`ne.com" $true) -join '|') 'a.com|b.com|c.com|d.com|e.com'
     Check 'комментарии и IP из hosts' ((Call SitePresets SplitItems "# list`n0.0.0.0 x.com # tail`n127.0.0.1 y.com`n::1 z.com" $true) -join '|') 'x.com|y.com|z.com'
@@ -192,6 +211,71 @@ Section 'Ключи VPN' {
     Check 'срок подписки в миллисекундах — без срока, без ошибки' ("{0} {1}" -f $info.Used, ($null -eq $info.Expire)) '3 True'
 }
 
+Section 'Подписки с привязкой устройства' {
+    Add-Type -AssemblyName System.Net.Http
+    $response = [Net.Http.HttpResponseMessage]::new([Net.HttpStatusCode]::OK)
+    try {
+        $response.Content = [Net.Http.StringContent]::new('ordinary subscription')
+        $response.Headers.Add('subscription-userinfo', 'total=1000')
+        $receiveInfo = [Action[string]]{ param($value) $script:subscriptionHeader = $value }
+        Check 'обычная подписка' ((Call Vpn ReadSubscription $response $receiveInfo).GetAwaiter().GetResult()) 'ordinary subscription'
+        Check 'метаданные обычной подписки' $script:subscriptionHeader 'total=1000'
+        $response.Headers.Add('x-hwid-not-supported', 'True')
+        Check 'заглушка запроса HWID' (Call Vpn SubscriptionFlag $response 'x-hwid-not-supported') $true
+        Throws 'заглушка не импортируется' { (Call Vpn ReadSubscription $response $null).GetAwaiter().GetResult() } 'отклонил идентификатор'
+        $response.Headers.Add('x-hwid-max-devices-reached', 'true')
+        Throws 'лимит устройств' { (Call Vpn ReadSubscription $response $null).GetAwaiter().GetResult() } 'Лимит устройств'
+    }
+    finally { $response.Dispose() }
+}
+
+Section 'Несколько VPN-подписок' {
+    $configPath = Field Paths Config
+    $legacy = '{"VpnSubscription":"https://first.example/private-a","VpnSubInfo":"total=1000","VpnServers":[{"Name":"Старый","Link":"vless://old"},{"Name":"Ручной","Link":"vless://manual"}],"VpnSelected":1}'
+    [IO.File]::WriteAllText($configPath, $legacy)
+    try {
+        $config = Call Config Load
+        Check 'перенос старой подписки' $config.VpnSubscriptions.Count 1
+        Check 'перенос сведений о трафике' $config.VpnSubscriptions[0].Info 'total=1000'
+        $first = $config.VpnSubscriptions[0]
+        $second = [Activator]::CreateInstance((TypeOf VpnSubscription))
+        $second.Id = 'second'
+        $second.Url = 'https://second.example/private-b#fragment'
+        $config.VpnSubscriptions.Add($second)
+        $replace = (TypeOf VpnSubscription).GetMethod('ReplaceServers', [Reflection.BindingFlags]'Instance, NonPublic')
+        $servers = [Activator]::CreateInstance($config.VpnServers.GetType())
+        $config.VpnServers[0].Favorite = $true
+        $refreshed = [Activator]::CreateInstance((TypeOf VpnServer))
+        $refreshed.Link = $config.VpnServers[0].Link
+        $servers.Add($refreshed)
+        $replace.Invoke($first, @($config, $servers))
+        Check 'при обновлении подписки остаётся отметка избранного' $config.VpnServers[1].Favorite 'True'
+        Check 'известный сервер привязан к старой подписке' $config.VpnServers[1].SubscriptionId $first.Id
+        $other = [Activator]::CreateInstance((TypeOf VpnServer))
+        $other.Name = 'Другой'
+        $other.Link = 'vless://other'
+        $servers.Clear()
+        $servers.Add($other)
+        $replace.Invoke($second, @($config, $servers))
+        Check 'вторая подписка сохраняет серверы первой и ручной ключ' ($config.VpnServers.Link -join ',') 'vless://manual,vless://old,vless://other'
+        Check 'сохраняется текущий ключ' $config.VpnServers[$config.VpnSelected].Link 'vless://manual'
+        $servers.Clear()
+        $replacement = [Activator]::CreateInstance((TypeOf VpnServer))
+        $replacement.Link = 'vless://new'
+        $servers.Add($replacement)
+        $replace.Invoke($first, @($config, $servers))
+        Check 'обновление затрагивает одну подписку' ($config.VpnServers.Link -join ',') 'vless://manual,vless://new,vless://other'
+        $safe = Call Report SanitizeVpn 'https://first.example/private-a https://second.example/private-b#fragment' $config
+        Check 'в отчёте скрыты ссылки всех подписок' $safe '<подписка> <подписка>'
+        $config.VpnServers[2].Favorite = $true
+        $config.Save()
+        Check 'избранный сервер сохраняется после перезапуска' (Call Config Load).VpnServers[2].Favorite 'True'
+        Check 'после перезапуска остаются обе подписки' (Call Config Load).VpnSubscriptions.Count 2
+    } finally {
+        Remove-Item -LiteralPath $configPath -ErrorAction SilentlyContinue
+    }
+}
+
 Section 'Подписки Clash и JSON' {
     # каждый сервер становится обычной ссылкой — проверяем, что из неё собирается тот же сервер
     $links = { param($text) $r = Call SubFormats ToLinks $text; if ($null -eq $r) { @() } else { @($r.Split("`n") | Where-Object { $_ }) } }
@@ -302,6 +386,33 @@ proxy-groups:
     Check 'Xray: имя из remarks' ((Call Vpn Parse $l[1]).GetAwaiter().GetResult()[0].Name) 'SS'
     Check 'обычная ссылка — не Clash и не JSON' ($null -eq (Call SubFormats ToLinks 'vless://a@h.example.com:443')) 'True'
     Check 'вставленный Clash тоже разбирается' ((Call Vpn Parse $clash).GetAwaiter().GetResult().Count) 5
+}
+
+Section 'WireGuard, AnyTLS и проверка VPN' {
+    $link = 'anytls://p%40ss@example.com/?sni=tls.example.com&insecure=1#My%20VPN'
+    $parsed = (Call Vpn Parse $link).GetAwaiter().GetResult()[0]
+    $any = Call Vpn BuildOutbound $parsed.Link
+    Check 'AnyTLS: импорт с паролем и TLS' ("{0}|{1}|{2}|{3}|{4}|{5}" -f $parsed.Name,$any['type'],$any['password'],$any['server_port'],$any['tls']['server_name'],$any['tls']['insecure']) 'My VPN|anytls|p@ss|443|tls.example.com|True'
+    Throws 'AnyTLS: пустой пароль' { Call Vpn BuildOutbound 'anytls://example.com:443' } 'нужен пароль'
+    $anyJson = '{"outbounds":[{"type":"anytls","server":"example.com","server_port":443,"password":"secret","tls":{"enabled":true,"server_name":"tls.example.com","insecure":true}}]}'
+    $any = Call Vpn BuildOutbound (Call SubFormats ToLinks $anyJson)
+    Check 'AnyTLS: JSON сохраняет TLS из подписки' $any['tls']['insecure'] $true
+    $private = [Convert]::ToBase64String([byte[]](1..32))
+    $public = [Convert]::ToBase64String([byte[]](33..64))
+    $nl = [Environment]::NewLine
+    $conf = @('[Interface]', "PrivateKey = $private", 'Address = 10.8.0.2/32, fd00::2/128', 'DNS = 10.8.0.1', '[Peer]', "PublicKey = $public", 'Endpoint = [2001:db8::1]:51820', 'AllowedIPs = 0.0.0.0/0, ::/0', 'PersistentKeepalive = 25') -join $nl
+    $wg = (Call Vpn Parse $conf).GetAwaiter().GetResult()[0]
+    Check 'обычный файл WireGuard импортируется как WireGuard' (Call WireGuard IsLink $wg.Link) $true
+    $cfgJson = (Call Vpn BuildConfig $wg 'split' (List @('example.com')) (List @())) | ConvertFrom-Json
+    $ep = $cfgJson.endpoints[0]
+    Check 'WireGuard: endpoint, маршрут, DNS через VPN' ("{0}|{1}|{2}|{3}|{4}|{5}" -f $ep.tag,$ep.peers[0].address,$ep.peers[0].port,$ep.peers[0].persistent_keepalive_interval,$cfgJson.dns.servers[0].server,$cfgJson.dns.servers[0].detour) 'proxy|2001:db8::1|51820|25|10.8.0.1|proxy'
+    Check 'WireGuard: секреты вычищаются из отчёта' (Call Report Sanitize $wg.Link '') 'wireguard://<ключ>'
+    Check 'AnyTLS: пароль вычищается из отчёта' (Call Report Sanitize $link '') 'anytls://<ключ>'
+    Throws 'WireGuard: команды из файла запрещены' { Call WireGuard Import ($conf -replace 'DNS = 10.8.0.1','PostUp = cmd.exe') $null } 'неподдерживаемые параметры'
+    Throws 'WireGuard: битый ключ отклоняется' { Call WireGuard Import ($conf -replace 'PrivateKey = .*','PrivateKey = x') $null } 'Некорректный ключ'
+    Check 'Ошибка TLS предлагает проверить SNI' ((Call VpnHealth Advice 'x509: certificate expired' $false).Contains('SNI')) $true
+    Check 'Ошибка запуска адаптера объяснена' ((Call VpnHealth Advice 'Адаптер VPN не появился — подключение отменено' $true).Contains('создать адаптер')) $true
+    Check 'Старое ядро предлагает обновить sing-box' ((Call VpnHealth Advice 'unknown endpoint type: wireguard' $true).Contains('Обновите sing-box')) $true
 }
 
 Section 'AmneziaWG' {
@@ -515,7 +626,7 @@ Section 'Экспорт и импорт маршрутов' {
     $d = List @(); $a = List @(); $bad = List @()
     Call Routes SplitRoutes "https://www.DeepL.com/translator`n`"C:\Program Files\Spotify\Spotify.exe`"`ndiscord.exe`nsite.com/path`ndeepl.com`n<плохо>`n# коммент" $d $a $bad
     Check 'чужой список: сайты' ($d -join ',') 'deepl.com,site.com'
-    Check 'чужой список: программы' ($a -join ',') 'Spotify.exe,discord.exe'
+    Check 'чужой список: сохраняется полный путь программы' ($a -join ',') 'C:\Program Files\Spotify\Spotify.exe,discord.exe'
     Check 'чужой список: мусор отдельно' ($bad -join ',') '<плохо>'
 }
 
@@ -669,23 +780,23 @@ Section 'Отчёт без секретов' {
 }
 
 Section 'Не пускать мимо VPN' {
-    $lockSplit = (Call Vpn BuildLockConfig 'split' (List 'deepl.com') (List 'Spotify.exe')) | ConvertFrom-Json
-    Check 'блокировка: выхода в VPN нет' (@($lockSplit.outbounds | Where-Object { $_.tag -eq 'proxy' }).Count) '0'
-    Check 'блокировка: сайты из списка отклоняются' (@($lockSplit.route.rules | Where-Object { $_.domain_suffix -contains 'deepl.com' -and $_.action -eq 'reject' -and -not $_.outbound }).Count) '1'
-    Check 'блокировка: программы из списка отклоняются' (@($lockSplit.route.rules | Where-Object { $_.process_name -contains 'Spotify.exe' -and $_.action -eq 'reject' }).Count) '1'
-    Check 'блокировка «Только выбранное»: остальное напрямую' ("{0} {1}" -f $lockSplit.route.final, @($lockSplit.route.rules | Where-Object { $_.inbound }).Count) 'direct 0'
-    Check 'блокировка: DNS только обычный' (($lockSplit.dns.servers | ForEach-Object { $_.tag }) -join ',') 'local'
-    foreach ($mode in 'all', 'ru') {
-        $lk = (Call Vpn BuildLockConfig $mode (List) (List)) | ConvertFrom-Json
-        $rules = @($lk.route.rules)
-        Check "блокировка «$mode»: всё остальное отклоняется — последним правилом" ("{0} {1}" -f ($rules[-1].inbound -join ','), $rules[-1].action) 'tun-in reject'
-        Check "блокировка «$mode»: локальная сеть работает" ([array]::IndexOf($rules, @($rules | Where-Object { $_.ip_is_private })[0]) -lt ($rules.Count - 1)) 'True'
-    }
-    $lkRu = (Call Vpn BuildLockConfig 'ru' (List) (List)) | ConvertFrom-Json
-    Check 'блокировка «Россия напрямую»: российское открывается' (@($lkRu.route.rules | Where-Object { $_.rule_set -and $_.outbound -eq 'direct' }).Count) '1'
+    $appPath = (Join-Path $work 'ZapretLauncher.exe')
+    $appRules = List 'Discord.exe', 'ZapretLauncher.exe'
+    Check 'выбор .exe уточняет правило по имени' (Call Routes AddAppPaths $appRules ([string[]]@($appPath))) $true
+    Check 'остаются путь выбранной программы и остальные правила' ($appRules -join '|') ('Discord.exe|' + $appPath)
+    Check 'повторный выбор не дублирует правило' (Call Routes AddAppPaths $appRules ([string[]]@($appPath))) $false
+    $scope = Call VpnFirewall AppScope (List $appPath, $appPath, 'Claude.exe', (Join-Path $work 'missing.exe'))
+    Check 'защита выбирает только действительные полные пути без дублей' ($scope -join ',') $appPath
+    Check 'нет выбранных приложений — область защиты пуста' @(Call VpnFirewall AppScope (List)).Count '0'
+    $rejected = $false
+    try { Call VpnFirewall ApplyScoped $true ([uint64]0) $null }
+    catch [ArgumentException] { $rejected = $true }
+    Check 'WFP не допускает включение общей блокировки' $rejected 'True'
     $vl = [Activator]::CreateInstance((TypeOf VpnServer)); $vl.Name = 'V'; $vl.Link = 'vless://u@h.example.com:443?security=tls'
     $normal = (Call Vpn BuildConfig $vl 'split' (List 'deepl.com') (List)) | ConvertFrom-Json
     Check 'без блокировки — как раньше, через VPN' (@($normal.route.rules | Where-Object { $_.domain_suffix -contains 'deepl.com' -and $_.outbound -eq 'proxy' }).Count) '1'
+    $byPath = (Call Vpn BuildConfig $vl 'split' (List) (List $appPath)) | ConvertFrom-Json
+    Check 'точный путь совпадает в маршрутизации и блокировке Windows' (@($byPath.route.rules | Where-Object { $_.process_path -contains $appPath -and $_.outbound -eq 'proxy' }).Count) '1'
 }
 
 Section 'Установщик: куда ставить' {
@@ -754,7 +865,14 @@ Section 'Надёжность и защита' {
 
     # папка, которую может менять любой пользователь, распознаётся
     $d = Join-Path $work 'acl'; New-Item -ItemType Directory $d -Force | Out-Null
-    Check 'папка: чужих прав на запись нет' (Call Shell OthersCanWrite $d) 'False'
+    $admin = New-Object Security.Principal.SecurityIdentifier 'S-1-5-32-544'
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetOwner($admin)
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($admin, 'FullControl', 'Allow')))
+    Check 'папка: только администраторы могут менять' (Call InstallDirectorySecurity NeedsLock $acl) 'False'
+    $namedUser = New-Object Security.Principal.SecurityIdentifier 'S-1-5-21-100-101-102-1050'
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($namedUser, 'Modify', 'Allow')))
+    Check 'папка: явное право записи отдельного пользователя распознаётся' (Call InstallDirectorySecurity OthersCanWrite $acl) 'True'
     # владелец — сам пользователь (в GitHub Actions тесты идут от администратора, и владельцем новой папки сразу были бы «Администраторы»)
     $acl = Get-Acl $d; $acl.SetOwner([Security.Principal.WindowsIdentity]::GetCurrent().User); Set-Acl $d $acl
     Check 'папка: владелец — обычный пользователь, значит закрывать' (Call Shell NeedsLock $d) 'True'
@@ -864,6 +982,128 @@ Section 'Перевод' {
     $whatsNew = Field Launcher WhatsNew
     foreach ($kv in $whatsNew.GetEnumerator()) { foreach ($item in $kv.Value) { if ($cyr.IsMatch((Call I18n T $item))) { Fail "перевод «Что нового» $($kv.Key)" $item } } }
     Check 'в «Что нового» есть текущая версия' ($whatsNew.ContainsKey((Field AppVersion Value))) 'True'
+}
+
+Section 'Исправления аудита: файлы, импорт и откат' {
+    Add-Type -Path (Join-Path $PSScriptRoot 'DownloadProbe.cs') -ReferencedAssemblies System.Net.Http
+    foreach ($userCancellation in $false,$true) {
+        Check "прерванная загрузка: отмена=$userCancellation, файл удалён" ([DownloadProbe]::Run($asm,(Join-Path $work 'interrupted.bin'),$userCancellation).GetAwaiter().GetResult()) 'True'
+    }
+    foreach ($name in 'general.bat','general (ALT2).bat') { Check "стратегия $name разрешена" (Call Zapret SafeStrategyName $name) 'True' }
+    foreach ($name in 'C:\Users\Public\outside.bat','..\outside.bat','service.bat','service (x).bat','x.exe','') { Check "внешняя стратегия $name запрещена" (Call Zapret SafeStrategyName $name) 'False' }
+    $configPath = Field Paths Config
+    [IO.File]::WriteAllText($configPath,'{"Strategy":"general.bat"}')
+    $badBackup = Join-Path $work 'external.zlbackup'
+    @{app='ZapretLauncher';config='{"Strategy":"C:\\Users\\Public\\outside.bat"}';files=@{}} | ConvertTo-Json -Compress | Set-Content $badBackup -Encoding UTF8
+    Throws 'импорт не принимает внешний bat' { Call SettingsBackup Restore $badBackup } 'небезопасные'
+    Check 'небезопасный импорт не изменил настройки' ([IO.File]::ReadAllText($configPath)) '{"Strategy":"general.bat"}'
+    $atomic = Join-Path $work 'atomic.txt'; [IO.File]::WriteAllText($atomic,'old')
+    $handle = [IO.File]::Open($atomic,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    $failed=$false
+    try { Call Util WriteAtomicText $atomic 'new' } catch { $failed=$true } finally { $handle.Dispose() }
+    Check 'ошибка атомарной замены видна вызывающему' $failed 'True'
+    Check 'ошибка замены сохранила старый файл' ([IO.File]::ReadAllText($atomic)) 'old'
+    Check 'временные файлы убраны' (@(Get-ChildItem $work -Filter 'atomic.txt*.tmp').Count) 0
+    Call Util WriteAtomicText $atomic 'new'
+    Check 'атомарная замена успешна' ([IO.File]::ReadAllText($atomic)) 'new'
+
+    $cfg = New-Object ZapretLauncher.Config
+    $cfg.Strategy='general.bat'; $profile=New-Object ZapretLauncher.NetProfile; $profile.Strategy='general.bat'
+    $cfg.NetworkProfiles['home']=$profile; $cfg.BlockedSites.Add('old-site')
+    $snapshot=(TypeOf RepairSnapshot).GetConstructor([type[]]@((TypeOf Config))).Invoke([object[]]@($cfg.PSObject.BaseObject))
+    $cfg.Strategy='general (ALT).bat'; $cfg.NetworkProfiles.Clear(); $cfg.BlockedSites.Clear()
+    $snapshot.GetType().GetMethod('Restore').Invoke($snapshot,[object[]]@($cfg.PSObject.BaseObject)) | Out-Null
+    Check 'откат вернул стратегию' $cfg.Strategy 'general.bat'
+    Check 'откат вернул профиль сети' $cfg.NetworkProfiles['home'].Strategy 'general.bat'
+    Check 'откат вернул список блокировок' ($cfg.BlockedSites -join ',') 'old-site'
+
+    foreach ($scenario in 'activation-fails','staging-missing','success') {
+        $root=Join-Path $work ('swap-'+$scenario); $current=Join-Path $root 'current'; $backup=Join-Path $root 'backup'; $stage=Join-Path $root 'stage'
+        New-Item -ItemType Directory -Force $current,$backup | Out-Null
+        [IO.File]::WriteAllText((Join-Path $current 'version'),'old'); [IO.File]::WriteAllText((Join-Path $backup 'version'),'older')
+        if ($scenario -ne 'staging-missing') { New-Item -ItemType Directory $stage | Out-Null; [IO.File]::WriteAllText((Join-Path $stage 'version'),'new') }
+        $script:failActivation=$scenario -eq 'activation-fails'
+        $activate=[Func[Threading.Tasks.Task]] { if ($script:failActivation) { throw 'activation failure' }; $completed=New-Object 'Threading.Tasks.TaskCompletionSource[int]'; $completed.SetResult(0); $completed.Task }
+        $task=Call Zapret InstallDirectory $stage $current $backup $activate
+        try { $task.GetAwaiter().GetResult() | Out-Null } catch { }
+        Check "замена ${scenario}: состояние задачи" $task.IsFaulted ($scenario -ne 'success')
+        Check "замена ${scenario}: рабочая версия" ([IO.File]::ReadAllText((Join-Path $current 'version'))) $(if($scenario -eq 'success') {'new'} else {'old'})
+        Check "замена ${scenario}: сохранён откат" ([IO.File]::ReadAllText((Join-Path $backup 'version'))) $(if($scenario -eq 'success') {'old'} else {'older'})
+    }
+    $clash="proxies:`n  - name: demo`n    type: vmess`n    server: example.com`n    port: 443`n    uuid: 11111111-1111-1111-1111-111111111111`n    tls: true`n    skip-cert-verify: true"
+    $outbound=Call Vpn BuildOutbound (Call SubFormats ToLinks $clash)
+    Check 'Clash VMess сохраняет явное разрешение своего сертификата' $outbound['tls']['insecure'] 'True'
+    $runner=[Func[string,Tuple[int,string]]] {param($arguments) [Tuple]::Create(5,'access denied')}
+    Throws 'ошибка netsh не считается успехом' {Call SecureDns RunChecked 'test' $runner} 'access denied'
+    if ([IntPtr]::Size -eq 8) { Check 'структуры WFP совпадают с ABI Windows x64' (Call VpnFirewall Layout) '16/40/200/72' }
+    $vpnDir=Field Vpn Dir; New-Item -ItemType Directory -Force $vpnDir | Out-Null
+    Add-Type -Path (Join-Path $PSScriptRoot 'FakeVpnCore.cs') -OutputAssembly (Field Vpn Exe) -OutputType ConsoleApplication
+    $process=[Diagnostics.Process]::Start((New-Object Diagnostics.ProcessStartInfo -Property @{FileName=(Field Vpn Exe);Arguments='run';UseShellExecute=$false;CreateNoWindow=$true}))
+    $started=Call Vpn WaitForAdapter $process ('ZapretLauncher-Test-'+[Guid]::NewGuid().ToString('N'))
+    try { $started.GetAwaiter().GetResult() | Out-Null } catch { }
+    Check 'живое ядро без адаптера — ошибка подключения' $started.IsFaulted 'True'
+    Check 'ядро без адаптера остановлено после таймаута' $process.HasExited 'True'
+    $process.Dispose()
+}
+
+Section 'Единое исправление соединения' {
+    $script:repairActions = New-Object 'Collections.Generic.List[string]'
+    $script:repairVerdicts = New-Object 'Collections.Generic.Queue[ZapretLauncher.Verdict]'
+    $script:repairCancelled = $false
+    $script:repairAccepted = $true
+    $script:repairCancelAfterCheck = $false
+    $script:repairCancelAfterFix = $false
+    $script:repairChecks = 0
+    $diagnose = [Func[Threading.Tasks.Task[ZapretLauncher.Verdict]]] {
+        $script:repairChecks++
+        $v = $script:repairVerdicts.Dequeue()
+        if ($script:repairCancelAfterCheck) { $script:repairCancelled = $true }
+        $completion = New-Object 'Threading.Tasks.TaskCompletionSource[ZapretLauncher.Verdict]'
+        $completion.SetResult($v); $completion.Task
+    }
+    $fix = [Func[string, Threading.Tasks.Task[bool]]] {
+        param($action)
+        $script:repairActions.Add($action)
+        if ($script:repairCancelAfterFix) { $script:repairCancelled = $true }
+        $completion = New-Object 'Threading.Tasks.TaskCompletionSource[bool]'
+        $completion.SetResult($script:repairAccepted); $completion.Task
+    }
+    $cancel = [Func[bool]] { $script:repairCancelled }
+    function RepairVerdicts([string[]]$actions) {
+        $script:repairActions.Clear(); $script:repairVerdicts.Clear(); $script:repairChecks = 0
+        $script:repairCancelled = $false; $script:repairAccepted = $true
+        $script:repairCancelAfterCheck = $false; $script:repairCancelAfterFix = $false
+        foreach ($a in $actions) {
+            $v = New-Object ZapretLauncher.Verdict
+            $v.Fix = $a; $v.Title = $(if ($a -eq 'ok') { $v.Fix = ''; 'Всё работает' } else { 'Проблема' })
+            $script:repairVerdicts.Enqueue($v)
+        }
+    }
+    $runRepair = { $task = Call ConnectionRepair Run $diagnose $fix $cancel; $task.GetAwaiter().GetResult() }
+    RepairVerdicts 'install', 'start', 'dns', 'pick', 'ok'
+    Check 'после каждого исправления — новая проверка' (& $runRepair).Title 'Всё работает'
+    Check 'действия выполняются в порядке диагностики' ($script:repairActions -join ',') 'install,start,dns,pick'
+    Check 'финальный успех подтверждён пятой проверкой' $script:repairChecks 5
+    RepairVerdicts 'pick', 'pick'
+    & $runRepair | Out-Null
+    Check 'одна неисправность не зацикливает исправление' ($script:repairActions -join ',') 'pick'
+    foreach ($stop in 'vpn', '', 'ok') {
+        RepairVerdicts @($stop)
+        & $runRepair | Out-Null
+        Check "итог '$stop' не вызывает исправлений" $script:repairActions.Count 0
+    }
+    RepairVerdicts @('conflicts'); $script:repairAccepted = $false
+    & $runRepair | Out-Null
+    Check 'отказ пользователя прекращает сценарий' $script:repairChecks 1
+    RepairVerdicts @('start'); $script:repairCancelled = $true
+    Check 'отмена до проверки' (Call ConnectionRepair Run $diagnose $fix $cancel).IsCanceled 'True'
+    Check 'при отмене проверка не начинается' $script:repairChecks 0
+    RepairVerdicts @('start'); $script:repairCancelAfterCheck = $true
+    Check 'отмена во время проверки' (Call ConnectionRepair Run $diagnose $fix $cancel).IsCanceled 'True'
+    Check 'после отмены настройки не меняются' $script:repairActions.Count 0
+    RepairVerdicts @('start'); $script:repairCancelAfterFix = $true
+    Check 'отмена после действия' (Call ConnectionRepair Run $diagnose $fix $cancel).IsCanceled 'True'
+    Check 'после отмены нет следующей проверки' $script:repairChecks 1
 }
 
 Section 'Почему не работает?' {

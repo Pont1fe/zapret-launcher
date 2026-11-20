@@ -55,7 +55,7 @@ scoop install zapret-launcher
 - Paste a **vless / vmess / trojan / ss / hysteria2 / tuic** key, a subscription URL — or just **scan a QR code** from an image or straight from the screen.
 - **Smart routing**: only the sites and apps you choose go through the VPN, or everything except Russian sites (“Russia direct” mode).
 - **Real server check**: a real page is opened through every server, not just a ping. Working servers go on top, dead ones can be hidden; “Pick the fastest”, a speed test in Mbit/s and automatic failover to another server.
-- **Never bypass the VPN**: if the VPN goes down, the sites and apps you send through it are blocked instead of going directly.
+- **Never bypass the VPN**: Windows keeps protection active across core crashes and reconnection. Split mode pauses only the selected apps when every app rule specifies an existing executable path and there are no site rules. The firewall uses broad blocking when the VPN is down for domain rules, app names without paths and the other VPN modes. Explicitly switching VPN off or quitting the launcher removes protection.
 - Servers grouped by country with flags, subscription traffic and expiry, a speed graph and a live list of connections.
 - Keys with the **xhttp** transport work through the Xray core, downloaded automatically.
 - **AmneziaWG** servers, Amnezia Premium included: add the file from the Amnezia app (“Configuration files”) with the “AmneziaWG file…” button; the AmneziaWG core downloads itself.

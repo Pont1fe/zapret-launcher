@@ -140,7 +140,12 @@ namespace ZapretLauncher
                 Grid row = new Grid();
                 row.ColumnDefinitions.Add(new ColumnDefinition());
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.Children.Add(new TextBlock { Text = value, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+                row.Children.Add(new TextBlock
+                {
+                    Text = host.Name == "VpnProtectedApps" ? value.Split('\\', '/').Last() : value,
+                    ToolTip = host.Name == "VpnProtectedApps" ? value : null,
+                    FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis
+                });
                 Button del = new Button { Content = "", Width = 28, Height = 28, FontSize = 11, ToolTip = T("Удалить") };
                 del.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
                 del.Click += async delegate { await removeOne(value); };
@@ -197,18 +202,22 @@ namespace ZapretLauncher
         // Кнопка подсвечена, если домены набора уже все в списке; клик добавляет набор или убирает его
         void FillPresets(StackPanel host, ICollection<string> domains, Func<SitePreset, Task> toggle)
         {
-            bool vpn = host.Name == "VpnPresets";
-            List<SitePreset> all = SitePresets.All.Where(x => !x.VpnOnly || vpn).ToList();
-            List<string> groups = SitePresets.Groups.Where(g => all.Any(p => p.Group == g)).ToList();
+            bool vpn = host.Name == "VpnPresets", protection = host.Name == "VpnProtectPresets";
+            List<SitePreset> all = SitePresets.All.Where(x => protection ? x.Apps.Length > 0 : !x.VpnOnly || vpn).ToList();
+            if (protection && !all.Any(p => p.Name == "Claude"))
+                all.Add(new SitePreset { Name = "Claude", Group = "ИИ", Mark = "C", Color = "#B85C3D", Apps = new[] { "Claude.exe" } });
+            List<string> groups = SitePresets.Groups.Concat(all.Select(p => p.Group)).Distinct()
+                .Where(g => all.Any(p => p.Group == g)).ToList();
+            Func<SitePreset, bool> isOn = p => protection ? domains.Any(path => MatchesProtectionPreset(p, path)) : SitePresets.IsOn(p, domains);
             string open;
             if (!presetTabs.TryGetValue(host.Name, out open) || !groups.Contains(open))
-                presetTabs[host.Name] = open = groups.FirstOrDefault(g => all.Any(p => p.Group == g && SitePresets.IsOn(p, domains))) ?? groups[0];
+                presetTabs[host.Name] = open = groups.FirstOrDefault(g => all.Any(p => p.Group == g && isOn(p))) ?? groups[0];
             host.Children.Clear();
             WrapPanel tabs = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             foreach (string group in groups)
             {
                 string g = group;
-                int count = all.Count(p => p.Group == g && SitePresets.IsOn(p, domains));
+                int count = all.Count(p => p.Group == g && isOn(p));
                 StackPanel label = new StackPanel { Orientation = Orientation.Horizontal };
                 label.Children.Add(new TextBlock { Text = T(g) });
                 if (count > 0) label.Children.Add(new TextBlock { Text = " " + count, Opacity = 0.65 });
@@ -223,13 +232,14 @@ namespace ZapretLauncher
             foreach (SitePreset preset in all.Where(p => p.Group == open))
             {
                 SitePreset p = preset;
-                bool on = SitePresets.IsOn(p, domains);
+                bool on = isOn(p);
                 StackPanel content = new StackPanel { Orientation = Orientation.Horizontal };
                 content.Children.Add(PresetBadge(p, 18));
                 content.Children.Add(new TextBlock { Text = p.Name, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7, 0, 0, 0) });
                 ToggleButton chip = new ToggleButton { Content = content, IsChecked = on };
                 chip.SetResourceReference(FrameworkElement.StyleProperty, "PresetChip");
-                chip.ToolTip = string.Join(", ", p.Domains) + (p.Apps.Length > 0 && vpn ? ", " + string.Join(", ", p.Apps) : "") +
+                chip.ToolTip = (protection ? string.Join(", ", p.Apps) :
+                    string.Join(", ", p.Domains) + (p.Apps.Length > 0 && vpn ? ", " + string.Join(", ", p.Apps) : "")) +
                                "\n" + T(on ? "Нажмите, чтобы убрать набор" : "Нажмите, чтобы добавить набор");
                 chip.Click += async delegate { chip.IsChecked = !on; await toggle(p); };
                 panel.Children.Add(chip);

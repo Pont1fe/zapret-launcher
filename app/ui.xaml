@@ -63,9 +63,13 @@
         </Grid>
       </Border>
       <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,8,0">
+        <Button x:Name="BtnCommands" Style="{DynamicResource GhostButton}" Height="38" Margin="0,0,8,0" Content="Команды"
+                ToolTip="Палитра команд (Ctrl+K)" WindowChrome.IsHitTestVisibleInChrome="True"/>
+        <Button x:Name="BtnIncident" Style="{DynamicResource GhostButton}" Height="38" Margin="0,0,8,0" Content="Был сбой" WindowChrome.IsHitTestVisibleInChrome="True"
+                ToolTip="Сохранить события журнала за последнюю минуту"/>
         <Button x:Name="BtnReport" Style="{DynamicResource GhostButton}" Height="38" Content="Отчёт" WindowChrome.IsHitTestVisibleInChrome="True"
                 ToolTip="Собрать отчёт для разработчика на рабочий стол: журнал и настройки без ключей"/>
-        <Button x:Name="BtnMain" Style="{DynamicResource InkButton}" Height="38" Margin="8,0,0,0" Content="Подобрать стратегию" WindowChrome.IsHitTestVisibleInChrome="True"/>
+
       </StackPanel>
       <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Top">
         <Button x:Name="BtnMinimize" Style="{DynamicResource ChromeButton}" Content="&#xE921;" ToolTip="Свернуть"/>
@@ -331,22 +335,13 @@
           <TextBlock Text="Через ваш сервер или подписку. Выбранные сайты и программы идут через VPN, остальное — напрямую и через обход" Style="{DynamicResource RowSub}" Margin="0,6,0,0"/>
 
           <!-- Карточка подключения: флаг страны, состояние, время, скорость; клик — включить или выключить -->
-          <Grid x:Name="VpnCard" Margin="0,16,0,0" MinHeight="118" Cursor="Hand" Background="Transparent">
-            <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
-              <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.10" Color="{DynamicResource ShadowColor}"/></Border.Effect>
-            </Border>
-            <Border x:Name="VpnCardOn" CornerRadius="24" Opacity="0">   <!-- подключён — карточка цвета акцента, как карточка обхода на главной -->
-              <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                  <GradientStop Color="{DynamicResource AccentColor}" Offset="0"/>
-                  <GradientStop Color="{DynamicResource AccentHoverColor}" Offset="1"/>
-                </LinearGradientBrush>
-              </Border.Background>
-              <Border.Effect><DropShadowEffect Color="{DynamicResource AccentColor}" BlurRadius="40" ShadowDepth="8" Direction="270" Opacity="0.35"/></Border.Effect>
-            </Border>
+          <Grid x:Name="VpnCard" Margin="0,16,0,0" MinHeight="80" Background="Transparent">
+            <Border CornerRadius="16" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1"/>
+            <Border x:Name="VpnCardOn" CornerRadius="16" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource AccentBorder}"
+                    BorderThickness="1" Opacity="0" IsHitTestVisible="False"/>
             <!-- вспышка после подключения и бегущая по краю полоска, пока VPN подключается -->
-            <Border x:Name="VpnFlash" CornerRadius="24" Background="White" Opacity="0" IsHitTestVisible="False"/>
-            <Rectangle x:Name="VpnBusyLine" RadiusX="24" RadiusY="24" StrokeThickness="2" Stroke="{DynamicResource Accent}" StrokeDashArray="24 96"
+            <Border x:Name="VpnFlash" CornerRadius="16" Background="White" Opacity="0" IsHitTestVisible="False"/>
+            <Rectangle x:Name="VpnBusyLine" RadiusX="16" RadiusY="16" StrokeThickness="2" Stroke="{DynamicResource Accent}" StrokeDashArray="24 96"
                        StrokeDashCap="Round" Opacity="0" IsHitTestVisible="False"/>
             <Grid Margin="20,16">
               <Grid.ColumnDefinitions>
@@ -356,25 +351,25 @@
               </Grid.ColumnDefinitions>
               <Border x:Name="VpnFlagHost" Width="54" Height="38" VerticalAlignment="Center"/>
               <StackPanel Grid.Column="1" Margin="16,0,12,0" VerticalAlignment="Center">
+                <TextBlock x:Name="VpnConnectedServer" FontSize="17" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                 <StackPanel Orientation="Horizontal">
                   <Ellipse x:Name="VpnDot" Width="9" Height="9" Fill="{DynamicResource Idle}" VerticalAlignment="Center" Margin="0,0,9,0"/>
-                  <TextBlock x:Name="VpnStatus" Text="VPN выключен" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="VpnStatus" Text="VPN выключен" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
                 <TextBlock x:Name="VpnSub" Text=" " FontSize="12" Foreground="{DynamicResource TextSub}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
                 <TextBlock x:Name="VpnTimer" Text=" " FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,3,0,0" Visibility="Collapsed"/>
                 <TextBlock x:Name="VpnTraffic" Text=" " FontSize="11" Foreground="{DynamicResource TextSub}" Margin="0,2,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
               </StackPanel>
-              <Grid Grid.Column="2" Width="60" Height="32" VerticalAlignment="Center">
-                <Border CornerRadius="16" Background="{DynamicResource TrackOff}"/>
-                <Border x:Name="VpnTrackOn" CornerRadius="16" Background="#59FFFFFF" Opacity="0"/>
-                <Ellipse x:Name="VpnKnob" Width="24" Height="24" Fill="White" HorizontalAlignment="Left" Margin="4,0">
-                  <Ellipse.RenderTransform>
-                    <TranslateTransform X="0"/>
-                  </Ellipse.RenderTransform>
-                </Ellipse>
-              </Grid>
+              <Button x:Name="BtnVpnToggle" Grid.Column="2" Style="{DynamicResource AccentButton}" Height="36" VerticalAlignment="Center" Content="Подключить"/>
             </Grid>
           </Grid>
+          <DockPanel x:Name="VpnHealthPanel" Margin="6,8,6,0" Visibility="Collapsed">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
+              <Button x:Name="BtnVpnHealthServers" Style="{DynamicResource LinkButton}" Height="32" Margin="0,0,8,0" Content="К серверам"/>
+              <Button x:Name="BtnVpnHealth" Style="{DynamicResource GhostButton}" Height="32" Content="Повторить проверку"/>
+            </StackPanel>
+            <TextBlock x:Name="VpnHealthText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource TextSub}"/>
+          </DockPanel>
           <!-- скорость загрузки через VPN за последние минуты -->
           <Canvas x:Name="VpnGraph" Height="38" Margin="6,8,6,0" Visibility="Collapsed" ClipToBounds="True"/>
 
@@ -394,9 +389,9 @@
                   <TextBlock Text="Как начать" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
                   <Button x:Name="BtnVpnHelpOk" Style="{DynamicResource GhostButton}" Height="28" HorizontalAlignment="Right" Content="Понятно"/>
                 </Grid>
-                <TextBlock Text="1.  Вставьте ключ или адрес подписки ниже — или откройте QR-код" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="1.  Нажмите «Добавить подписку или ключ» и выберите способ импорта" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
                 <TextBlock Text="2.  Во вкладке «Маршруты» выберите, что пускать через VPN" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                <TextBlock Text="3.  Нажмите на карточку VPN выше — и готово" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="3.  Нажмите «Подключить» в верхней карточке" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
               </StackPanel>
             </Border>
             <!-- В буфере обмена лежит ключ — предлагаем добавить -->
@@ -413,55 +408,79 @@
             </Border>
             <Grid>
               <Grid.ColumnDefinitions>
-                <ColumnDefinition/>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="1*"/>
+                <ColumnDefinition Width="2*"/>
               </Grid.ColumnDefinitions>
-              <Border CornerRadius="10" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Background="{DynamicResource Input}" Height="38">
-                <Grid Margin="12,0">
-                  <TextBlock x:Name="VpnHint" Text="Ключ vless://, vmess://, trojan://, ss://… или адрес подписки" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" IsHitTestVisible="False" TextTrimming="CharacterEllipsis"/>
-                  <TextBox x:Name="VpnInput" Style="{DynamicResource InputBox}" Margin="-2,0,0,0"/>
-                </Grid>
+              <Border CornerRadius="16" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1" Padding="12" Margin="0,0,12,0">
+                <StackPanel>
+                  <TextBlock Text="Подписки" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                  <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="VpnSubscriptionList"/>
+                  </ScrollViewer>
+                  <Button x:Name="BtnVpnImport" Style="{DynamicResource GhostButton}" Content="Добавить подписку или ключ" Height="34" Margin="0,4,0,0"/>
+                </StackPanel>
               </Border>
-              <Button x:Name="BtnVpnAdd" Grid.Column="1" Style="{DynamicResource AccentButton}" Height="38" Margin="8,0,0,0" Content="Добавить"/>
+              <Border Grid.Column="1" CornerRadius="16" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1" Padding="12">
+                <StackPanel>
+                  <TextBlock Text="Серверы" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                  <!-- Поиск — когда серверов много -->
+                  <Border x:Name="VpnSearchBox" CornerRadius="10" Background="{DynamicResource Input}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Height="34" Margin="0,0,0,10" Visibility="Collapsed">
+                    <Grid Margin="12,0">
+                      <TextBlock Text="&#xE721;" FontFamily="{DynamicResource Icons}" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                      <TextBlock x:Name="VpnSearchHint" Text="Поиск сервера или страны" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" Margin="24,0,0,0" IsHitTestVisible="False"/>
+                      <TextBox x:Name="VpnSearch" Style="{DynamicResource InputBox}" Margin="22,0,0,0"/>
+                    </Grid>
+                  </Border>
+                  <ToggleButton x:Name="VpnFavoritesOnly" Style="{DynamicResource Chip}" Content="Избранное" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                  <WrapPanel x:Name="VpnTabs" Margin="0,0,0,4" Visibility="Collapsed"/>
+                  <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="VpnServerList"/>
+                  </ScrollViewer>
+                  <WrapPanel Margin="0,4,0,0">
+                    <Button x:Name="BtnVpnPing" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Проверить серверы" ToolTip="Открыть тестовую страницу через каждый сервер и замерить время"/>
+                    <Button x:Name="BtnVpnBest" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Выбрать самый быстрый"/>
+                    <Button x:Name="BtnVpnSpeed" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Проверить скорость"
+                            ToolTip="Скачать тестовый файл через выбранный сервер и самые быстрые по проверке (до 5, по 5 секунд на каждый). VPN при этом не переподключается"/>
+                    <ToggleButton x:Name="VpnHideDead" Style="{DynamicResource Chip}" Height="32" Margin="0,0,8,6" Content="Скрыть неработающие" Visibility="Collapsed"
+                                  ToolTip="Не показывать серверы, через которые при последней проверке сайт не открылся. Выбранный сервер виден всегда"/>
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
             </Grid>
-            <WrapPanel Margin="0,8,0,0">
-              <Button x:Name="BtnVpnQrFile" Style="{DynamicResource GhostButton}" Height="30" Margin="0,0,8,0" Content="QR из картинки…" ToolTip="Открыть картинку или скриншот с QR-кодом ключа"/>
-              <Button x:Name="BtnVpnQrScreen" Style="{DynamicResource GhostButton}" Height="30" Margin="0,0,8,0" Content="Найти QR на экране" ToolTip="Откройте QR-код ключа в любом окне и нажмите — лаунчер найдёт его на экране"/>
-              <Button x:Name="BtnVpnAwgFile" Style="{DynamicResource GhostButton}" Height="30" Content="Файл AmneziaWG…" ToolTip="Файл .conf из приложения Amnezia (подписка → «Файлы конфигурации») или от своего сервера AmneziaWG"/>
-            </WrapPanel>
-            <TextBlock x:Name="VpnInfo" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,10" TextWrapping="Wrap"
-                       Text="Ключи хранятся только на этом компьютере, в настройках лаунчера"/>
-            <!-- Подписка: сколько трафика осталось и до какого числа -->
-            <Border x:Name="VpnSubCard" CornerRadius="10" Background="{DynamicResource Card}" Padding="12,9" Margin="0,0,0,10" Visibility="Collapsed">
-              <StackPanel>
+            <Border Style="{DynamicResource SettingsCard}" Margin="0,10,0,0" Padding="12,10">
+              <DockPanel>
+                <Button x:Name="BtnVpnProtection" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Content="Настроить" Height="32" Margin="12,0,0,0"/>
+                <StackPanel>
+                  <TextBlock Text="Защита при обрыве" Style="{DynamicResource RowTitle}"/>
+                  <TextBlock x:Name="VpnServerProtection" Style="{DynamicResource RowSub}"/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <TextBlock x:Name="VpnInfo" FontSize="12" Foreground="{DynamicResource TextSub}" Margin="2,8,0,0" TextWrapping="Wrap"/>
+            <Expander x:Name="VpnImport" Header="Импорт ключей и подписок" Foreground="{DynamicResource Text}" Margin="0,10,0,0">
+              <StackPanel Margin="0,8,0,0">
                 <Grid>
-                  <TextBlock x:Name="VpnSubText" Text=" " FontSize="12"/>
-                  <TextBlock x:Name="VpnSubExpire" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right"/>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
+                  <Border CornerRadius="10" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Background="{DynamicResource Input}" Height="38">
+                    <Grid Margin="12,0">
+                      <TextBlock x:Name="VpnHint" Text="Ключ vless://, vmess://, trojan://, ss://… или адрес подписки" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" IsHitTestVisible="False" TextTrimming="CharacterEllipsis"/>
+                      <TextBox x:Name="VpnInput" Style="{DynamicResource InputBox}" Margin="-2,0,0,0"/>
+                    </Grid>
+                  </Border>
+                  <Button x:Name="BtnVpnAdd" Grid.Column="1" Style="{DynamicResource AccentButton}" Height="38" Margin="8,0,0,0" Content="Добавить"/>
                 </Grid>
-                <Border x:Name="VpnSubBarBg" CornerRadius="3" Background="{DynamicResource IconBg}" Height="6" Margin="0,7,0,0">
-                  <Border x:Name="VpnSubBar" CornerRadius="3" Background="{DynamicResource Accent}" HorizontalAlignment="Left" Width="0"/>
-                </Border>
+                <WrapPanel Margin="0,8,0,0">
+                  <Button x:Name="BtnVpnQrFile" Style="{DynamicResource GhostButton}" Height="30" Margin="0,0,8,0" Content="QR из картинки…" ToolTip="Открыть картинку или скриншот с QR-кодом ключа"/>
+                  <Button x:Name="BtnVpnQrScreen" Style="{DynamicResource GhostButton}" Height="30" Margin="0,0,8,0" Content="Найти QR на экране" ToolTip="Откройте QR-код ключа в любом окне и нажмите — лаунчер найдёт его на экране"/>
+                  <Button x:Name="BtnVpnAwgFile" Style="{DynamicResource GhostButton}" Height="30" Content="Файл .conf…" ToolTip="Импортировать WireGuard или AmneziaWG"/>
+                </WrapPanel>
+                <TextBlock FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,10" TextWrapping="Wrap"
+                           Text="Ключи хранятся только на этом компьютере, в настройках лаунчера"/>
               </StackPanel>
-            </Border>
-            <!-- Поиск — когда серверов много -->
-            <Border x:Name="VpnSearchBox" CornerRadius="10" Background="{DynamicResource Input}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" Height="34" Margin="0,0,0,10" Visibility="Collapsed">
-              <Grid Margin="12,0">
-                <TextBlock Text="&#xE721;" FontFamily="{DynamicResource Icons}" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" IsHitTestVisible="False"/>
-                <TextBlock x:Name="VpnSearchHint" Text="Поиск сервера или страны" Foreground="{DynamicResource Faint}" VerticalAlignment="Center" Margin="24,0,0,0" IsHitTestVisible="False"/>
-                <TextBox x:Name="VpnSearch" Style="{DynamicResource InputBox}" Margin="22,0,0,0"/>
-              </Grid>
-            </Border>
-            <WrapPanel x:Name="VpnTabs" Margin="0,0,0,4" Visibility="Collapsed"/>
-            <StackPanel x:Name="VpnServerList"/>
-            <WrapPanel Margin="0,4,0,0">
-              <Button x:Name="BtnVpnPing" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Проверить серверы" ToolTip="Открыть тестовую страницу через каждый сервер и замерить время"/>
-              <Button x:Name="BtnVpnBest" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Выбрать самый быстрый"/>
-              <Button x:Name="BtnVpnSpeed" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Проверить скорость"
-                      ToolTip="Скачать тестовый файл через выбранный сервер и самые быстрые по проверке (до 5, по 5 секунд на каждый). VPN при этом не переподключается"/>
-              <Button x:Name="BtnVpnRefresh" Style="{DynamicResource GhostButton}" Height="32" Margin="0,0,8,6" Content="Обновить подписку" Visibility="Collapsed"/>
-              <ToggleButton x:Name="VpnHideDead" Style="{DynamicResource Chip}" Height="32" Margin="0,0,8,6" Content="Скрыть неработающие" Visibility="Collapsed"
-                            ToolTip="Не показывать серверы, через которые при последней проверке сайт не открылся. Выбранный сервер виден всегда"/>
-            </WrapPanel>
+            </Expander>
             <Border Style="{DynamicResource SettingsCard}" Margin="0,6,0,0">
               <CheckBox x:Name="SwVpnAuto" Style="{DynamicResource Switch}" BorderThickness="0" Tag="&#xE8B1;">
                 <StackPanel>
@@ -481,12 +500,23 @@
             </StackPanel>
             <TextBlock x:Name="VpnModeText" FontSize="11" Foreground="{DynamicResource Muted}" Margin="2,8,0,0" TextWrapping="Wrap" Text=" "/>
             <Border Style="{DynamicResource SettingsCard}" Margin="0,12,0,0">
-              <CheckBox x:Name="SwVpnKill" Style="{DynamicResource Switch}" BorderThickness="0" Tag="&#xE72E;">
-                <StackPanel>
-                  <TextBlock Text="Не пускать мимо VPN" Style="{DynamicResource RowTitle}"/>
-                  <TextBlock Text="Если VPN упал и не поднимается, сайты и программы из списка не откроются напрямую, пока он не заработает. В режимах «Весь трафик» и «Россия напрямую» блокируется всё, что шло через VPN" Style="{DynamicResource RowSub}"/>
+              <StackPanel>
+                <CheckBox x:Name="SwVpnKill" Style="{DynamicResource Switch}" BorderThickness="0" Tag="&#xE72E;">
+                  <StackPanel>
+                    <TextBlock Text="Не пускать мимо VPN" Style="{DynamicResource RowTitle}"/>
+                    <TextBlock Text="При обрыве VPN Windows приостанавливает трафик выбранных программ до восстановления туннеля." Style="{DynamicResource RowSub}"/>
+                  </StackPanel>
+                </CheckBox>
+                <TextBlock x:Name="VpnKillScope" Style="{DynamicResource RowSub}" Margin="14,4,14,0" TextWrapping="Wrap"/>
+                <StackPanel x:Name="VpnProtectPrograms" Margin="14,10,14,12">
+                  <TextBlock Text="Пресеты приложений" Style="{DynamicResource RowTitle}" Margin="0,0,0,8"/>
+                  <StackPanel x:Name="VpnProtectPresets"/>
+                  <StackPanel x:Name="VpnProtectedApps" Margin="0,8,0,0"/>
+                  <Button x:Name="BtnVpnPickApp" Content="Выбрать программу (.exe)…" Style="{DynamicResource GhostButton}"
+                          HorizontalAlignment="Left" Margin="0,8,0,0" MinHeight="34"/>
+                  <TextBlock x:Name="VpnProtectHint" Style="{DynamicResource RowSub}" TextWrapping="Wrap"/>
                 </StackPanel>
-              </CheckBox>
+              </StackPanel>
             </Border>
             <!-- Сайты, которые провайдер режет по адресу: одной кнопкой — через VPN -->
             <Border x:Name="VpnBlockedBar" CornerRadius="10" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource AccentBorder}" BorderThickness="1"
@@ -1037,170 +1067,85 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
 
-          <!-- ===== Ряд 1: приветствие, карточка обхода и три карточки-иллюстрации ===== -->
-          <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="300"/>
-              <ColumnDefinition Width="1.4*"/>
-              <ColumnDefinition/>
-              <ColumnDefinition/>
-              <ColumnDefinition/>
-            </Grid.ColumnDefinitions>
-            <Ellipse x:Name="GlowBg" Grid.Column="1" Grid.ColumnSpan="2" Width="520" Height="380" Margin="-200,-140,-200,-140" Opacity="0" IsHitTestVisible="False">
-              <Ellipse.Fill>
-                <RadialGradientBrush>
-                  <GradientStop Color="{DynamicResource GlowColor}" Offset="0"/>
-                  <GradientStop Color="Transparent" Offset="1"/>
-                </RadialGradientBrush>
-              </Ellipse.Fill>
-            </Ellipse>
-
-            <!-- приветствие: текст — в UpdateGreeting; живой талисман (Launcher.Mascot.cs) — в строке с датой, заголовку остаётся вся ширина -->
-            <StackPanel Margin="0,0,18,0" VerticalAlignment="Center">
-              <StackPanel Orientation="Horizontal">
+          <StackPanel Grid.Row="1">
+            <DockPanel Margin="0,4,0,16" LastChildFill="True">
+              <Button x:Name="BtnMain" DockPanel.Dock="Right" Style="{DynamicResource AccentButton}" Height="38" Margin="12,0,0,0"
+                      Content="Исправить соединение" ToolTip="Проверить соединение, исправить причину и проверить результат"/>
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Border x:Name="Mascot" Width="60" Height="56" Margin="0,0,12,0" Background="Transparent"/>
-                <TextBlock x:Name="GreetDate" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
-              </StackPanel>
-              <TextBlock x:Name="GreetTitle" Text=" " FontSize="31" FontWeight="Bold" LineHeight="37" Margin="0,6,0,0" TextWrapping="Wrap"/>
-              <TextBlock x:Name="GreetSub" Text=" " FontSize="13" Foreground="{DynamicResource TextSub}" Margin="0,10,0,0" TextWrapping="Wrap" LineHeight="19"/>
-              <WrapPanel Margin="0,14,0,0">
-                <Border CornerRadius="18" Background="{DynamicResource CardRaised}" Padding="12,7" Margin="0,0,0,6" MaxWidth="300">
+                <TextBlock Text="Соединение" FontSize="28" FontWeight="Bold" VerticalAlignment="Center"/>
+                <Border CornerRadius="10" Background="{DynamicResource CardRaised}" Padding="9,5" Margin="12,0,0,0" MaxWidth="210" VerticalAlignment="Center">
                   <StackPanel Orientation="Horizontal">
-                    <TextBlock x:Name="NetIcon" Text="&#xE839;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                    <TextBlock x:Name="NetStatus" Text=" " FontSize="11" Foreground="{DynamicResource TextSub}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="NetIcon" Text="&#xE839;" FontFamily="{DynamicResource Icons}" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,7,0"/>
+                    <TextBlock x:Name="NetStatus" FontSize="11" Foreground="{DynamicResource TextSub}" TextTrimming="CharacterEllipsis"/>
                   </StackPanel>
                 </Border>
-              </WrapPanel>
-            </StackPanel>
-
-            <!-- Карточка обхода: клик — включить или выключить; подсветка — отдельный слой, его прозрачность анимируется -->
-            <Grid x:Name="PowerButton" Grid.Column="1" Height="200" Margin="0,0,14,0" Cursor="Hand" Background="Transparent">
-              <Border x:Name="PowerBase" CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Line}" BorderThickness="1">
-                <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.10" Color="{DynamicResource ShadowColor}"/></Border.Effect>
-              </Border>
-              <Border x:Name="ActiveLayer" CornerRadius="24" Opacity="0">
-                <Border.Background>
-                  <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                    <GradientStop Color="{DynamicResource AccentColor}" Offset="0"/>
-                    <GradientStop Color="{DynamicResource AccentHoverColor}" Offset="1"/>
-                  </LinearGradientBrush>
-                </Border.Background>
-                <Border.Effect>
-                  <DropShadowEffect Color="{DynamicResource AccentColor}" BlurRadius="40" ShadowDepth="8" Direction="270" Opacity="0.35"/>
-                </Border.Effect>
-              </Border>
-              <!-- Жёлтый — пауза из-за VPN, красный — ошибка: цвет задаётся в коде -->
-              <Border x:Name="StateLayer" CornerRadius="24" BorderThickness="1" Opacity="0"/>
-              <!-- Волна при включении: расходится от кнопки внизу справа -->
-              <Grid IsHitTestVisible="False" ClipToBounds="True">
-                <Ellipse x:Name="Ripple" Width="64" Height="64" Fill="{DynamicResource Accent}" Opacity="0" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,16"
-                         RenderTransformOrigin="0.5,0.5">
-                  <Ellipse.RenderTransform>
-                    <ScaleTransform ScaleX="1" ScaleY="1"/>
-                  </Ellipse.RenderTransform>
-                </Ellipse>
-              </Grid>
-              <StackPanel Margin="20,18,20,0">
-                <TextBlock x:Name="PowerCaption" Text="ОБХОД" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" Opacity="0.85"/>
-                <TextBlock x:Name="PowerStatus" Text="Обход выключен" FontSize="21" FontWeight="Bold" Margin="0,4,0,0" TextWrapping="Wrap" MaxHeight="58"/>
-                <TextBlock x:Name="PowerTimer" Text=" " FontSize="12" Foreground="{DynamicResource TextSub}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
-                <TextBlock x:Name="PowerHint" Text="Нажмите, чтобы включить" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap"/>
               </StackPanel>
-              <!-- кнопка «питания» на плитке; пока обход работает — от неё расходится мягкое кольцо (PowerPulse), пока включается или идёт подбор — по контуру бежит полоска -->
-              <Grid Width="64" Height="64" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,16">
-                <Border x:Name="PowerPulse" CornerRadius="20" BorderBrush="White" BorderThickness="2" Opacity="0" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5"/>
-                <Border CornerRadius="20" Background="{DynamicResource IconBg}"/>
-                <Border x:Name="PowerIconOn" CornerRadius="20" Background="{DynamicResource CardRaised}" Opacity="0">
-                  <Border.Effect><DropShadowEffect BlurRadius="18" ShadowDepth="0" Opacity="0.45" Color="White"/></Border.Effect>
+            </DockPanel>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition/>
+                <ColumnDefinition/>
+              </Grid.ColumnDefinitions>
+              <Grid x:Name="PowerButton" MinHeight="122" Margin="0,0,14,0" Background="Transparent" Cursor="Hand">
+                <Border CornerRadius="16" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1"/>
+                <Border x:Name="StateLayer" CornerRadius="16" BorderThickness="1" Opacity="0" IsHitTestVisible="False"/>
+                <StackPanel Margin="18,16">
+                  <Grid>
+                    <TextBlock Text="Обход" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <ToggleButton x:Name="HomeBypassToggle" Style="{DynamicResource MiniSwitch}" HorizontalAlignment="Right" ToolTip="Переключить обход" AutomationProperties.Name="Переключить обход"/>
+                  </Grid>
+                  <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <Ellipse x:Name="PowerDot" Width="8" Height="8" Fill="{DynamicResource Idle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="PowerStatus" FontSize="15" FontWeight="SemiBold"/>
+                  </StackPanel>
+                  <TextBlock x:Name="PowerTimer" FontSize="12" Foreground="{DynamicResource TextSub}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="PowerHint" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                </StackPanel>
+                <Rectangle x:Name="BusyRing" RadiusX="16" RadiusY="16" StrokeThickness="2" Stroke="{DynamicResource Accent}"
+                           StrokeDashArray="24 96" StrokeDashCap="Round" Opacity="0" IsHitTestVisible="False"/>
+                <Grid x:Name="PickProgress" VerticalAlignment="Bottom" Height="4" Margin="18,0,18,8" Visibility="Collapsed" IsHitTestVisible="False">
+                  <Border CornerRadius="2" Background="{DynamicResource TrackOff}"/>
+                  <Border x:Name="PickFill" CornerRadius="2" Background="{DynamicResource Accent}" RenderTransformOrigin="0,0.5">
+                    <Border.RenderTransform>
+                      <ScaleTransform ScaleX="0"/>
+                    </Border.RenderTransform>
+                  </Border>
+                </Grid>
+              </Grid>
+              <Grid x:Name="HomeVpnCard" Grid.Column="1" MinHeight="122" Cursor="Hand" Background="Transparent">
+                <Border CornerRadius="16" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
+                  <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
                 </Border>
-                <TextBlock x:Name="PowerIcon" Text="&#xE7E8;" FontFamily="{DynamicResource Icons}" FontSize="26" Foreground="{DynamicResource Muted}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                <!-- Периметр контура (74×74, радиус 24) ≈ 255 px = 85 толщин линии — сумма штриха и пробела ровно один круг -->
-                <Rectangle x:Name="BusyRing" Margin="-5" RadiusX="24" RadiusY="24" StrokeThickness="3" Stroke="{DynamicResource Accent}"
-                           StrokeDashArray="22 63" StrokeDashCap="Round" Opacity="0" IsHitTestVisible="False"/>
-              </Grid>
-              <!-- Прогресс подбора стратегии -->
-              <Grid x:Name="PickProgress" VerticalAlignment="Bottom" Height="4" Margin="20,0,90,18" Visibility="Collapsed" IsHitTestVisible="False">
-                <Border CornerRadius="2" Background="{DynamicResource TrackOff}"/>
-                <Border x:Name="PickFill" CornerRadius="2" Background="{DynamicResource Accent}" RenderTransformOrigin="0,0.5">
-                  <Border.RenderTransform>
-                    <ScaleTransform ScaleX="0"/>
-                  </Border.RenderTransform>
-                </Border>
-              </Grid>
-            </Grid>
-
-            <!-- карточка «Стратегия»: клик — весь список стратегий -->
-            <Grid x:Name="IllStrat" Grid.Column="2" Height="200" Margin="0,0,14,0" Cursor="Hand" Background="Transparent">
-              <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
-                <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
-              </Border>
-              <Grid Margin="16">
-                <Grid Height="100" VerticalAlignment="Top">
-                  <Ellipse x:Name="IllStratCircle" Width="92" Height="92" Fill="{DynamicResource AccentSoft}"/>
-                  <Border Width="66" Height="50" CornerRadius="10" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Text}" BorderThickness="2" Margin="-22,-6,0,0">
-                    <StackPanel Margin="9,9,0,0">
-                      <Rectangle Width="34" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="{DynamicResource Accent}" HorizontalAlignment="Left"/>
-                      <Rectangle Width="24" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="{DynamicResource TrackOff}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
-                      <Rectangle Width="30" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="{DynamicResource TrackOff}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
-                    </StackPanel>
-                  </Border>
-                  <Border Width="34" Height="34" CornerRadius="17" Background="{DynamicResource Accent}" BorderBrush="{DynamicResource Text}" BorderThickness="2" Margin="58,44,0,0">
-                    <TextBlock x:Name="IllStratCheck" Text="&#xE73E;" RenderTransformOrigin="0.5,0.5" FontFamily="{DynamicResource Icons}" FontSize="14" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                  </Border>
-                </Grid>
-                <StackPanel VerticalAlignment="Bottom">
-                  <TextBlock x:Name="IllStratTitle" Text=" " FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock x:Name="IllStratSub" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap" LineHeight="16" LineStackingStrategy="BlockLineHeight" MaxHeight="32" TextTrimming="CharacterEllipsis"/>
+                <StackPanel Margin="18,16">
+                  <Grid>
+                    <TextBlock Text="VPN" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <ToggleButton x:Name="ChipVpn" Style="{DynamicResource MiniSwitch}" HorizontalAlignment="Right" ToolTip="Переключить VPN" AutomationProperties.Name="Переключить VPN"/>
+                  </Grid>
+                  <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <Ellipse x:Name="HomeVpnDot" Width="8" Height="8" Fill="{DynamicResource Idle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="HomeVpnName" FontSize="15" FontWeight="SemiBold"/>
+                  </StackPanel>
+                  <DockPanel Margin="0,4,0,0">
+                    <Border x:Name="HomeVpnFlag" DockPanel.Dock="Left" Width="22" Height="15" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                    <TextBlock x:Name="HomeVpnInfo" FontSize="12" Foreground="{DynamicResource TextSub}" TextTrimming="CharacterEllipsis"/>
+                  </DockPanel>
+                  <TextBlock x:Name="HomeVpnProtection" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
                 </StackPanel>
               </Grid>
             </Grid>
-
-            <!-- карточка «VPN»: клик — страница VPN -->
-            <Grid x:Name="IllVpn" Grid.Column="3" Height="200" Margin="0,0,14,0" Cursor="Hand" Background="Transparent">
-              <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
-                <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
-              </Border>
-              <Grid Margin="16">
-                <Grid Height="100" VerticalAlignment="Top">
-                  <Ellipse x:Name="IllVpnCircle" Width="92" Height="92" Fill="{DynamicResource AccentSoft}"/>
-                  <Ellipse Width="60" Height="60" Fill="{DynamicResource CardRaised}" Stroke="{DynamicResource Text}" StrokeThickness="2"/>
-                  <!-- VPN подключается — пунктир вокруг глобуса крутится (UpdateIllustrations) -->
-                  <Ellipse x:Name="IllVpnSpin" Width="74" Height="74" Stroke="{DynamicResource Accent}" StrokeThickness="3" StrokeDashArray="3 4" StrokeDashCap="Round" Opacity="0" RenderTransformOrigin="0.5,0.5"/>
-                  <TextBlock x:Name="IllVpnGlobe" Text="&#xE909;" FontFamily="{DynamicResource Icons}" FontSize="32" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                  <Border x:Name="IllVpnBadge" MinWidth="40" Height="22" CornerRadius="11" Background="{DynamicResource Ok}" BorderBrush="{DynamicResource Text}" BorderThickness="2" Margin="62,56,0,0" Padding="5,0" HorizontalAlignment="Center" Visibility="Collapsed">
-                    <TextBlock x:Name="IllVpnBadgeText" Text="" FontSize="10.5" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                  </Border>
-                </Grid>
-                <StackPanel VerticalAlignment="Bottom">
-                  <TextBlock x:Name="IllVpnTitle" Text=" " FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock x:Name="IllVpnSub" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap" LineHeight="16" LineStackingStrategy="BlockLineHeight" MaxHeight="32" TextTrimming="CharacterEllipsis"/>
-                </StackPanel>
-              </Grid>
-            </Grid>
-
-            <!-- карточка «Сторож»: клик — настройки -->
-            <Grid x:Name="IllWatch" Grid.Column="4" Height="200" Cursor="Hand" Background="Transparent">
-              <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
-                <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
-              </Border>
-              <Grid Margin="16">
-                <Grid Height="100" VerticalAlignment="Top">
-                  <Ellipse x:Name="IllWatchCircle" Width="92" Height="92" Fill="{DynamicResource AccentSoft}"/>
-                  <Path x:Name="IllWatchShield" Width="52" Height="60" Stretch="Fill" Fill="{DynamicResource CardRaised}" Stroke="{DynamicResource Text}" StrokeThickness="2"
-                        Data="M50,8 C64,16 76,18 88,18 L88,46 C88,70 72,86 50,94 C28,86 12,70 12,46 L12,18 C24,18 36,16 50,8 Z"/>
-                  <TextBlock x:Name="IllWatchCheck" Text="&#xE8FB;" FontFamily="{DynamicResource Icons}" FontSize="21" FontWeight="Bold" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,2,0,0"/>
-                </Grid>
-                <StackPanel VerticalAlignment="Bottom">
-                  <TextBlock x:Name="IllWatchTitle" Text=" " FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock x:Name="IllWatchSub" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap" LineHeight="16" LineStackingStrategy="BlockLineHeight" MaxHeight="32" TextTrimming="CharacterEllipsis"/>
-                </StackPanel>
-              </Grid>
-            </Grid>
-          </Grid>
-
+            <Border CornerRadius="14" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1"
+                    Margin="0,12,0,0" Padding="14,8">
+              <DockPanel>
+                <Button x:Name="BtnHomeEvent" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" Margin="12,0,0,0" Content="Открыть журнал"/>
+                <TextBlock DockPanel.Dock="Left" Text="Последнее событие" FontWeight="SemiBold" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                <TextBlock x:Name="HomeEventText" Text="Событий пока нет" Foreground="{DynamicResource TextSub}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+              </DockPanel>
+            </Border>
+          </StackPanel>
           <!-- ===== Ряд 2: карточки сайтов (строит код) ===== -->
           <Grid Grid.Row="2" Margin="0,18,0,0">
             <Grid.RowDefinitions>
@@ -1209,11 +1154,12 @@
             </Grid.RowDefinitions>
             <Grid Margin="2,0,0,8">
               <TextBlock Text="ДОСТУПНОСТЬ САЙТОВ" Style="{DynamicResource Caption}" VerticalAlignment="Center" Background="Transparent"
-                         ToolTip="Крупно — время открытия сайта через обход, TCP — пинг до сервера. Линия — последние проверки"/>
-              <Button x:Name="BtnWhy" Style="{DynamicResource LinkButton}" Content="Почему не работает?" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,36,0"
-                      ToolTip="Проверить по шагам интернет, DNS, мешающие программы, обход и сайты — и подсказать, что исправить"/>
-              <Button x:Name="BtnSiteCheck" Style="{DynamicResource IconButton}" Width="26" Height="26" FontSize="12" Content="&#xE72C;"
-                      HorizontalAlignment="Right" ToolTip="Проверить сайты сейчас"/>
+                         ToolTip="Результат последней проверки. Задержки доступны в деталях карточки."/>
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnHomeSites" Style="{DynamicResource LinkButton}" Height="26" Margin="0,0,8,0" Content="Свои сайты"/>
+                <Button x:Name="BtnSiteCheck" Style="{DynamicResource IconButton}" Width="26" Height="26" FontSize="12" Content="&#xE72C;"
+                        ToolTip="Проверить сайты сейчас"/>
+              </StackPanel>
             </Grid>
             <UniformGrid x:Name="SitePanel" Grid.Row="1"/>
           </Grid>
@@ -1232,10 +1178,9 @@
             </StackPanel>
           </Border>
 
-          <!-- ===== Ряд 3: стратегии, VPN, последние сутки ===== -->
-          <Grid x:Name="HomeRow3" Grid.Row="3" Margin="0,22,0,0">
+          <!-- Стратегии и последние сутки -->
+          <Grid x:Name="HomeRow3" Grid.Row="3" Margin="0,18,0,0">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="1.15*"/>
               <ColumnDefinition/>
               <ColumnDefinition/>
             </Grid.ColumnDefinitions>
@@ -1288,33 +1233,9 @@
             </Grid>
 
             <!-- VPN: сервер, пинг, скорость; переключатель — тот же, что раньше был чипом -->
-            <Grid x:Name="HomeVpnCard" Grid.Column="1" Margin="0,0,14,0" Cursor="Hand" Background="Transparent">
-              <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
-                <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
-              </Border>
-              <StackPanel Margin="18,16">
-                <Grid>
-                  <TextBlock Text="VPN" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                  <ToggleButton x:Name="ChipVpn" Style="{DynamicResource MiniSwitch}" HorizontalAlignment="Right" ToolTip="Встроенный VPN: сайты и программы из списка на странице VPN"/>
-                </Grid>
-                <Grid Margin="0,14,0,0">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition/>
-                  </Grid.ColumnDefinitions>
-                  <Border x:Name="HomeVpnFlag" Width="34" Height="24" VerticalAlignment="Center"/>
-                  <StackPanel Grid.Column="1" Margin="11,0,0,0" VerticalAlignment="Center">
-                    <TextBlock x:Name="HomeVpnName" Text=" " FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="HomeVpnInfo" Text=" " FontSize="11" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/>
-                  </StackPanel>
-                </Grid>
-                <Canvas x:Name="HomeVpnGraph" Height="30" Margin="0,12,0,0" ClipToBounds="True"/>
-                <TextBlock x:Name="HomeVpnSpeed" Text=" " FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
-              </StackPanel>
-            </Grid>
 
-            <!-- последние сутки: полоса (слева — сутки назад, справа — сейчас), легенда и быстрые переключатели -->
-            <Grid Grid.Column="2">
+            <!-- Последние сутки и быстрые переключатели -->
+            <Grid Grid.Column="1">
               <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
                 <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
               </Border>
@@ -1352,6 +1273,95 @@
               </StackPanel>
             </Grid>
           </Grid>
+
+          <Expander x:Name="HomeAdvanced" Grid.Row="4" Margin="0,22,0,0" IsExpanded="False" Foreground="{DynamicResource Text}">
+            <Expander.Header>
+              <TextBlock Text="Расширенные инструменты" FontSize="14" FontWeight="SemiBold" Margin="4,8"/>
+            </Expander.Header>
+            <StackPanel Margin="0,12,0,0">
+              <WrapPanel Margin="0,0,0,16">
+                <Button x:Name="BtnAdvancedPick" Style="{DynamicResource GhostButton}" Content="Подобрать стратегию" Height="38" Margin="0,0,12,0"/>
+              <Button x:Name="BtnWhy" Style="{DynamicResource LinkButton}" Content="Почему не работает?" Margin="0,0,16,0" Height="38"
+                      ToolTip="Проверить по шагам интернет, DNS, мешающие программы, обход и сайты — и подсказать, что исправить"/>
+
+              </WrapPanel>
+              <StackPanel Margin="0,0,0,16">
+                <TextBlock x:Name="GreetDate" FontSize="12" Foreground="{DynamicResource Muted}"/>
+                <TextBlock x:Name="GreetTitle" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock x:Name="GreetSub" FontSize="12" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/>
+              </StackPanel>
+              <UniformGrid Columns="3">
+            <Grid x:Name="IllWatch" Height="200" Margin="0,0,14,12" Cursor="Hand" Background="Transparent">
+              <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
+                <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
+              </Border>
+              <Grid Margin="16">
+                <Grid Height="100" VerticalAlignment="Top">
+                  <Ellipse x:Name="IllWatchCircle" Width="92" Height="92" Fill="{DynamicResource AccentSoft}"/>
+                  <Path x:Name="IllWatchShield" Width="52" Height="60" Stretch="Fill" Fill="{DynamicResource CardRaised}" Stroke="{DynamicResource Text}" StrokeThickness="2"
+                        Data="M50,8 C64,16 76,18 88,18 L88,46 C88,70 72,86 50,94 C28,86 12,70 12,46 L12,18 C24,18 36,16 50,8 Z"/>
+                  <TextBlock x:Name="IllWatchCheck" Text="&#xE8FB;" FontFamily="{DynamicResource Icons}" FontSize="21" FontWeight="Bold" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,2,0,0"/>
+                </Grid>
+                <StackPanel VerticalAlignment="Bottom">
+                  <TextBlock x:Name="IllWatchTitle" Text=" " FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="IllWatchSub" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap" LineHeight="16" LineStackingStrategy="BlockLineHeight" MaxHeight="32" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+              </Grid>
+            </Grid>
+
+            <!-- карточка «Стратегия»: клик — весь список стратегий -->
+            <Grid x:Name="IllStrat"  Height="200" Margin="0,0,14,0" Cursor="Hand" Background="Transparent">
+              <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
+                <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
+              </Border>
+              <Grid Margin="16">
+                <Grid Height="100" VerticalAlignment="Top">
+                  <Ellipse x:Name="IllStratCircle" Width="92" Height="92" Fill="{DynamicResource AccentSoft}"/>
+                  <Border Width="66" Height="50" CornerRadius="10" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource Text}" BorderThickness="2" Margin="-22,-6,0,0">
+                    <StackPanel Margin="9,9,0,0">
+                      <Rectangle Width="34" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="{DynamicResource Accent}" HorizontalAlignment="Left"/>
+                      <Rectangle Width="24" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="{DynamicResource TrackOff}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                      <Rectangle Width="30" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="{DynamicResource TrackOff}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                    </StackPanel>
+                  </Border>
+                  <Border Width="34" Height="34" CornerRadius="17" Background="{DynamicResource Accent}" BorderBrush="{DynamicResource Text}" BorderThickness="2" Margin="58,44,0,0">
+                    <TextBlock x:Name="IllStratCheck" Text="&#xE73E;" RenderTransformOrigin="0.5,0.5" FontFamily="{DynamicResource Icons}" FontSize="14" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                </Grid>
+                <StackPanel VerticalAlignment="Bottom">
+                  <TextBlock x:Name="IllStratTitle" Text=" " FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="IllStratSub" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap" LineHeight="16" LineStackingStrategy="BlockLineHeight" MaxHeight="32" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+              </Grid>
+            </Grid>
+
+            <!-- карточка «VPN»: клик — страница VPN -->
+            <Grid x:Name="IllVpn"  Height="200" Margin="0,0,14,0" Cursor="Hand" Background="Transparent">
+              <Border CornerRadius="24" Background="{DynamicResource CardRaised}" BorderBrush="{DynamicResource CardEdge}" BorderThickness="1">
+                <Border.Effect><DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.08" Color="{DynamicResource ShadowColor}"/></Border.Effect>
+              </Border>
+              <Grid Margin="16">
+                <Grid Height="100" VerticalAlignment="Top">
+                  <Ellipse x:Name="IllVpnCircle" Width="92" Height="92" Fill="{DynamicResource AccentSoft}"/>
+                  <Ellipse Width="60" Height="60" Fill="{DynamicResource CardRaised}" Stroke="{DynamicResource Text}" StrokeThickness="2"/>
+                  <!-- VPN подключается — пунктир вокруг глобуса крутится (UpdateIllustrations) -->
+                  <Ellipse x:Name="IllVpnSpin" Width="74" Height="74" Stroke="{DynamicResource Accent}" StrokeThickness="3" StrokeDashArray="3 4" StrokeDashCap="Round" Opacity="0" RenderTransformOrigin="0.5,0.5"/>
+                  <TextBlock x:Name="IllVpnGlobe" Text="&#xE909;" FontFamily="{DynamicResource Icons}" FontSize="32" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  <Border x:Name="IllVpnBadge" MinWidth="40" Height="22" CornerRadius="11" Background="{DynamicResource Ok}" BorderBrush="{DynamicResource Text}" BorderThickness="2" Margin="62,56,0,0" Padding="5,0" HorizontalAlignment="Center" Visibility="Collapsed">
+                    <TextBlock x:Name="IllVpnBadgeText" Text="" FontSize="10.5" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                </Grid>
+                <StackPanel VerticalAlignment="Bottom">
+                  <TextBlock x:Name="IllVpnTitle" Text=" " FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="IllVpnSub" Text=" " FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap" LineHeight="16" LineStackingStrategy="BlockLineHeight" MaxHeight="32" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+              </Grid>
+            </Grid>
+
+              </UniformGrid>
+
+            </StackPanel>
+          </Expander>
         </Grid>
       </ScrollViewer>
     </Grid>

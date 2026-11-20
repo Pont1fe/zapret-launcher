@@ -20,9 +20,14 @@ namespace ZapretLauncher
     {
 
         // ---------- Окно мастера ----------
-        async Task DiagnoseUi()
+        System.Threading.CancellationTokenSource connectionCancellation;
+
+        Task DiagnoseUi() { return ConnectionUi(false); }
+        Task RepairConnectionUi() { return ConnectionUi(true); }
+
+        async Task ConnectionUi(bool repair)
         {
-            if (busy || picking) { Ask("Дождитесь, пока закончится текущее действие, и запустите проверку снова."); return; }
+            if (busy || picking || siteChecking || ticking) { Ask("Дождитесь, пока закончится текущее действие, и запустите проверку снова."); return; }
             ShowWindow();
             string[] labels = { "Интернет", "DNS", "Мешающие программы и драйвер WinDivert", "Обход zapret", "Сайты и стратегия" };
             List<Action<string, string>> marks = new List<Action<string, string>>();
@@ -30,7 +35,7 @@ namespace ZapretLauncher
             foreach (string label in labels) steps.Children.Add(StepRow(label, marks));
 
             StackPanel content = new StackPanel { Width = 440 };
-            TextBlock title = new TextBlock { Text = T("Почему не работает?"), FontSize = 17, FontWeight = FontWeights.Bold };
+            TextBlock title = new TextBlock { Text = T(repair ? "Исправить соединение" : "Почему не работает?"), FontSize = 17, FontWeight = FontWeights.Bold };
             title.SetResourceReference(TextBlock.ForegroundProperty, "Text");
             TextBlock sub = new TextBlock { Text = T("Проверяю по шагам — это займёт несколько секунд"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
             sub.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
@@ -59,26 +64,76 @@ namespace ZapretLauncher
             buttons.Children.Add(fix);
             content.Children.Add(buttons);
 
-            Window w = Dialog.Host(window, T("Почему не работает?"), content);
+            Window w = Dialog.Host(window, title.Text, content);
             Verdict verdict = null;
-            bool doFix = false;
+            bool doFix = false, finished = false, cancelled = false;
+            var cancellation = new System.Threading.CancellationTokenSource();
+            connectionCancellation = cancellation;
             close.Click += delegate { w.Close(); };
             fix.Click += delegate { doFix = true; w.Close(); };
+            close.Content = T("Остановить");
+            w.Closing += (sender, e) =>
+            {
+                if (finished) return;
+                e.Cancel = true;
+                cancelled = true;
+                cancellation.Cancel();
+                cancelPick = true;
+                close.IsEnabled = false;
+                sub.Text = T(repair ? "Останавливаю и возвращаю настройки…" : "Останавливаю проверку…");
+            };
             w.Loaded += async delegate
             {
-                verdict = await RunDiagnosis(marks);
-                if (!w.IsVisible) return;
-                sub.Text = T("Проверка закончена");
+                busy = true;
+                BusyRing(true);
+                try
+                {
+                    verdict = repair
+                        ? await RepairConnection(marks, text => sub.Text = T(text), () => cancelled, w, cancellation.Token)
+                        : await RunDiagnosis(marks, cancellation.Token);
+                    if (cancelled) throw new OperationCanceledException();
+                    sub.Text = T(repair ? "Исправление закончено" : "Проверка закончена");
+                }
+                catch (OperationCanceledException)
+                {
+                    verdict = new Verdict { Title = repair ? "Исправление остановлено" : "Проверка остановлена", Text = "Можно запустить исправление снова или открыть журнал.", Fix = "" };
+                    sub.Text = T("Остановлено");
+                }
+                catch (Exception e)
+                {
+                    Log.Write("Не удалось исправить: " + e.Message);
+                    verdict = new Verdict { Title = "Не удалось исправить", Text = T(e.Message), Fix = "" };
+                    sub.Text = T("Подробности — в журнале");
+                }
+                finally
+                {
+                    finished = true;
+                    busy = false;
+                    BusyRing(false);
+                    close.Content = T("Закрыть");
+                    close.IsEnabled = true;
+                    UpdateUi();
+                    RunPendingRestarts();
+                }
                 vTitle.Text = T(verdict.Title);
                 vText.Text = T(verdict.Text);
-                bool good = verdict.Title == "Всё работает";
+                bool good = ConnectionRepair.Succeeded(verdict);
                 verdictBox.SetResourceReference(Border.BackgroundProperty, good ? "AccentSoft" : "WarnBg");
                 verdictBox.Visibility = Visibility.Visible;
-                fix.Visibility = verdict.Fix.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-                if (verdict.Fix.Length > 0) fix.Focus();
+                fix.Visibility = repair ? (good ? Visibility.Collapsed : Visibility.Visible) : (verdict.Fix.Length > 0 ? Visibility.Visible : Visibility.Collapsed);
+                fix.Content = T(repair ? (verdict.Fix == "vpn" ? "Открыть VPN" : "Открыть журнал") : "Исправить");
+                close.Focus();
             };
             w.ShowDialog();
+            cancellation.Dispose();
+            connectionCancellation = null;
             if (!doFix || verdict == null) return;
+            if (repair)
+            {
+                if (verdict.Fix == "vpn") OpenVpnRoutes();
+                else E<RadioButton>("NavLog").IsChecked = true;
+                return;
+            }
             Log.Write("Почему не работает: исправляю — " + verdict.Title);
             try
             {
@@ -96,19 +151,26 @@ namespace ZapretLauncher
         }
 
         // Проверки по очереди; mark(состояние, подробность) — ok / warn / fail
-        async Task<Verdict> RunDiagnosis(List<Action<string, string>> marks)
+        async Task<Verdict> RunDiagnosis(List<Action<string, string>> marks, System.Threading.CancellationToken cancellation = default(System.Threading.CancellationToken))
         {
             Log.Write("Почему не работает: проверяю");
-            List<SiteResult> results = await Sites.Test(cfg.Telegram, true, 6, cfg.MySites);
+            List<SiteResult> results = await Sites.Test(cfg.Telegram, true, 6, cfg.MySites, cancellation);
             SiteResult control = results.FirstOrDefault(r => r.Name == Sites.Control);
             bool internet = control != null && control.Ok;
             marks[0](internet ? "ok" : "fail", internet ? T("есть") : T("сайты не открываются вообще"));
 
-            bool dnsOk = await Diagnosis.DnsLooksRight();
+            bool dnsOk = await Diagnosis.DnsLooksRight(cancellation);
             marks[1](dnsOk ? "ok" : cfg.SecureDns.Length > 0 ? "warn" : "fail", dnsOk ? T("адреса правильные") + (cfg.SecureDns.Length > 0 ? " · " + T("защищённый") : "") : T("адреса заблокированных сайтов подменены"));
 
             List<Conflict> conflicts;
-            try { conflicts = await Task.Run(() => Conflicts.All()); } catch { conflicts = new List<Conflict>(); }
+            Task<List<Conflict>> conflictTask = Task.Run(() => Conflicts.All());
+            if (await Task.WhenAny(conflictTask, Task.Delay(10000, cancellation)) != conflictTask)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                throw new Exception("Проверка конфликтов не ответила вовремя");
+            }
+            conflicts = await conflictTask;
+            cancellation.ThrowIfCancellationRequested();
             if (cfg.VpnPause) conflicts = conflicts.Where(c => c.Kind != "vpn").ToList();   // с паузой VPN — штатная ситуация
             marks[2](conflicts.Count == 0 ? "ok" : conflicts.Any(c => c.Kind != "vpn") ? "fail" : "warn",
                      conflicts.Count == 0 ? T("не найдены") : string.Join(" · ", conflicts.Select(c => T(c.Text))));
@@ -125,6 +187,8 @@ namespace ZapretLauncher
             siteResults = results.Where(r => r.Name != Sites.Control).ToList();
             BuildSitePanel();
             Verdict verdict = Diagnosis.Diagnose(internet, dnsOk, cfg.SecureDns.Length > 0, installed, conflicts, running, pausedByVpn, failing, cfg.BlockedSites);
+            if ((cfg.VpnOn && !Vpn.Running) || ((verdict.Fix == "pick" || verdict.Fix == "start") && (pausedByVpn || vpnRunning || vpnLocked || cfg.VpnOn)))
+                verdict = new Verdict { Title = "Нужно проверить VPN", Text = "VPN включён или ожидает подключения. Проверьте сервер и маршруты VPN, затем повторите исправление.", Fix = "vpn" };
             Log.Write("Почему не работает: " + verdict.Title);
             return verdict;
         }

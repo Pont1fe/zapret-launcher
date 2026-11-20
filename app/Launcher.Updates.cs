@@ -93,6 +93,13 @@ namespace ZapretLauncher
                     "Меню на значке в панели задач работает, даже если лаунчер запущен от другой учётной записи",
                     "В журнале видно, сколько серверов подписки пропущено и почему",
                 } },
+            { "4.1.1", new[]
+                {
+                    "Единое исправление соединения: проверка, исправление и повторная проверка с отменой и откатом",
+                    "Упрощённая главная: ручные инструменты собраны в раскрывающемся разделе",
+                    "Защита VPN средствами Windows сохраняется при сбое и переподключении; пока VPN недоступен, интернет блокируется",
+                    "Исправлены безопасность импорта, сохранение настроек, обновление zapret, DNS и импорт VMess",
+                } },
             { "4.1.0", new[]
                 {
                     "Новый вид: на главной сразу видно всё — обход, сайты, стратегии, VPN и последние сутки",
@@ -144,6 +151,7 @@ namespace ZapretLauncher
                 cfg.VpnOn = false;
                 cfg.Save();
                 SettingsBackup.Save(backup);
+                await Task.Run(() => VpnFirewall.Clear());
                 await Vpn.Stop();   // старые версии не умеют управлять встроенным VPN
                 await SelfUpdate.Rollback(remote);
                 Log.Write("Перед откатом настройки сохранены в " + backup);
@@ -165,7 +173,7 @@ namespace ZapretLauncher
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return false;
             try { SettingsBackup.Restore(SettingsBackup.AutoFile); }
             catch (Exception e) { Ask(e.Message, MessageBoxButton.OK, MessageBoxImage.Error); return false; }
-            Restart();
+            Restart(false);
             return true;
         }
 
@@ -203,19 +211,18 @@ namespace ZapretLauncher
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             try { SettingsBackup.Restore(dlg.FileName); }
             catch (Exception e) { Ask(T("Не удалось восстановить: ") + e.Message, MessageBoxButton.OK, MessageBoxImage.Error); return; }
-            Restart();
+            Restart(false);
         }
 
         // ---------- Обновления ----------
-        async Task InstallZapretUi()
+        Task InstallZapretUi() { return RunBusy(() => InstallZapret(System.Threading.CancellationToken.None), "Обновление…"); }
+
+        async Task InstallZapret(System.Threading.CancellationToken cancellation)
         {
-            await RunBusy(async () =>
-            {
-                if (latest == null) latest = await Util.LatestRelease(Consts.ZapretRepo, n => n.EndsWith(".zip"));
-                await Zapret.Install(latest, cfg, s => StartBypass(false));
-                UpdateStrategyList();
-                UpdateTitle();
-            }, "Обновление…");
+            if (latest == null) latest = await Util.LatestRelease(Consts.ZapretRepo, n => n.EndsWith(".zip"), cancellation);
+            await Zapret.Install(latest, cfg, s => StartBypass(false), cancellation);
+            UpdateStrategyList();
+            UpdateTitle();
         }
 
         async Task CheckUpdates(bool quiet, bool allowAuto)
@@ -435,11 +442,11 @@ namespace ZapretLauncher
             finally { busy = false; UpdateUi(); RunPendingRestarts(); }   // например, наборы сайтов обновились — обход и VPN перечитают списки
         }
 
-        void Restart()
+        void Restart(bool saveSettings = true)
         {
-            App.ReleaseMutex();
+            if (saveSettings) { SaveWindowSize(); AutoBackup(); }
             Process.Start(Paths.Exe, (window.IsVisible ? "" : "--autostart ") + "--restarted");
-            Exit();
+            Exit(false);
         }
     }
 }

@@ -30,7 +30,7 @@ namespace ZapretLauncher
             if (busy || !cfg.Watchdog || !wantRunning || pausedByVpn || Zapret.Running) return;
             if ((DateTime.Now - lastRestart).TotalSeconds < 30) return;
             lastRestart = DateTime.Now;
-            Log.Write("Сторож: winws.exe не работает — перезапускаю");
+            SetConnectionEvent("Сторож перезапускает обход");
             await StartBypassUi();
             if (!Zapret.Running && !pausedByVpn)
             {
@@ -115,8 +115,8 @@ namespace ZapretLauncher
                     Log.Write("Сторож: включён VPN — стратегию не меняю");
                     return;
                 case WatchdogStep.Restart:
-                    Log.Write("Сторож: перезапускаю текущую стратегию — проверю ещё раз через минуту");
                     await RestartIfRunning();
+                    if (Zapret.Running) SetConnectionEvent("Сторож перезапустил обход", T(Zapret.Title(cfg.Strategy)));
                     siteCheckDue = DateTime.Now.AddMinutes(WatchdogPolicy.AfterRestartMinutes);
                     return;
                 case WatchdogStep.Cooldown:
@@ -132,7 +132,9 @@ namespace ZapretLauncher
                 if (best == null || best.Ok == 0) return;
                 if (best.File == before) { Notify("Новая стратегия: " + Zapret.Title(best.File)); return; }
                 strategyBeforeWatchdog = before;
-                string change = T("Сторож сменил стратегию") + ": " + T(Zapret.Title(before)) + " → " + T(Zapret.Title(best.File));
+                string strategies = T(Zapret.Title(before)) + " → " + T(Zapret.Title(best.File));
+                SetConnectionEvent("Сторож сменил стратегию", strategies);
+                string change = T("Сторож сменил стратегию") + ": " + strategies;
                 Text("StrategyChangedText").Text = change;
                 Text("StrategyChangedText").ToolTip = change;
                 E<FrameworkElement>("StrategyChangedBar").Visibility = Visibility.Visible;
@@ -196,7 +198,7 @@ namespace ZapretLauncher
         class PickBest { public string File; public int Ok, Total, Score; }
 
         // favoritesOnly — быстрый подбор: только стратегии со звёздочкой
-        async Task<PickBest> AutoPick(bool stopAtFirstPerfect, bool favoritesOnly = false)
+        async Task<PickBest> AutoPick(bool stopAtFirstPerfect, bool favoritesOnly = false, Action<string> progress = null, System.Threading.CancellationToken cancellation = default(System.Threading.CancellationToken))
         {
             List<string> strategies = Zapret.Strategies();
             if (favoritesOnly) strategies = strategies.Where(s => cfg.Favorites.Contains(s)).ToList();
@@ -204,7 +206,7 @@ namespace ZapretLauncher
             string original = cfg.Strategy;
             cancelPick = false;
             picking = true;
-            E<Button>("BtnMain").Content = T("Остановить подбор");
+            E<Button>("BtnAdvancedPick").Content = T("Остановить подбор");
             PickBest best = null;
             Log.Write("Подбор стратегии: проверяю " + strategies.Count + " шт. (" + string.Join(", ", Sites.Targets(cfg.Telegram, false).Select(t => t.Key)) + ")");
             Stopwatch total = Stopwatch.StartNew();
@@ -216,10 +218,12 @@ namespace ZapretLauncher
             {
                 for (int i = 0; i < strategies.Count; i++)
                 {
+                    cancellation.ThrowIfCancellationRequested();
                     if (cancelPick) { Log.Write("Подбор остановлен"); break; }
                     string s = strategies[i];
                     Text("PowerStatus").Text = T("Подбор") + " " + (i + 1) + " / " + strategies.Count;
                     Text("PowerTimer").Text = T(Zapret.Title(s));
+                    if (progress != null) progress(Text("PowerStatus").Text + " · " + T(Zapret.Title(s)));
                     cfg.Strategy = s;
                     UpdateStrategyList();   // в списке подсвечивается проверяемая стратегия, метки обновляются по ходу
                     RaceRunning(i);
@@ -231,8 +235,8 @@ namespace ZapretLauncher
                         // первый запуск — с полной подготовкой системы, дальше — быстрый
                         try { await StartBypass(true, i > 0); }
                         catch { cfg.PickScores[s] = "0/0/0"; cfg.PickDetails.Remove(s); Log.Write("  " + Zapret.Title(s) + " — не запустилась"); ShowPickProgress(i + 1, strategies.Count); RaceFailed(i, i + 1, strategies.Count); continue; }
-                        await Task.Delay(400);
-                        res = await Sites.Test(cfg.Telegram, false, 4);
+                        await Task.Delay(400, cancellation);
+                        res = await Sites.Test(cfg.Telegram, false, 4, cancellation: cancellation);
                     }
                     finally { siteChecking = false; }
                     List<SiteResult> okRes = res.Where(r => r.Ok).ToList();

@@ -31,6 +31,96 @@ namespace ZapretLauncher
             if (await AddVpnListItems(E<TextBox>("VpnListInput").Text)) E<TextBox>("VpnListInput").Text = "";
         }
 
+        string[] PickProtectionFiles()
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = T("Выбрать программу (.exe)…"),
+                Filter = T("Программы Windows") + " (*.exe)|*.exe",
+                CheckFileExists = true,
+                Multiselect = true
+            };
+            return dialog.ShowDialog(window) == true ? dialog.FileNames : new string[0];
+        }
+
+        Task PickVpnApps() { return busy || quitting ? Task.FromResult(0) : AddProtectedApps(PickProtectionFiles()); }
+
+        Task AddProtectedApps(IEnumerable<string> paths)
+        {
+            var next = new List<string>(cfg.VpnProtectedApps);
+            return Routes.AddAppPaths(next, paths.Where(File.Exists)) ? SetProtectedApps(next) : Task.FromResult(0);
+        }
+
+        static bool MatchesProtectionPreset(SitePreset preset, string path)
+        {
+            return path != null && preset.Apps.Any(app => path.Replace('/', '\\').EndsWith("\\" + app, StringComparison.OrdinalIgnoreCase));
+        }
+
+        async Task ToggleProtectionPreset(SitePreset preset)
+        {
+            if (busy || quitting) return;
+            var next = cfg.VpnProtectedApps.Where(path => !MatchesProtectionPreset(preset, path)).ToList();
+            if (next.Count != cfg.VpnProtectedApps.Count) { await SetProtectedApps(next); return; }
+
+            var paths = new List<string>();
+            foreach (string name in preset.Apps)
+            {
+                foreach (Process process in Process.GetProcessesByName(System.IO.Path.GetFileNameWithoutExtension(name)))
+                {
+                    using (process)
+                        try { paths.Add(process.MainModule.FileName); } catch (System.ComponentModel.Win32Exception) { } catch (InvalidOperationException) { }
+                }
+                foreach (RegistryKey root in new[] { Registry.CurrentUser, Registry.LocalMachine })
+                    using (RegistryKey key = root.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths\" + name))
+                        if (key != null && key.GetValue("") is string) paths.Add(((string)key.GetValue("")).Trim('"'));
+            }
+            string[] found = VpnFirewall.AppScope(paths.Where(path => MatchesProtectionPreset(preset, path)));
+            if (found.Length == 0)
+            {
+                Text("VpnProtectHint").Text = T("Программа не найдена. Запустите её или выберите файл .exe.");
+                found = PickProtectionFiles().Where(path => MatchesProtectionPreset(preset, path)).ToArray();
+                if (found.Length == 0) return;
+            }
+            await AddProtectedApps(found);
+        }
+
+        async Task SetProtectedApps(List<string> next)
+        {
+            if (busy || quitting) return;
+            if (next.Count > VpnFirewall.MaxApps)
+            {
+                Text("VpnProtectHint").Text = T("Можно выбрать до 31 программы.");
+                return;
+            }
+
+            await RunBusy(async () =>
+            {
+                var previous = cfg.VpnProtectedApps;
+                cfg.VpnProtectedApps = next;
+                try
+                {
+                    if (cfg.VpnOn && cfg.VpnKillSwitch) ApplyVpnFirewall(true);
+                }
+                catch { cfg.VpnProtectedApps = previous; throw; }
+                Text("VpnProtectHint").Text = "";
+                if (cfg.VpnKillSwitch) await ApplyVpnChanges();
+                else cfg.Save();
+            });
+            RefreshVpnUi();
+        }
+
+        void RefreshVpnKillScope()
+        {
+            string scope = !cfg.VpnKillSwitch ? "Защита выключена." : cfg.VpnProtectedApps.Count == 0
+                ? "Выберите программы для защиты." : VpnFirewall.AppScope(cfg.VpnProtectedApps).Length < cfg.VpnProtectedApps.Count
+                ? "Некоторые файлы .exe не найдены. Выберите их заново."
+                : "При обрыве остановится трафик выбранных программ.";
+            Text("VpnKillScope").Text = T(scope);
+            FillPresets(E<StackPanel>("VpnProtectPresets"), cfg.VpnProtectedApps, ToggleProtectionPreset);
+            FillItemList(E<StackPanel>("VpnProtectedApps"), cfg.VpnProtectedApps, "", false,
+                path => SetProtectedApps(cfg.VpnProtectedApps.Where(app => app != path).ToList()), null);
+        }
+
         async Task<bool> AddVpnListItems(string raw)
         {
             List<string> list = VpnSitesKind ? cfg.VpnDomains : cfg.VpnApps;
@@ -42,7 +132,7 @@ namespace ZapretLauncher
                 parts = parts.SelectMany(t => t.IndexOfAny(new[] { '\\', '/' }) >= 0 ? new[] { t } : t.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
             foreach (string part in parts)
             {
-                string item = VpnSitesKind ? Zapret.NormalizeDomain(part) : Routes.NormalizeApp(part);
+                string item = VpnSitesKind ? Zapret.NormalizeDomain(part) : Routes.NormalizeAppRoute(part);
                 if (item == null) { bad.Add(part); continue; }
                 found++;
                 if (!list.Contains(item, StringComparer.OrdinalIgnoreCase) && !added.Contains(item, StringComparer.OrdinalIgnoreCase)) added.Add(item);
@@ -288,30 +378,25 @@ namespace ZapretLauncher
             if (exiting) return;
             bool on = vpnRunning;
             VpnServer server = CurrentServer;
-            bool ready = on && !VpnSwitching;   // подключён именно выбранный сервер
-            Text("VpnStatus").Text = T(ready ? "VPN подключён" : vpnLocked ? "VPN не работает — блокировка" : cfg.VpnOn ? "VPN переподключается…" : "VPN выключен");
-            E<Ellipse>("VpnDot").SetResourceReference(Shape.FillProperty, ready ? "Ok" : vpnLocked ? "Fail" : cfg.VpnOn ? "Wait" : "Idle");
-            Text("VpnSub").Text = server == null ? T("Добавьте сервер ниже") : Vpn.DisplayName(server.Name) + " · " + T(VpnInfo.ModeName(cfg.VpnMode));
-            // карточка подключения: подсветка, переключатель, флаг страны текущего сервера
-            TimeSpan anim = TimeSpan.FromMilliseconds(260);
-            Fade(E<UIElement>("VpnCardOn"), on ? 1 : 0, anim);
-            // подключён — карточка цвета акцента, текст на ней светлый (AccentText), как на карточке обхода
-            Text("VpnStatus").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Text");
-            foreach (string t in new[] { "VpnSub", "VpnTimer", "VpnTraffic" }) Text(t).SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : t == "VpnTimer" ? "Muted" : "TextSub");
-            Fade(E<UIElement>("VpnTrackOn"), on ? 1 : 0, anim);
-            Slide(E<Ellipse>("VpnKnob"), on ? 28 : 0, anim);
-            E<FrameworkElement>("VpnCard").Opacity = server != null ? 1 : 0.6;
-            E<FrameworkElement>("VpnCard").ToolTip = vpnLocked ? T(LockText()) + ". " + T("Нажмите, чтобы выключить VPN и блокировку")
-                : T(server == null ? "Сначала добавьте сервер" : on ? "Нажмите, чтобы отключить VPN" : "Нажмите, чтобы подключить VPN");
-            E<Border>("VpnFlagHost").Child = FlagElement(server == null ? null : Vpn.CountryCode(server.Name), 54, 36);
-            E<FrameworkElement>("VpnHelp").Visibility = !cfg.VpnHelpDone ? Visibility.Visible : Visibility.Collapsed;
+            bool ready = on && !VpnSwitching;
+            Text("VpnConnectedServer").Text = server == null ? T("Сервер не добавлен") : Vpn.DisplayName(server.Name);
+            Text("VpnSub").Text = server == null ? T("Добавьте сервер ниже") : T(VpnInfo.ModeName(cfg.VpnMode));
+            Text("VpnServerProtection").Text = VpnProtectionStatus();
+            RefreshVpnHealthUi();
+            Fade(E<UIElement>("VpnCardOn"), ready ? 1 : 0, TimeSpan.FromMilliseconds(180));
+            Button connect = E<Button>("BtnVpnToggle");
+            connect.Content = T(on || vpnLocked ? "Отключить" : "Подключить");
+            connect.IsEnabled = server != null && !busy;
+            E<Border>("VpnFlagHost").Child = FlagElement(server == null ? null : Vpn.CountryCode(server.Name), 54, 36);            E<FrameworkElement>("VpnHelp").Visibility = !cfg.VpnHelpDone ? Visibility.Visible : Visibility.Collapsed;
             UpdateVpnTimer();
             filling = true;
-            E<ToggleButton>("ChipVpn").IsChecked = on;
+            E<ToggleButton>("ChipVpn").IsChecked = ready;
             E<RadioButton>(cfg.VpnMode == "all" ? "VpnModeAll" : cfg.VpnMode == "ru" ? "VpnModeRu" : "VpnModeSplit").IsChecked = true;
             E<CheckBox>("SwVpnAuto").IsChecked = cfg.VpnAutoBest;
             E<CheckBox>("SwVpnKill").IsChecked = cfg.VpnKillSwitch;
             filling = false;
+
+            RefreshVpnKillScope();
             E<Button>("BtnVpnPing").IsEnabled = cfg.VpnServers.Count > 0 && !vpnPinging;
             E<Button>("BtnVpnBest").IsEnabled = cfg.VpnServers.Count > 1 && !vpnPinging;
             E<Button>("BtnVpnSpeed").IsEnabled = cfg.VpnServers.Any(s => !Awg.IsAwg(s.Link)) && !vpnPinging && !vpnSpeedTesting;
@@ -327,7 +412,6 @@ namespace ZapretLauncher
             E<FrameworkElement>("VpnBlockedBar").Visibility = uncovered.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             if (uncovered.Count > 0)
                 Text("VpnBlockedText").Text = T("Провайдер блокирует по адресу") + ": " + string.Join(", ", uncovered.Select(T)) + ". " + T("zapret тут не поможет — пустите через VPN");
-            E<Button>("BtnVpnRefresh").Visibility = cfg.VpnSubscription.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             Text("VpnListHint").Text = T(VpnSitesKind ? "Например: example.com" : "Например: Spotify.exe");
             if (miVpn != null)
             {
@@ -340,8 +424,8 @@ namespace ZapretLauncher
 
             // серверы по странам: сверху вкладки (флаг, страна, сколько серверов), ниже — серверы выбранной страны.
             // При поиске вкладки не мешают: показываются совпадения по всем странам
-            E<FrameworkElement>("VpnSearchBox").Visibility = cfg.VpnServers.Count >= 6 ? Visibility.Visible : Visibility.Collapsed;
-            string query = cfg.VpnServers.Count >= 6 ? E<TextBox>("VpnSearch").Text.Trim() : "";
+            E<FrameworkElement>("VpnSearchBox").Visibility = cfg.VpnServers.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            string query = E<TextBox>("VpnSearch").Text.Trim();
             StackPanel servers = E<StackPanel>("VpnServerList");
             servers.Children.Clear();
             // после проверки: неработающие можно скрыть (выбранный сервер виден всегда)
@@ -353,7 +437,8 @@ namespace ZapretLauncher
             hideDead.IsChecked = cfg.VpnHideDead;
             filling = false;
             HashSet<int> visible = new HashSet<int>(ServerList.Visible(cfg.VpnServers, vpnPing, cfg.VpnSelected, cfg.VpnHideDead));
-            var all = cfg.VpnServers.Select((s, i) => new { s, i, code = Vpn.CountryCode(s.Name) }).Where(x => visible.Contains(x.i)).ToList();
+            var all = cfg.VpnServers.Select((s, i) => new { s, i, code = Vpn.CountryCode(s.Name) }).Where(x => visible.Contains(x.i) && (vpnSource == null || (x.s.SubscriptionId ?? "") == vpnSource)
+                    && (!vpnFavoritesOnly || x.s.Favorite)).ToList();
             var groups = all.GroupBy(x => x.code ?? "").ToList();
             WrapPanel tabs = E<WrapPanel>("VpnTabs");
             tabs.Children.Clear();
@@ -363,7 +448,7 @@ namespace ZapretLauncher
             {
                 // открытая вкладка: выбранная вручную, иначе страна текущего сервера
                 if (vpnTab == null || !groups.Any(g => g.Key == vpnTab))
-                    vpnTab = server != null ? (Vpn.CountryCode(server.Name) ?? "") : groups[0].Key;
+                    vpnTab = (groups.FirstOrDefault(g => g.Any(x => x.i == cfg.VpnSelected)) ?? groups[0]).Key;
                 foreach (var g in groups)
                     tabs.Children.Add(CountryTab(g.Key, g.Count(), g.Key == vpnTab, g.Any(x => x.i == cfg.VpnSelected)));
             }
@@ -372,9 +457,12 @@ namespace ZapretLauncher
                       || (Vpn.CountryName(x.code) ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
                       || T(Vpn.CountryName(x.code) ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
                     : !useTabs || (x.code ?? "") == vpnTab)
-                .OrderBy(x => ServerList.Rank(PingOf(x.s))).ThenBy(x => x.i).ToList();   // работающие — наверх, быстрые первыми
+                .OrderByDescending(x => x.s.Favorite).ThenBy(x => ServerList.Rank(PingOf(x.s))).ThenBy(x => x.i).ToList();   // работающие — наверх, быстрые первыми
             foreach (var x in shown) servers.Children.Add(ServerRow(x.s, x.i, x.code));
-            if (shown.Count == 0 && cfg.VpnServers.Count > 0) servers.Children.Add(EmptyState("", "Ничего не найдено", "Проверьте написание или сократите запрос", true));
+            if (shown.Count == 0)
+                servers.Children.Add(cfg.VpnServers.Count == 0
+                    ? EmptyState("", "Серверы не добавлены", "Добавьте подписку или ключ VPN", true)
+                    : EmptyState("", "Ничего не найдено", "Проверьте поиск и выбранные фильтры", true));
 
             FillPresets(E<StackPanel>("VpnPresets"), cfg.VpnDomains, ToggleVpnPreset);
 

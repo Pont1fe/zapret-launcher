@@ -102,6 +102,7 @@ namespace ZapretLauncher
         public bool VpnOn { get; set; }                  // пользователь хочет, чтобы VPN был включён
         public List<VpnServer> VpnServers { get; set; }
         public int VpnSelected { get; set; }
+        public List<VpnSubscription> VpnSubscriptions { get; set; }
         public string VpnSubscription { get; set; }      // адрес подписки, если серверы добавлены из неё
         public string VpnMode { get; set; }              // split — только выбранное, all — весь трафик
         public List<string> VpnDomains { get; set; }     // сайты через VPN (режим split)
@@ -111,7 +112,8 @@ namespace ZapretLauncher
         public string VpnSubWarned { get; set; }        // о каких этапах подписки уже напомнили (ключи через |, см. Launcher.SubscriptionWarnings)
         public bool VpnHelpDone { get; set; }           // подсказку «Как начать» на странице VPN закрыли
         public bool VpnAutoBest { get; set; }            // при подключении выбирать самый быстрый сервер и уходить с упавшего
-        public bool VpnKillSwitch { get; set; }          // VPN упал и не поднимается — сайты и программы из списка не пускать напрямую
+        public bool VpnKillSwitch { get; set; }
+        public List<string> VpnProtectedApps { get; set; }
         public bool VpnHideDead { get; set; }            // в списке серверов не показывать те, что при проверке не работали
         public string LastSeenVersion { get; set; }      // для окна «Что нового» после обновления
 
@@ -143,6 +145,8 @@ namespace ZapretLauncher
             BlockedSites = new List<string>();
             SecureDns = ""; DnsAdapters = new List<string>(); IpsetUpdated = "";
             VpnServers = new List<VpnServer>(); VpnDomains = new List<string>(); VpnApps = new List<string>(); VpnMode = "split"; VpnSubscription = "";
+            VpnSubscriptions = new List<VpnSubscription>();
+            VpnProtectedApps = new List<string>();
         }
 
         public static Config Load()
@@ -183,8 +187,14 @@ namespace ZapretLauncher
             if (c.VpnServers == null) c.VpnServers = new List<VpnServer>();
             if (c.VpnDomains == null) c.VpnDomains = new List<string>();
             if (c.VpnApps == null) c.VpnApps = new List<string>();
+            if (c.VpnProtectedApps == null || (raw != null && !raw.Contains("\"VpnProtectedApps\"")))
+                c.VpnProtectedApps = c.VpnKillSwitch ? VpnFirewall.AppScope(c.VpnApps).Take(VpnFirewall.MaxApps).ToList() : new List<string>();
             if (c.VpnMode != "all" && c.VpnMode != "ru") c.VpnMode = "split";
-            if (c.VpnSubscription == null) c.VpnSubscription = "";
+            if (c.VpnSubscriptions == null) c.VpnSubscriptions = new List<VpnSubscription>();
+            if (!string.IsNullOrEmpty(c.VpnSubscription) && !c.VpnSubscriptions.Any(s => s.Url == c.VpnSubscription))
+                c.VpnSubscriptions.Add(new VpnSubscription { Id = Guid.NewGuid().ToString("N"), Url = c.VpnSubscription,
+                    Info = c.VpnSubInfo, Updated = c.VpnSubUpdated, Warned = c.VpnSubWarned, Legacy = true });
+            c.VpnSubscription = "";
             if (c.VpnSelected < 0 || c.VpnSelected >= c.VpnServers.Count) c.VpnSelected = 0;
             if (c.LastSeenVersion == null) c.LastSeenVersion = "";
             if (c.VpnSubInfo == null) c.VpnSubInfo = "";
@@ -206,12 +216,9 @@ namespace ZapretLauncher
             // через временный файл: сбой питания посреди записи не оставит обрезанный launcher.json (в нём ключи VPN)
             try
             {
-                string tmp = Paths.Config + ".tmp";
-                byte[] data = new UTF8Encoding(false).GetBytes(new JavaScriptSerializer().Serialize(this));
-                using (FileStream fs = new FileStream(tmp, FileMode.Create, FileAccess.Write)) { fs.Write(data, 0, data.Length); fs.Flush(true); }
-                if (File.Exists(Paths.Config)) File.Replace(tmp, Paths.Config, null); else File.Move(tmp, Paths.Config);
+                Util.WriteAtomicText(Paths.Config, new JavaScriptSerializer().Serialize(this));
             }
-            catch (Exception e) { Log.Write("Не удалось сохранить launcher.json: " + e.Message); }
+            catch (Exception e) { Log.Write("Не удалось сохранить launcher.json: " + e.Message); throw; }
         }
     }
 
@@ -221,12 +228,32 @@ namespace ZapretLauncher
         static readonly object sync = new object();
         const long MaxSize = 1024 * 1024;   // больше 1 МБ — старый журнал уходит в launcher.log.1
         static int writes;
+        static readonly Queue<KeyValuePair<long, string>> recent = new Queue<KeyValuePair<long, string>>();
+
+        static void TrimRecent(long now)
+        {
+            while (recent.Count > 512 || (recent.Count > 0 && now - recent.Peek().Key > Stopwatch.Frequency * 60))
+                recent.Dequeue();
+        }
+
+        public static string Recent()
+        {
+            lock (sync)
+            {
+                TrimRecent(Stopwatch.GetTimestamp());
+                return string.Join(Environment.NewLine, recent.Select(entry => entry.Value));
+            }
+        }
 
         public static void Write(string message)
         {
-            string line = "[" + DateTime.Now.ToString("dd.MM HH:mm:ss") + "] " + I18n.T(message);
+            string line;
             lock (sync)
             {
+                line = "[" + DateTime.Now.ToString("dd.MM HH:mm:ss") + "] " + I18n.T(message);
+                long now = Stopwatch.GetTimestamp();
+                recent.Enqueue(new KeyValuePair<long, string>(now, line));
+                TrimRecent(now);
                 try
                 {
                     if (writes++ % 50 == 0 && File.Exists(Paths.Log) && new FileInfo(Paths.Log).Length > MaxSize)
@@ -351,13 +378,30 @@ namespace ZapretLauncher
         }
 
         // Скачивает файл релиза и сверяет SHA-256 с тем, что сообщил GitHub: битая или подменённая загрузка не установится
-        public static async Task Download(Release release, string file)
+        public static async Task Download(Release release, string file, System.Threading.CancellationToken cancellation = default(System.Threading.CancellationToken))
         {
-            HttpResponseMessage r = await Http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead);
-            r.EnsureSuccessStatusCode();
-            using (Stream src = await r.Content.ReadAsStreamAsync())
-            using (FileStream dst = File.Create(file))
-                await src.CopyToAsync(dst);
+            try
+            {
+                using (var timeout = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(cancellation))
+                {
+                    timeout.CancelAfter(Http.Timeout);
+                    using (HttpResponseMessage r = await Http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead, timeout.Token))
+                    {
+                        r.EnsureSuccessStatusCode();
+                        using (Stream src = await r.Content.ReadAsStreamAsync())
+                        using (FileStream dst = File.Create(file))
+                        using (timeout.Token.Register(() => src.Dispose()))
+                            await src.CopyToAsync(dst, 81920, timeout.Token);
+                    }
+                }
+            }
+            catch
+            {
+                try { File.Delete(file); } catch { }
+                cancellation.ThrowIfCancellationRequested();
+                throw;
+            }
+            cancellation.ThrowIfCancellationRequested();
             if (release.Sha256 == null) return;
             string actual = await Task.Run(() =>
             {
@@ -374,9 +418,18 @@ namespace ZapretLauncher
         }
 
         // Последний релиз репозитория; assetMatch выбирает нужный файл
-        public static async Task<Release> LatestRelease(string repo, Func<string, bool> assetMatch)
+        public static async Task<Release> LatestRelease(string repo, Func<string, bool> assetMatch, System.Threading.CancellationToken cancellation = default(System.Threading.CancellationToken))
         {
-            string json = await GetString("https://api.github.com/repos/" + repo + "/releases/latest", 15);
+            string json;
+            using (var timeout = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(cancellation))
+            {
+                timeout.CancelAfter(TimeSpan.FromSeconds(15));
+                using (var response = await Http.GetAsync("https://api.github.com/repos/" + repo + "/releases/latest", timeout.Token))
+                {
+                    response.EnsureSuccessStatusCode();
+                    json = await response.Content.ReadAsStringAsync();
+                }
+            }
             Dictionary<string, object> r = (Dictionary<string, object>)new JavaScriptSerializer().DeserializeObject(json);
             string tag = ((string)r["tag_name"]).TrimStart('v');
             foreach (object o in (object[])r["assets"])
@@ -394,6 +447,18 @@ namespace ZapretLauncher
                 }
             }
             throw new Exception("В релизе " + repo + " " + tag + " нет нужного файла");
+        }
+
+        public static void WriteAtomicText(string path, string text)
+        {
+            string tmp = path + ".tmp";
+            try
+            {
+                byte[] data = new UTF8Encoding(false).GetBytes(text);
+                using (FileStream fs = new FileStream(tmp, FileMode.Create, FileAccess.Write)) { fs.Write(data, 0, data.Length); fs.Flush(true); }
+                if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);
+            }
+            finally { if (File.Exists(tmp)) File.Delete(tmp); }
         }
 
         public static void WriteLines(string path, IEnumerable<string> lines)

@@ -248,41 +248,8 @@ namespace ZapretLauncher
         }
 
         // Папку лаунчера меняет только администратор: отсюда с правами администратора запускаются лаунчер, winws, ядра VPN и стратегии.
-        // Папка в корне диска (C:\ZapretLauncher) по умолчанию наследует от диска «изменение» для всех пользователей — убираем это
-        static readonly string[] Others = { "S-1-1-0", "S-1-5-11", "S-1-5-32-545" };   // Все, Прошедшие проверку, Пользователи
-        const System.Security.AccessControl.FileSystemRights WriteRights =
-            System.Security.AccessControl.FileSystemRights.WriteData | System.Security.AccessControl.FileSystemRights.AppendData |
-            System.Security.AccessControl.FileSystemRights.Delete | System.Security.AccessControl.FileSystemRights.DeleteSubdirectoriesAndFiles |
-            System.Security.AccessControl.FileSystemRights.ChangePermissions | System.Security.AccessControl.FileSystemRights.TakeOwnership;
-
-        public static bool OthersCanWrite(string dir)
-        {
-            return Directory.GetAccessControl(dir).GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier))
-                .Cast<System.Security.AccessControl.FileSystemAccessRule>()
-                .Any(r => r.AccessControlType == System.Security.AccessControl.AccessControlType.Allow && Others.Contains(r.IdentityReference.Value) && (r.FileSystemRights & WriteRights) != 0);
-        }
-
-        // Владелец папки может сам вернуть себе права, даже без прав администратора, — поэтому владелец тоже должен быть администратором
-        static readonly string[] TrustedOwners = { "S-1-5-32-544", "S-1-5-18", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464" };   // Администраторы, SYSTEM, TrustedInstaller
-
-        public static bool NeedsLock(string dir)
-        {
-            return OthersCanWrite(dir) || !TrustedOwners.Contains(Directory.GetAccessControl(dir).GetOwner(typeof(System.Security.Principal.SecurityIdentifier)).Value);
-        }
-
-        public static void SecureFolder()
-        {
-            string dir = Paths.Root.TrimEnd('\\');
-            try
-            {
-                if (!NeedsLock(dir)) return;
-                string output, output2;
-                Util.Run("icacls.exe", "\"" + dir + "\" /setowner *S-1-5-32-544 /T /C /Q", out output);   // /T — и файлы внутри: их владелец тоже мог бы вернуть себе права
-                int code = Util.Run("icacls.exe", "\"" + dir + "\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /Q", out output2);
-                Log.Write(code == 0 && !NeedsLock(dir) ? "Папка лаунчера закрыта от изменений без прав администратора" : "Не удалось закрыть папку лаунчера от изменений: " + (output + " " + output2).Trim());
-            }
-            catch (Exception e) { Log.Write("Не удалось закрыть папку лаунчера от изменений: " + e.Message); }
-        }
+        public static bool OthersCanWrite(string dir) { return InstallDirectorySecurity.OthersCanWrite(Directory.GetAccessControl(dir)); }
+        public static bool NeedsLock(string dir) { return InstallDirectorySecurity.NeedsLock(Directory.GetAccessControl(dir)); }
     }
 
     // Меню на значке в панели задач (правый клик). Пункты запускают ZapretLauncherCmd.exe — он без прав администратора,
@@ -442,9 +409,7 @@ namespace ZapretLauncher
         {
             string old = Paths.Exe + ".old";
             if (File.Exists(old)) File.Delete(old);
-            File.Move(Paths.Exe, old);
-            try { File.Move(tmp, Paths.Exe); }
-            catch { File.Move(old, Paths.Exe); throw; }
+            File.Replace(tmp, Paths.Exe, old, false);
         }
 
         static string ShortVersion(Version v) { return v.Major + "." + v.Minor + "." + Math.Max(0, v.Build); }

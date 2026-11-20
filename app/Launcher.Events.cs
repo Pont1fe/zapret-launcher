@@ -42,6 +42,15 @@ namespace ZapretLauncher
             }
             // «Обход» уже выбран, а открыт полный список стратегий — повторный клик возвращает на главную
             ClickSync("NavHome", () => { if (pageIndex != 0) ShowPage("Home"); });
+            Click("BtnCommands", ShowCommands);
+            ClickSync("BtnHomeSites", OpenSiteSettings);
+            window.PreviewKeyDown += async (s, e) =>
+            {
+                if (e.Key != Key.K || Keyboard.Modifiers != ModifierKeys.Control) return;
+                e.Handled = true;
+                if (!e.IsRepeat) await ShowCommands();
+            };
+            ClickSync("BtnIncident", SaveIncident);
             Click("BtnReport", () => SaveReport("BtnReport", "Отчёт", false));
             // поиск сверху ищет по списку стратегий: печатаем — открывается список
             TextBox topSearch = E<TextBox>("TopSearch");
@@ -57,11 +66,13 @@ namespace ZapretLauncher
             E<FrameworkElement>("HomeVpnCard").MouseLeftButtonUp += delegate { E<RadioButton>("NavVpn").IsChecked = true; };
             E<FrameworkElement>("IllWatch").MouseLeftButtonUp += delegate { E<RadioButton>("NavSettings").IsChecked = true; };
             E<FrameworkElement>("HomeAlt").MouseLeftButtonUp += async delegate { if (homeAlt != null) await SelectStrategy(homeAlt); };
-            E<FrameworkElement>("HomeVpnGraph").SizeChanged += delegate { DrawHomeVpn(); };
+
             ClickSync("NavFolder", () => Process.Start("explorer.exe", "\"" + Paths.Zapret + "\""));
             ClickSync("NavInfo", () => Process.Start("https://github.com/" + cfg.LauncherRepo));
 
             E<FrameworkElement>("PowerButton").MouseLeftButtonUp += async delegate { await ToggleBypass(); };
+            Click("HomeBypassToggle", async () => { await ToggleBypass(); E<ToggleButton>("HomeBypassToggle").IsChecked = Zapret.Running; });
+            ClickSync("BtnHomeEvent", () => E<RadioButton>("NavLog").IsChecked = true);
             Click("BtnSiteCheck", PingNow);
             Click("BtnWhy", DiagnoseUi);
             Click("BtnPing", PingNow);
@@ -97,7 +108,8 @@ namespace ZapretLauncher
 
             Click("BtnCheck", () => RunBusy(() => CheckUpdates(false, false), "Проверка…"));
             Click("BtnInstallUpdate", InstallZapretUi);
-            Click("BtnMain", () => StartAutoPickUi(false));
+            Click("BtnMain", RepairConnectionUi);
+            Click("BtnAdvancedPick", () => StartAutoPickUi(false));
             Click("BtnQuickPick", () => StartAutoPickUi(true));
             ClickSync("BtnService", () =>
             {
@@ -110,12 +122,17 @@ namespace ZapretLauncher
             Click("BtnFixDiscord", FixDiscordUi);
             // VPN
 
-            Click("ChipVpn", async () => { await ToggleVpn(); E<ToggleButton>("ChipVpn").IsChecked = vpnRunning; });
+            Click("ChipVpn", async () => { await ToggleVpn(); E<ToggleButton>("ChipVpn").IsChecked = vpnRunning && !VpnSwitching; });
             Click("BtnVpnAdd", AddVpnServers);
-            Click("BtnVpnRefresh", RefreshSubscription);
             Click("BtnVpnPing", PingVpnServers);
             Click("BtnVpnBest", SelectBestServer);
             Click("BtnVpnSpeed", SpeedTestServers);
+            Click("BtnVpnHealth", RetryVpnHealth);
+            ClickSync("BtnVpnHealthServers", () =>
+            {
+                E<RadioButton>("VpnTabServers").IsChecked = true;
+                E<FrameworkElement>("VpnServerList").BringIntoView();
+            });
             Click("BtnVpnClipAdd", AddFromClipboard);
             Click("BtnVpnAddBlocked", AddBlockedToVpn);
             Click("BtnFixConflict", FixConflicts);
@@ -127,15 +144,27 @@ namespace ZapretLauncher
             Click("BtnVpnQrScreen", QrFromScreen);
             Click("BtnVpnAwgFile", AwgFromFile);
             ClickSync("SwVpnAuto", () => { cfg.VpnAutoBest = E<CheckBox>("SwVpnAuto").IsChecked == true; cfg.Save(); });
+            ClickSync("VpnFavoritesOnly", () =>
+            {
+                vpnFavoritesOnly = E<ToggleButton>("VpnFavoritesOnly").IsChecked == true;
+                vpnTab = null;
+                RefreshVpnUi();
+            });
             ClickSync("VpnHideDead", () => { cfg.VpnHideDead = E<ToggleButton>("VpnHideDead").IsChecked == true; cfg.Save(); RefreshVpnUi(); });
             Click("SwVpnKill", async () =>
             {
-                cfg.VpnKillSwitch = E<CheckBox>("SwVpnKill").IsChecked == true;
-                cfg.Save();
-                // выключили, пока блокировка работает, — снимаем её вместе с VPN: иначе сайты так и не откроются
-                if (!cfg.VpnKillSwitch && vpnLocked) { await RunBusy(StopVpn, "VPN…"); RefreshVpnUi(); }
+                await RunBusy(async () =>
+                {
+                    bool enabled = E<CheckBox>("SwVpnKill").IsChecked == true;
+                    if (enabled == cfg.VpnKillSwitch) return;
+                    ApplyVpnFirewall(enabled && cfg.VpnOn);
+                    cfg.VpnKillSwitch = enabled;
+                    await ApplyVpnChanges();
+                }, "VPN…");
+                RefreshVpnUi();
             });
             window.Activated += delegate { if (E<FrameworkElement>("PageVpn").Visibility == Visibility.Visible) CheckClipboard(); };
+            Click("BtnVpnPickApp", PickVpnApps);
             Click("BtnVpnListAdd", AddVpnListItem);
             Click("BtnVpnListFile", async () => { string text = ReadListFile(); if (text != null) await AddVpnListItems(text); });
             Click("BtnVpnRoutesImport", ImportRoutes);
@@ -145,7 +174,6 @@ namespace ZapretLauncher
             Click("VpnModeRu", async () => { if (filling || cfg.VpnMode == "ru") return; cfg.VpnMode = "ru"; await ApplyVpnChanges(); });
             TextBox vpnSearch = E<TextBox>("VpnSearch");
             vpnSearch.TextChanged += delegate { Text("VpnSearchHint").Visibility = vpnSearch.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible; RefreshVpnUi(); };
-            E<FrameworkElement>("VpnSubBarBg").SizeChanged += (s, e) => { E<Border>("VpnSubBar").Width = Math.Max(0, e.NewSize.Width * subRatio); };
             foreach (string pane in new[] { "Servers", "Routes", "Conn" })
             {
                 string p = pane;
@@ -169,7 +197,19 @@ namespace ZapretLauncher
             }
             ShowSettingsGroup("main");
             ClickSync("BtnVpnHelpOk",() => { cfg.VpnHelpDone = true; cfg.Save(); RefreshVpnUi(); });
-            E<FrameworkElement>("VpnCard").MouseLeftButtonUp += async delegate { if (CurrentServer != null && !busy) await ToggleVpn(); };
+            Click("BtnVpnToggle", async () => { if (CurrentServer != null && !busy) await ToggleVpn(); });
+            ClickSync("BtnVpnProtection", () =>
+            {
+                OpenVpnRoutes();
+                E<CheckBox>("SwVpnKill").BringIntoView();
+                E<CheckBox>("SwVpnKill").Focus();
+            });
+            ClickSync("BtnVpnImport", () =>
+            {
+                E<Expander>("VpnImport").IsExpanded = true;
+                E<TextBox>("VpnInput").BringIntoView();
+                E<TextBox>("VpnInput").Focus();
+            });
             E<FrameworkElement>("VpnGraph").SizeChanged += delegate { DrawVpnGraph(); };
             ClickSync("VpnKindSites", RefreshVpnUi);
             ClickSync("VpnKindApps", RefreshVpnUi);

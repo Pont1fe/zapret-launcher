@@ -228,10 +228,10 @@ namespace ZapretLauncher
             {
                 if (running)
                 {
-                    Text("PowerStatus").Text = T(Zapret.ServiceRunning ? "Служба zapret" : "Включён");   // подпись «ОБХОД» над ним уже есть
+                    Text("PowerStatus").Text = T(Zapret.ServiceRunning ? "Служба zapret" : "Работает");   // подпись «ОБХОД» над ним уже есть
                     string timer = "";
                     try { TimeSpan t = DateTime.Now - proc.StartTime; timer = ((int)t.TotalHours).ToString("00") + ":" + t.ToString(@"mm\:ss"); } catch { }
-                    Text("PowerTimer").Text = T("Работает") + " " + timer + "  ·  " + T(Zapret.Title(cfg.Strategy));
+                    Text("PowerTimer").Text = T("Стратегия") + " " + T(Zapret.Title(cfg.Strategy)) + (timer.Length > 0 ? "  ·  " + timer : "");
                     Text("PowerHint").Text = T("Нажмите, чтобы выключить");
                     Text("PowerHint").Visibility = Visibility.Collapsed;   // переключатель и так виден — подсказка лишняя
                 }
@@ -266,7 +266,8 @@ namespace ZapretLauncher
                 (cfg.AutoUpdate ? " · " + T("автообновление") : "");
             Text("CardSubtitle").ToolTip = Text("CardSubtitle").Text.TrimStart('·', ' ');
             E<Button>("BtnInstallUpdate").Visibility = hasUpdate ? Visibility.Visible : Visibility.Collapsed;
-            if (!picking) E<Button>("BtnMain").Content = T("Подобрать стратегию");
+            E<Button>("BtnMain").Content = T("Исправить соединение");
+            if (!picking) E<Button>("BtnAdvancedPick").Content = T("Подобрать стратегию");
             E<Button>("BtnRemoveService").Visibility = Zapret.Service() != null ? Visibility.Visible : Visibility.Collapsed;
 
             string old = Zapret.VersionOf(Paths.Backup);

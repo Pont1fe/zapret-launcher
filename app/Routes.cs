@@ -48,7 +48,7 @@ namespace ZapretLauncher
             foreach (string part in SitePresets.SplitItems(raw, false))
             {
                 bool app = part.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || part.Contains('\\');
-                string item = app ? NormalizeApp(part) : Zapret.NormalizeDomain(part);
+                string item = app ? NormalizeAppRoute(part) : Zapret.NormalizeDomain(part);
                 if (item == null) { bad.Add(part); continue; }
                 List<string> list = app ? apps : domains;
                 if (!list.Contains(item, StringComparer.OrdinalIgnoreCase)) list.Add(item);
@@ -63,6 +63,40 @@ namespace ZapretLauncher
             s = System.IO.Path.GetFileName(s);
             if (!s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) s += ".exe";
             return s.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 ? null : s;
+        }
+
+        internal static string NormalizeAppRoute(string input)
+        {
+            string value = input.Trim().Trim('"');
+            string name = NormalizeApp(value);
+            if (name == null || value.IndexOfAny(new[] { '\\', '/' }) < 0) return name;
+            if (!IsAppPath(value)) return null;
+            try { return System.IO.Path.GetFullPath(value); }
+            catch (ArgumentException) { return null; }
+            catch (NotSupportedException) { return null; }
+        }
+
+        internal static bool IsAppPath(string value)
+        {
+            return !string.IsNullOrEmpty(value) && value.Length > 3 && char.IsLetter(value[0]) &&
+                value[1] == ':' && (value[2] == '\\' || value[2] == '/') &&
+                value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool AddAppPaths(List<string> apps, IEnumerable<string> files)
+        {
+            bool changed = false;
+            foreach (string file in files)
+            {
+                string path = NormalizeAppRoute(file);
+                if (!IsAppPath(path)) continue;
+                string name = System.IO.Path.GetFileName(path);
+                changed |= apps.RemoveAll(app => string.Equals(app, name, StringComparison.OrdinalIgnoreCase)) > 0;
+                if (apps.Contains(path, StringComparer.OrdinalIgnoreCase)) continue;
+                apps.Add(path);
+                changed = true;
+            }
+            return changed;
         }
 
         // Набор проверяемого сайта (домены и программа) — чтобы целиком пустить его через VPN

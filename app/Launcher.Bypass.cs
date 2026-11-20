@@ -27,7 +27,7 @@ namespace ZapretLauncher
         // ---------- Запуск и остановка ----------
         async Task StartBypass(bool quiet, bool fast = false)
         {
-            if (!File.Exists(Paths.InZapret(cfg.Strategy)))
+            if (!Zapret.SafeStrategyName(cfg.Strategy) || !File.Exists(Paths.InZapret(cfg.Strategy)))
             {
                 if (!File.Exists(Paths.InZapret("general.bat"))) throw new Exception("zapret не установлен");
                 Log.Write("Стратегия " + cfg.Strategy + " не найдена, использую general.bat");
@@ -55,7 +55,7 @@ namespace ZapretLauncher
             pausedByVpn = false;
             crashed = false;
             if (quiet) return;
-            Log.Write("Запущена стратегия: " + Zapret.Title(cfg.Strategy));
+            SetConnectionEvent("Запущена стратегия", T(Zapret.Title(cfg.Strategy)));
             SaveNetworkProfile();
             siteResults = null;
             siteCheckDue = DateTime.Now.AddSeconds(4);
@@ -69,6 +69,7 @@ namespace ZapretLauncher
             crashed = false;
             await Zapret.Stop(false);
             await Telegram.StopProxy();
+            SetConnectionEvent("Обход выключен");
             siteResults = null;
             BuildSitePanel();
         }
@@ -152,15 +153,17 @@ namespace ZapretLauncher
         {
             if (Dialog.Show(window, T("Закрыть мешающие программы обхода, остановить их службы и выгрузить чужой драйвер WinDivert? Обход лаунчера перезапустится."),
                 "Zapret Launcher", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            await RunBusy(async () =>
-            {
-                bool restart = Zapret.Running || wantRunning;
-                await Zapret.Stop(true);
-                await Conflicts.Fix();
-                if (restart) await StartBypass(true);
-                await UpdateConflicts();
-                Log.Write(E<Border>("ConflictBar").Visibility == Visibility.Visible ? "Не всё удалось исправить — подробности выше" : "Конфликт исправлен");
-            }, "Исправляю…");
+            await RunBusy(ClearConflicts, "Исправляю…");
+        }
+
+        async Task ClearConflicts()
+        {
+            bool restart = Zapret.Running || wantRunning;
+            await Zapret.Stop(true);
+            await Conflicts.Fix();
+            if (restart) await StartBypass(true);
+            await UpdateConflicts();
+            Log.Write(E<Border>("ConflictBar").Visibility == Visibility.Visible ? "Не всё удалось исправить — подробности выше" : "Конфликт исправлен");
         }
 
         // «Починить Discord»: включить обход, если он выключен, закрыть Discord, очистить кэш и открыть заново

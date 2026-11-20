@@ -78,6 +78,33 @@ namespace ZapretLauncher
             b.Content = T("Копировать");
         }
 
+        void SaveIncident()
+        {
+            string events = Log.Recent();
+            if (events.Length == 0)
+            {
+                Ask("За последнюю минуту событий в журнале не было.");
+                return;
+            }
+
+            SaveFileDialog dialog = new SaveFileDialog
+            {
+                Title = T("Сохранить события сбоя"),
+                Filter = T("Текстовый файл") + "|*.txt",
+                FileName = "ZapretLauncher-incident-" + DateTime.Now.ToString("yyyy-MM-dd-HHmmss") + ".txt"
+            };
+            if (dialog.ShowDialog(window) != true) return;
+
+            try
+            {
+                File.WriteAllText(dialog.FileName, Report.SanitizeVpn(events, cfg), System.Text.Encoding.UTF8);
+            }
+            catch (Exception e)
+            {
+                Ask(T("Не удалось сохранить события сбоя") + ": " + e.Message, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         // Отчёт для разработчика: архив на рабочем столе (Report.cs — что в нём и что из него вычищено), сразу показываем его в Проводнике
         Task SaveReport() { return SaveReport("BtnLogReport", "Собрать отчёт", false); }
 

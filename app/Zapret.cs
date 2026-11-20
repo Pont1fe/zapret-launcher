@@ -272,6 +272,13 @@ namespace ZapretLauncher
             return args.Trim();
         }
 
+        public static bool SafeStrategyName(string name)
+        {
+            return !string.IsNullOrEmpty(name) && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && name == Path.GetFileName(name) &&
+                name.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) &&
+                !name.StartsWith("service", StringComparison.OrdinalIgnoreCase);
+        }
+
         // ---------- Запуск и остановка ----------
         public static async Task Stop(bool unloadDriver)
         {
@@ -307,6 +314,7 @@ namespace ZapretLauncher
         // fast — для подбора: проверки системы уже сделаны первым запуском, ждём меньше
         public static async Task Start(string strategy, bool fast = false)
         {
+            if (!SafeStrategyName(strategy) || !Strategies().Contains(strategy, StringComparer.OrdinalIgnoreCase)) throw new Exception("Недопустимая стратегия");
             string bat = Paths.InZapret(strategy);
             if (!File.Exists(bat)) throw new Exception("Стратегия не найдена: " + strategy);
             await Stop(false);
@@ -352,13 +360,13 @@ namespace ZapretLauncher
         }
 
         // ---------- Установка, обновление, откат ----------
-        public static async Task Install(Release release, Config cfg, Func<string, Task> startBypass)
+        public static async Task Install(Release release, Config cfg, Func<string, Task> startBypass, System.Threading.CancellationToken cancellation = default(System.Threading.CancellationToken))
         {
             Log.Write("Скачиваю " + release.Name + "...");
             if (Directory.Exists(Paths.Temp)) Directory.Delete(Paths.Temp, true);
             Directory.CreateDirectory(Paths.Temp);
             string zip = Path.Combine(Paths.Temp, "release.zip");
-            await Util.Download(release, zip);
+            await Util.Download(release, zip, cancellation);
             string extracted = Path.Combine(Paths.Temp, "x");
             await Task.Run(() => ZipFile.ExtractToDirectory(zip, extracted));
 
@@ -366,35 +374,74 @@ namespace ZapretLauncher
             if (svcBat == null || !File.Exists(Path.Combine(Path.GetDirectoryName(svcBat), @"bin\winws.exe")))
                 throw new Exception("Неожиданная структура архива — обновление отменено");
             string newDir = Path.GetDirectoryName(svcBat);
+            cancellation.ThrowIfCancellationRequested();
 
             bool wasRunning = Running;
             bool serviceWasRunning = ServiceRunning;
             string ipset = IpsetMode(Paths.Zapret);
+            if (Directory.Exists(Paths.Zapret)) CopyUserFiles(Paths.Zapret, newDir);
             if (serviceWasRunning) await Util.RunAsync("sc.exe", "stop zapret");
             await Stop(true);
-
-            if (Directory.Exists(Paths.Zapret))
+            Exception installError = null;
+            try
             {
-                CopyUserFiles(Paths.Zapret, newDir);
-                if (Directory.Exists(Paths.Backup)) Directory.Delete(Paths.Backup, true);
-                string moveError = null;
-                try { Directory.Move(Paths.Zapret, Paths.Backup); }
-                catch (Exception e) { moveError = e.Message; }
-                if (moveError != null)
+                await InstallDirectory(newDir, Paths.Zapret, Paths.Backup, async () =>
                 {
-                    if (wasRunning) await startBypass(cfg.Strategy);
-                    throw new Exception("Не удалось заменить папку zapret (файлы заняты?): " + moveError);
-                }
+                    Exception activationError = null;
+                    try
+                    {
+                        if (ipset == "any" || ipset == "none") await SetIpset(ipset);
+                        if (serviceWasRunning) await Util.RunAsync("sc.exe", "start zapret");
+                        else if (wasRunning) await startBypass(cfg.Strategy);
+                    }
+                    catch (Exception e) { activationError = e; }
+                    if (activationError != null)
+                    {
+                        if (serviceWasRunning) await Util.RunAsync("sc.exe", "stop zapret");
+                        await Stop(true);
+                        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(activationError).Throw();
+                    }
+                });
             }
-            Directory.Move(newDir, Paths.Zapret);
+            catch (Exception e) { installError = e; }
+            if (installError != null)
+            {
+                if (serviceWasRunning) await Util.RunAsync("sc.exe", "start zapret");
+                else if (wasRunning) await startBypass(cfg.Strategy);
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(installError).Throw();
+            }
             try { Directory.Delete(Paths.Temp, true); } catch { }
-            if (ipset == "any" || ipset == "none") await SetIpset(ipset);
 
             cfg.SkipVersion = "";
             cfg.Save();
             Log.Write("Установлена версия zapret " + release.Version);
-            if (serviceWasRunning) await Util.RunAsync("sc.exe", "start zapret");
-            else if (wasRunning) await startBypass(cfg.Strategy);
+        }
+
+        public static async Task InstallDirectory(string staging, string current, string backup, Func<Task> activate)
+        {
+            string held = backup + ".previous";
+            if (Directory.Exists(held))
+            {
+                if (Directory.Exists(current) && Directory.Exists(backup)) Directory.Delete(held, true);
+                else throw new IOException("Найдена незавершённая замена папки: " + held);
+            }
+            bool saved = false, moved = false, installed = false;
+            try
+            {
+                if (Directory.Exists(backup)) { Directory.Move(backup, held); saved = true; }
+                if (Directory.Exists(current)) { Directory.Move(current, backup); moved = true; }
+                Directory.Move(staging, current);
+                installed = true;
+                await activate();
+            }
+            catch
+            {
+                if (installed) Directory.Move(current, staging);
+                if (moved) Directory.Move(backup, current);
+                if (saved) Directory.Move(held, backup);
+                throw;
+            }
+            if (saved) { try { Directory.Delete(held, true); } catch (Exception e) { Log.Write("Не удалось убрать старую копию: " + e.Message); } }
         }
 
         static void CopyUserFiles(string from, string to)

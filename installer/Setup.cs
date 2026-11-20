@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using ZapretLauncher;
 
 [assembly: AssemblyTitle("Zapret Launcher Setup")]
 [assembly: AssemblyProduct("Zapret Launcher")]
@@ -33,7 +34,7 @@ static class Program
 
         if (silent)
         {
-            try { Installer.Install(dir, true, true, Installer.CloseRunningLauncher()); return 0; }
+            try { Installer.Install(dir, true, true, false); return 0; }
             catch (Exception e) { Console.Error.WriteLine(e.Message); return 1; }
         }
         Application.EnableVisualStyles();
@@ -109,12 +110,19 @@ static class Installer
     }
 
     // Закрывает запущенный лаунчер — exe или PowerShell-версию (обход winws продолжает работать). true — если он был запущен
-    public static bool CloseRunningLauncher()
+    static bool CloseRunningLauncher(string dir)
     {
         bool found = false;
         foreach (Process p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(ExeName)))
         {
-            try { p.Kill(); p.WaitForExit(5000); found = true; } catch { }
+            try
+            {
+                if (!string.Equals(p.MainModule.FileName, Path.Combine(dir, ExeName), StringComparison.OrdinalIgnoreCase)) continue;
+                p.Kill();
+                p.WaitForExit(5000);
+                found = true;
+            }
+            catch { }
         }
         using (ManagementObjectSearcher q = new ManagementObjectSearcher(
             "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name='powershell.exe'"))
@@ -122,7 +130,7 @@ static class Installer
             foreach (ManagementObject p in q.Get())
             {
                 string cmd = p["CommandLine"] as string;
-                if (cmd == null || cmd.IndexOf("ZapretLauncher.ps1", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (cmd == null || cmd.IndexOf(Path.Combine(dir, "ZapretLauncher.ps1"), StringComparison.OrdinalIgnoreCase) < 0) continue;
                 if (cmd.IndexOf("-Uninstall", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 try { Process.GetProcessById(Convert.ToInt32(p["ProcessId"])).Kill(); found = true; } catch { }
             }
@@ -145,25 +153,33 @@ static class Installer
         Marshal.FinalReleaseComObject(shell);
     }
 
-    static void RunHidden(string exe, string args)
-    {
-        using (Process p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true }))
-            p.WaitForExit(60000);
-    }
-
-    public static void Install(string dir, bool desktop, bool startMenu, bool launch)
+    public static bool Install(string dir, bool desktop, bool startMenu, bool launch)
     {
         // окно установки уже предложило подпапку; здесь — для тихой установки (/S /D=...), до любых изменений
         if (IsBadPath(dir) || IsForeignFolder(dir))
             throw new Exception("Not installing to " + dir + ": choose an empty folder, not a drive root / Не ставлю в " + dir + ": нужна пустая папка, а не корень диска");
+        dir = Path.GetFullPath(dir);
         Directory.CreateDirectory(dir);
         // Отсюда лаунчер запускает программы с правами администратора — менять папку может только администратор
         // (папка в корне диска иначе наследует «изменение» для всех пользователей)
         // владелец — тоже администраторы: владелец папки может вернуть себе права и без прав администратора
-        RunHidden("icacls.exe", "\"" + dir.TrimEnd('\\') + "\" /setowner *S-1-5-32-544 /T /C /Q");
-        RunHidden("icacls.exe", "\"" + dir.TrimEnd('\\') + "\" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /Q");
+        InstallDirectorySecurity.SecureInstallation(dir);
         string exe = Path.Combine(dir, ExeName);
-        File.WriteAllBytes(exe, Resource(ExeName));
+        string pending = exe + ".setup-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            using (var output = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                byte[] bytes = Resource(ExeName);
+                output.Write(bytes, 0, bytes.Length);
+                output.Flush(true);
+            }
+            AssemblyName.GetAssemblyName(pending);
+            launch |= CloseRunningLauncher(dir);
+            if (File.Exists(exe)) File.Replace(pending, exe, exe + ".setup-prev", false);
+            else File.Move(pending, exe);
+        }
+        finally { if (File.Exists(pending)) File.Delete(pending); }
         foreach (string legacy in Legacy)
         {
             try { File.Delete(Path.Combine(dir, legacy)); } catch { }
@@ -195,6 +211,7 @@ static class Installer
             psi.UseShellExecute = false;
             Process.Start(psi);
         }
+        return launch;
     }
 }
 
@@ -411,12 +428,11 @@ class SetupForm : Form
         Refresh();
         try
         {
-            bool wasRunning = Installer.CloseRunningLauncher();
-            Installer.Install(dir, chkDesktop.Checked, chkStart.Checked, chkLaunch.Checked || wasRunning);
+            bool launched = Installer.Install(dir, chkDesktop.Checked, chkStart.Checked, chkLaunch.Checked);
             done = true;
             status.ForeColor = Ok;
             status.Text = L("Готово! Zapret Launcher ", "Done! Zapret Launcher ") + Installer.Version + L(" установлен в ", " is installed to ") + dir +
-                (chkLaunch.Checked || wasRunning ? L(" и запущен.", " and running.") : ".");
+                (launched ? L(" и запущен.", " and running.") : ".");
             btnInstall.Text = L("Закрыть", "Close");
             btnInstall.Enabled = true;
         }

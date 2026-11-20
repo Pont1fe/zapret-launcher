@@ -32,9 +32,11 @@ namespace ZapretLauncher
             return "cloudflare";
         }
 
-        async Task SetSecureDns(bool on, string provider)
+        Task SetSecureDns(bool on, string provider) { return RunBusy(() => ChangeSecureDns(on, provider), "DNS…"); }
+
+        async Task ChangeSecureDns(bool on, string provider)
         {
-            await RunBusy(async () =>
+            try
             {
                 if (cfg.SecureDns.Length > 0) await Task.Run(() => SecureDns.Disable(cfg.DnsAdapters));
                 cfg.SecureDns = "";
@@ -42,7 +44,15 @@ namespace ZapretLauncher
                 if (on)
                 {
                     List<string> skipped = new List<string>();
-                    List<string> adapters = await Task.Run(() => SecureDns.Enable(provider, skipped));
+                    List<string> adapters;
+                    try { adapters = await Task.Run(() => SecureDns.Enable(provider, skipped)); }
+                    catch (Exception e)
+                    {
+                        var unresolved = e.Data["DnsAdapters"] as List<string>;
+                        if (unresolved != null) { cfg.SecureDns = provider; cfg.DnsAdapters = unresolved; }
+                        cfg.Save();
+                        throw;
+                    }
                     if (skipped.Count > 0) Log.Write("DNS: на адаптере уже прописан свой DNS — его не трогаю: " + string.Join(", ", skipped));
                     if (adapters.Count == 0)
                         throw new Exception(skipped.Count > 0 ? T("На адаптере уже прописан свой DNS — лаунчер его не меняет, чтобы не потерять его при выключении") + ": " + string.Join(", ", skipped)
@@ -66,10 +76,13 @@ namespace ZapretLauncher
                     cfg.Save();
                     Log.Write("Защищённый DNS выключен — DNS снова автоматический");
                 }
-            }, "DNS…");
-            filling = true;
-            E<CheckBox>("SwSecureDns").IsChecked = cfg.SecureDns.Length > 0;
-            filling = false;
+            }
+            finally
+            {
+                filling = true;
+                E<CheckBox>("SwSecureDns").IsChecked = cfg.SecureDns.Length > 0;
+                filling = false;
+            }
         }
 
         // ---------- Проверка сайта ----------
@@ -254,53 +267,44 @@ namespace ZapretLauncher
                 head.Children.Add(dot);
                 content.Children.Add(head);
 
-                // крупно — время открытия сайта; если не открылся или ещё не проверен — короткий текст
-                TextBlock big = new TextBlock { Margin = new Thickness(0, 10, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-                if (r != null && r.Ok && !siteChecking)
+                TextBlock status = new TextBlock
                 {
-                    System.Windows.Documents.Run ms = new System.Windows.Documents.Run(r.Ms.ToString()) { FontSize = 24, FontWeight = FontWeights.SemiBold };
-                    big.Inlines.Add(ms);
-                    int was;
-                    if (!shownMs.TryGetValue(site, out was)) was = 0;   // первый результат — счёт с нуля, дальше — от прошлого значения
-                    shownMs[site] = r.Ms;
-                    Tween("ms:" + site, was, r.Ms, v => ms.Text = Math.Round(v).ToString());
-                    System.Windows.Documents.Run unit = new System.Windows.Documents.Run(" " + T("мс")) { FontSize = 12 };
-                    unit.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "Muted");
-                    big.Inlines.Add(unit);
-                }
-                else
+                    Text = r == null || siteChecking ? https : T(r.Ok ? "Доступен" : blocked ? "Заблокирован" : "Недоступен"),
+                    FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                status.SetResourceReference(TextBlock.ForegroundProperty, r == null || siteChecking ? "TextSub" : "Text");
+                content.Children.Add(status);
+
+                if (r != null && !siteChecking)
                 {
-                    big.Text = blocked ? T("заблокирован") : r != null && !r.Ok && !siteChecking ? T("недоступен") : https;
-                    big.FontSize = 14;
-                    big.FontWeight = FontWeights.SemiBold;
-                    big.Margin = new Thickness(0, 14, 0, 6);
-                    big.SetResourceReference(TextBlock.ForegroundProperty, color == "Fail" ? "Fail" : "TextSub");
+                    TextBlock time = new TextBlock
+                    {
+                        Text = r.CheckedAt == default(DateTime) ? "" : T("Проверка в") + " " + r.CheckedAt.ToLocalTime().ToString("HH:mm"),
+                        FontSize = 11, Margin = new Thickness(0, 4, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis
+                    };
+                    time.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                    content.Children.Add(time);
                 }
-                // плашка «↓7%»: последняя проверка заметно быстрее (зелёная) или медленнее (жёлтая) обычного
-                List<int> hist;
-                int? delta = r != null && r.Ok && !siteChecking && siteHistory.TryGetValue(site, out hist) ? Home.SpeedDelta(hist) : null;
+
+                var details = new Expander { Header = T("Детали проверки"), Margin = new Thickness(0, 8, 0, 0) };
+                details.SetResourceReference(Control.ForegroundProperty, "TextSub");
+                details.Visibility = r != null && !siteChecking ? Visibility.Visible : Visibility.Collapsed;
+                StackPanel measurements = new StackPanel();
+                var timing = new TextBlock { Text = https + "  ·  " + tcp, TextWrapping = TextWrapping.Wrap, FontSize = 11 };
+                timing.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                measurements.Children.Add(timing);
+                List<int> history;
+                int? delta = siteHistory.TryGetValue(site, out history) ? Home.SpeedDelta(history) : null;
                 if (delta.HasValue && Math.Abs(delta.Value) >= 5)
                 {
-                    string tone = delta < 0 ? "Ok" : "Wait";
-                    Grid chip = new Grid { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 8, 0, 0),
-                        ToolTip = delta < 0 ? (I18n.English ? Math.Abs(delta.Value) + "% faster than usual" : "на " + Math.Abs(delta.Value) + "% быстрее обычного")
-                                            : (I18n.English ? delta + "% slower than usual" : "на " + delta + "% медленнее обычного") };
-                    Border tint = new Border { CornerRadius = new CornerRadius(7), Opacity = 0.15 };
-                    tint.SetResourceReference(Border.BackgroundProperty, tone);
-                    TextBlock pct = new TextBlock { Text = (delta < 0 ? "↓" : "↑") + Math.Abs(delta.Value) + "%", FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 2, 6, 2) };
-                    pct.SetResourceReference(TextBlock.ForegroundProperty, tone);
-                    chip.Children.Add(tint);
-                    chip.Children.Add(pct);
-                    Grid line = new Grid();
-                    line.Children.Add(big);
-                    line.Children.Add(chip);
-                    content.Children.Add(line);
+                    TextBlock trend = new TextBlock { Text = Math.Abs(delta.Value) + "% " + T(delta < 0 ? "быстрее обычного" : "медленнее обычного"),
+                        FontSize = 11, Margin = new Thickness(0, 4, 0, 0) };
+                    trend.SetResourceReference(TextBlock.ForegroundProperty, "TextSub");
+                    measurements.Children.Add(trend);
                 }
-                else content.Children.Add(big);
-                TextBlock t =new TextBlock { Text = blocked ? T("по адресу — поможет VPN") + " →" : tcp, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), TextWrapping = TextWrapping.Wrap };
-                t.SetResourceReference(TextBlock.ForegroundProperty, blocked ? "AccentHover" : "Muted");
-                content.Children.Add(t);
-
+                details.Content = measurements;
+                content.Children.Add(details);
                 // график последних проверок — на всю ширину карточки
                 Grid sparkHost = new Grid { Height = 22, Margin = new Thickness(0, 8, 0, 0) };
                 string siteName = site;
@@ -310,21 +314,31 @@ namespace ZapretLauncher
                     FrameworkElement spark = Sparkline(siteName, e.NewSize.Width, 22);
                     if (spark != null) sparkHost.Children.Add(spark);
                 };
-                content.Children.Add(sparkHost);
+                measurements.Children.Add(sparkHost);
 
-                Border card = new Border { Child = content, CornerRadius = new CornerRadius(22), Padding = new Thickness(16, 14, 16, 12), Margin = Home.SiteCardMargin(n, panel.Columns, count) };
+                Border card = new Border { Child = content, CornerRadius = new CornerRadius(16), Padding = new Thickness(16, 14, 16, 12), Margin = Home.SiteCardMargin(n, panel.Columns, count) };
                 card.SetResourceReference(Border.BackgroundProperty, "CardRaised");
                 card.SetResourceReference(Border.BorderBrushProperty, "CardEdge");
                 card.BorderThickness = new Thickness(1);
                 if (siteChecking) Shimmer(card);
                 else if (stagger) AppearLater(card, n);
-                FrameworkElement item = LiftOnHover(card, Home.SiteUrl(site), site, blocked ? (Action)OpenVpnRoutes : null);
+                FrameworkElement item = LiftOnHover(card, Home.SiteUrl(site), site, blocked ? (Action)OpenVpnRoutes : null, details);
                 if (blocked) item.ToolTip = T("Провайдер блокирует этот сайт по адресу — ни одна стратегия zapret его не открыла. Нажмите, чтобы пустить его через VPN");
                 panel.Children.Add(item);
                 n++;
             }
             UpdateGreeting();
             UpdateFlyout();
+        }
+
+        // Журнал хранит событие, а главная показывает последнее за текущий запуск.
+        void SetConnectionEvent(string title, string detail = null)
+        {
+            string line = title + (string.IsNullOrEmpty(detail) ? "" : ": " + detail);
+            Log.Write(line);
+            TextBlock latest = Text("HomeEventText");
+            latest.Text = T(title) + (string.IsNullOrEmpty(detail) ? "" : " · " + detail) + " · " + DateTime.Now.ToString("HH:mm");
+            latest.ToolTip = latest.Text;
         }
 
         // Главная: приветствие (дата, итог в две строки, пояснение), карточки-иллюстрации и карточка VPN. Зовётся раз в секунду из UpdateUi
@@ -374,15 +388,27 @@ namespace ZapretLauncher
             // карточка VPN
             string code = s == null ? null : Vpn.CountryCode(s.Name);
             Border flag = E<Border>("HomeVpnFlag");
-            if (flag.Child == null || (string)flag.Tag != (code ?? ""))
+            if ((string)flag.Tag != (code ?? ""))
             {
                 flag.Tag = code ?? "";
-                flag.Child = FlagElement(code, 34, 24);
+                flag.Child = code == null ? null : FlagElement(code, 22, 15);
+                flag.Visibility = code == null ? Visibility.Collapsed : Visibility.Visible;
             }
-            Text("HomeVpnName").Text = s == null ? T("Сервер не добавлен") : server;
-            Text("HomeVpnInfo").Text = s == null ? T("Ключ добавляется на странице VPN") : (hasPing ? vpnPing[s.Link] + " " + T("мс") + " · " : "") + T(vpnRunning ? "подключён" : "выключен");
-            Text("HomeVpnSpeed").Text = vpnRunning && vpnSpeedText.Length > 0 ? vpnSpeedText.Split(new[] { "  ·  " }, StringSplitOptions.None)[0] : " ";
-            DrawHomeVpn();
+            bool ready = vpnRunning && !VpnSwitching;
+            bool blocking = VpnProtectionBlocking;
+            string status = blocking ? "Трафик приостановлен"
+                : ready ? (vpnVerifiedMs >= 0 ? "Подключён" : "Туннель запущен") : cfg.VpnOn ? "VPN переподключается…" : "Выключен";
+            Text("HomeVpnName").Text = T(status);
+            E<Ellipse>("HomeVpnDot").SetResourceReference(Shape.FillProperty,
+                blocking || vpnHealthIssue != null ? "Fail" : ready ? (vpnVerifiedMs >= 0 ? "Ok" : "Wait") : cfg.VpnOn ? "Wait" : "Idle");
+            Text("HomeVpnInfo").Text = s == null ? T("Сервер не добавлен") : server;
+            Text("HomeVpnProtection").Text = VpnProtectionStatus();
+            Text("HomeVpnProtection").SetResourceReference(TextBlock.ForegroundProperty,
+                blocking ? "Wait" : VpnFirewall.Enabled ? "Ok" : "Muted");
+            E<ToggleButton>("ChipVpn").IsChecked = ready;
+            E<ToggleButton>("ChipVpn").IsEnabled = !busy;
+            E<Button>("BtnVpnToggle").IsEnabled = s != null && !busy;
+            E<ToggleButton>("HomeBypassToggle").IsEnabled = !busy && !picking;
             UpdateIllustrations();
             UpdateMascot(MascotMood(state, siteChecking, busy || picking, res));
         }
@@ -430,20 +456,6 @@ namespace ZapretLauncher
         }
 
         // Скорость VPN за последние минуты — линия на карточке главной
-        void DrawHomeVpn()
-        {
-            Canvas c = E<Canvas>("HomeVpnGraph");
-            c.Children.Clear();
-            double w = c.ActualWidth, h = c.Height;
-            if (!vpnRunning || vpnSpeeds.Count < 2 || w <= 0) return;
-            double max = Math.Max(1, vpnSpeeds.Max());
-            Polyline line = new Polyline { StrokeThickness = 2, StrokeLineJoin = PenLineJoin.Round };
-            line.SetResourceReference(Shape.StrokeProperty, "Accent");
-            for (int i = 0; i < vpnSpeeds.Count; i++) line.Points.Add(new Point(w * i / (vpnSpeeds.Count - 1), h - 2 - vpnSpeeds[i] / max * (h - 4)));
-            c.Children.Add(line);
-        }
-
-        // Кнопка «Сохранить» у «Моих сайтов»: новый список — в настройки, карточки — сразу, затем проверка
         async Task SaveMySites()
         {
             string error;
@@ -570,7 +582,7 @@ namespace ZapretLauncher
         }
 
         // onClick — своё действие по клику вместо открытия сайта
-        FrameworkElement LiftOnHover(Border card, string url, string site, Action onClick = null)
+        FrameworkElement LiftOnHover(Border card, string url, string site, Action onClick = null, Expander detailsControl = null)
         {
             Grid wrap = new Grid { Margin = card.Margin };
             card.Margin = new Thickness(0);
@@ -598,8 +610,9 @@ namespace ZapretLauncher
             wrap.MouseEnter += delegate { lift(true); };
             wrap.MouseLeave += delegate { lift(false); };
             // через explorer, чтобы браузер открылся без прав администратора
-            wrap.MouseLeftButtonUp += delegate
+            wrap.MouseLeftButtonUp += (sender, e) =>
             {
+                if (detailsControl != null && detailsControl.IsMouseOver) return;
                 if (onClick != null) onClick();
                 else Process.Start("explorer.exe", "\"" + url + "\"");
             };

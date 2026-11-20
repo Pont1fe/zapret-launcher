@@ -1,4 +1,4 @@
-﻿// Встроенный VPN-клиент: ядро sing-box (SagerNet), ваш сервер или подписка.
+// Встроенный VPN-клиент: ядро sing-box (SagerNet), ваш сервер или подписка.
 // Умная маршрутизация: через VPN идут только выбранные сайты и программы, остальное — напрямую (и через zapret)
 using System;
 using System.Collections.Generic;
@@ -16,6 +16,8 @@ namespace ZapretLauncher
     {
         public string Name { get; set; }
         public string Link { get; set; }
+        public string SubscriptionId { get; set; }
+        public bool Favorite { get; set; }
     }
 
     static class Vpn
@@ -27,7 +29,7 @@ namespace ZapretLauncher
         public static readonly string ConfigFile = Path.Combine(Dir, "config.json");
         public static readonly string LogFile = Path.Combine(Dir, "sing-box.log");
         static readonly string VersionFile = Path.Combine(Dir, "version.txt");
-        static readonly string[] Schemes = { "vless://", "vmess://", "trojan://", "ss://", "hysteria2://", "hy2://", "tuic://", Awg.Scheme };
+        static readonly string[] Schemes = { "vless://", "vmess://", "trojan://", "ss://", "hysteria2://", "hy2://", "tuic://", "anytls://", WireGuard.Scheme, Awg.Scheme };
 
         public static string Version { get { return File.Exists(VersionFile) && File.Exists(Exe) ? File.ReadAllText(VersionFile).Trim() : null; } }
 
@@ -40,7 +42,7 @@ namespace ZapretLauncher
         }
 
         // sing-box работает (а если его выход — туннель AmneziaWG, то и туннель) или туннель AmneziaWG «весь трафик»
-        public static bool Running { get { return (Processes().Length > 0 && !Awg.ChainBroken && !File.Exists(LockMarker)) || Awg.Running; } }
+        public static bool Running { get { return TunnelReady() && ((Processes().Length > 0 && !Awg.ChainBroken && !File.Exists(LockMarker)) || Awg.Running); } }
 
         // Когда запущено ядро — для «Подключено 1:23:45» после перезапуска лаунчера
         public static DateTime? StartedAt()
@@ -80,12 +82,14 @@ namespace ZapretLauncher
         public static bool IsLink(string s) { return Schemes.Any(x => s.StartsWith(x, StringComparison.OrdinalIgnoreCase)); }
 
         // Текст со ссылками (по одной в строке) или адрес подписки → список серверов
-        public static async Task<List<VpnServer>> Parse(string text)
+        public static Task<List<VpnServer>> Parse(string text) { return Parse(text, null); }
+
+        public static async Task<List<VpnServer>> Parse(string text, Action<string> receiveInfo)
         {
             text = (text ?? "").Trim();
-            if (Awg.LooksLikeConf(text)) return new List<VpnServer> { Awg.FromConf(text, null) };   // вставили содержимое файла AmneziaWG
+            if (Awg.LooksLikeConf(text)) return new List<VpnServer> { WireGuard.Import(text, null) };   // вставили содержимое файла AmneziaWG
             bool subscription = text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-            if (subscription) text = DecodeSubscription(await FetchSubscription(text));
+            if (subscription) text = DecodeSubscription(await FetchSubscription(text, receiveInfo));
             else text = SubFormats.ToLinks(text) ?? text;   // вставили содержимое подписки Clash или JSON
             List<VpnServer> list = new List<VpnServer>();
             Exception firstError = null;
@@ -94,7 +98,7 @@ namespace ZapretLauncher
             {
                 // ссылку, которую не разобрать, отбрасываем: один вставленный ключ — сразу с понятной ошибкой,
                 // а в подписке или списке — молча, чтобы один сервер с неподдерживаемым транспортом не ломал остальные
-                try { if (Awg.IsAwg(link)) Awg.Check(Awg.ConfOf(link)); else BuildOutbound(link); }
+                try { if (Awg.IsAwg(link)) Awg.Check(Awg.ConfOf(link)); else if (WireGuard.IsLink(link)) WireGuard.FromLink(link); else BuildOutbound(link); }
                 catch (Exception e) { if (!subscription && links.Length == 1) throw; if (firstError == null) firstError = e; continue; }
                 list.Add(new VpnServer { Name = NameOf(link), Link = link });
             }
@@ -107,8 +111,8 @@ namespace ZapretLauncher
                     throw new Exception("Это зашифрованная ссылка Happ — её может открыть только Happ. Попросите у провайдера обычную ссылку подписки или ключ vless://");
                 // vpn:// — ключ AmneziaVPN: у Amnezia Premium в нём только токен для их закрытого сервиса, а протокол — AmneziaWG
                 if (text.StartsWith("vpn://", StringComparison.OrdinalIgnoreCase))
-                    throw new Exception("Это ключ AmneziaVPN — сам ключ лаунчер открыть не может. В приложении Amnezia откройте подписку → «Файлы конфигурации», скачайте файл нужной страны и добавьте его кнопкой «Файл AmneziaWG…»");
-                throw new Exception("Не нашёл ни одной ссылки на сервер (vless://, vmess://, trojan://, ss://, hysteria2://, tuic://)");
+                    throw new Exception("Это ключ AmneziaVPN — сам ключ лаунчер открыть не может. В приложении Amnezia откройте подписку → «Файлы конфигурации», скачайте файл нужной страны и добавьте его кнопкой «Файл .conf…»");
+                throw new Exception("Не нашёл ни одной ссылки на сервер (vless://, vmess://, trojan://, ss://, hysteria2://, tuic://, anytls://)");
             }
             return list;
         }
@@ -148,7 +152,7 @@ namespace ZapretLauncher
             }
             int hash = link.IndexOf('#');
             if (hash >= 0 && hash < link.Length - 1) return Uri.UnescapeDataString(link.Substring(hash + 1).Replace('+', ' '));
-            try { Uri u = new Uri(link.Split('#')[0]); return u.Host + ":" + u.Port; } catch { return link.Split(':')[0]; }
+            try { Uri u = new Uri(link.Split('#')[0]); return u.Port > 0 ? u.Host + ":" + u.Port : u.Host; } catch { return link.Split(':')[0]; }
         }
 
         static Dictionary<string, object> VmessJson(string link)
@@ -346,7 +350,8 @@ namespace ZapretLauncher
                 Dictionary<string, string> q = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
                     { "type", S(j, "net") }, { "path", S(j, "path") }, { "host", S(j, "host") }, { "serviceName", S(j, "path") },
-                    { "security", S(j, "tls") }, { "sni", S(j, "sni") }, { "fp", S(j, "fp") }, { "alpn", S(j, "alpn") }
+                    { "security", S(j, "tls") }, { "sni", S(j, "sni") }, { "fp", S(j, "fp") }, { "alpn", S(j, "alpn") },
+                    { "allowInsecure", S(j, "allowInsecure") == "True" ? "1" : S(j, "allowInsecure") }
                 };
                 Transport(o, q, S(j, "add"));
                 return o;
@@ -373,6 +378,18 @@ namespace ZapretLauncher
                 string flow = Get(query, "flow");
                 if (flow.Length > 0) o["flow"] = flow;
                 Transport(o, query, u.Host);
+            }
+            else if (scheme == "anytls")
+            {
+                if (user.Length == 0 || u.Host.Length == 0 || u.Port == 0)
+                    throw new FormatException("В ключе AnyTLS нужен пароль и адрес сервера");
+                o["type"] = "anytls";
+                o["password"] = user;
+                o["tls"] = new Dictionary<string, object>
+                {
+                    { "enabled", true }, { "server_name", Get(query, "sni", u.Host.Trim('[', ']')) },
+                    { "insecure", Get(query, "insecure") == "1" }
+                };
             }
             else if (scheme == "trojan")
             {
@@ -577,7 +594,7 @@ namespace ZapretLauncher
         // Время TCP-соединения с сервером (мс); -1 — не отвечает
         public static async Task<int> Ping(VpnServer server)
         {
-            if (Awg.IsAwg(server.Link)) return PingUdp;   // AmneziaWG — тоже UDP
+            if (Awg.IsAwg(server.Link) || WireGuard.IsLink(server.Link)) return PingUdp;   // AmneziaWG — тоже UDP
             Dictionary<string, object> o;
             try { o = BuildOutbound(server.Link); } catch { return -1; }
             string type = (string)o["type"];
@@ -622,7 +639,8 @@ namespace ZapretLauncher
 
         static async Task<string> ApiGet(int port, string secret, string path, int timeoutMs)
         {
-            using (System.Net.Http.HttpClient c = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMilliseconds(timeoutMs) })
+            using (var handler = new System.Net.Http.HttpClientHandler { UseProxy = false, AllowAutoRedirect = false })
+            using (System.Net.Http.HttpClient c = new System.Net.Http.HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(timeoutMs) })
             {
                 System.Net.Http.HttpRequestMessage req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, "http://127.0.0.1:" + port + path);
                 req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
@@ -701,7 +719,7 @@ namespace ZapretLauncher
                 }
                 else
                 {
-                    try { o = BuildOutbound(servers[i].Link); } catch { continue; }
+                    try { o = WireGuard.IsLink(servers[i].Link) ? WireGuard.FromLink(servers[i].Link) : BuildOutbound(servers[i].Link); } catch { continue; }
                 }
                 o["tag"] = "s" + i;
                 outbounds.Add(o);
@@ -713,7 +731,9 @@ namespace ZapretLauncher
         // Настройки тестового ядра: без VPN-адаптера (прав администратора не нужно); inbounds/rules — для замера скорости
         public static string TestConfig(List<object> outbounds, List<object> inbounds, List<object> rules, int apiPort, string secret)
         {
-            List<object> outs = new List<object>(outbounds) { new Dictionary<string, object> { { "type", "direct" }, { "tag", "direct" } } };
+            var endpoints = outbounds.OfType<Dictionary<string, object>>().Where(o => S(o, "type") == "wireguard").ToArray();
+            List<object> outs = outbounds.Except(endpoints).ToList();
+            outs.Add(new Dictionary<string, object> { { "type", "direct" }, { "tag", "direct" } });
             Dictionary<string, object> route = new Dictionary<string, object> { { "final", "direct" }, { "auto_detect_interface", true } };
             if (rules != null) route["rules"] = rules.ToArray();
             Dictionary<string, object> cfg = new Dictionary<string, object>
@@ -723,6 +743,12 @@ namespace ZapretLauncher
                 { "route", route },
                 { "experimental", new Dictionary<string, object> { { "clash_api", new Dictionary<string, object> { { "external_controller", "127.0.0.1:" + apiPort }, { "secret", secret } } } } },
             };
+            if (endpoints.Length > 0)
+            {
+                cfg["endpoints"] = endpoints;
+                cfg["dns"] = new Dictionary<string, object> { { "servers", new[] { new Dictionary<string, object> { { "type", "local" }, { "tag", "local" } } } } };
+                route["default_domain_resolver"] = "local";
+            }
             if (inbounds != null) cfg["inbounds"] = inbounds.ToArray();
             return new JavaScriptSerializer().Serialize(cfg);
         }
@@ -835,11 +861,11 @@ namespace ZapretLauncher
             catch { return null; }
         }
 
-        // Задержка через работающий VPN — для автовыбора: сервер может отвечать на соединение, но не пропускать трафик
-        public static Task<int> CurrentDelay()
+        // Запрос через явно выбранный выход подключения. Правила TUN и системный HTTP-прокси не участвуют.
+        public static Task<int> VerifyTraffic()
         {
-            if (apiPort == 0) return Awg.Running ? Awg.Delay() : Task.FromResult(-1);   // у AmneziaWG нет API ядра — просто открываем сайт
-            return Delay(apiPort, apiSecret, "proxy");
+            if (apiPort > 0) return Delay(apiPort, apiSecret, "proxy");
+            return Awg.Running ? Awg.BoundDelay() : Task.FromResult(-1);
         }
 
         // Текущие соединения через ядро: сайт, программа, через VPN или напрямую
@@ -881,22 +907,63 @@ namespace ZapretLauncher
         // ---------- Подписка: список серверов и сведения о трафике и сроке (заголовок subscription-userinfo) ----------
         public class SubscriptionInfo { public long Used, Total; public DateTime? Expire; }
 
-        // Сведения из последней загруженной подписки (null — провайдер их не прислал)
-        public static string LastUserInfo;
-
-        static async Task<string> FetchSubscription(string url)
+        static async Task<string> FetchSubscription(string url, Action<string> receiveInfo)
         {
             using (System.Net.Http.HttpClient c = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) })
             {
-                // как популярный клиент — так панели провайдеров отдают обычный список ссылок, а не свой формат
                 c.DefaultRequestHeaders.UserAgent.ParseAdd("v2rayN/7.0");
                 using (System.Net.Http.HttpResponseMessage r = await c.GetAsync(url))
                 {
-                    r.EnsureSuccessStatusCode();
-                    IEnumerable<string> values;
-                    LastUserInfo = r.Headers.TryGetValues("subscription-userinfo", out values) ? values.FirstOrDefault() : null;
-                    return await r.Content.ReadAsStringAsync();
+                    var endpoint = r.RequestMessage.RequestUri;
+                    if (!SubscriptionFlag(r, "x-hwid-not-supported") || endpoint.Scheme != Uri.UriSchemeHttps)
+                        return await ReadSubscription(r, receiveInfo);
+
+                    using (var bound = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false }) { Timeout = c.Timeout })
+                    {
+                        bound.DefaultRequestHeaders.UserAgent.ParseAdd("v2rayN/7.0");
+                        bound.DefaultRequestHeaders.Add("X-HWID", SubscriptionDeviceId(endpoint));
+                        bound.DefaultRequestHeaders.Add("X-Device-OS", "Windows");
+                        using (var registered = await bound.GetAsync(endpoint))
+                            return await ReadSubscription(registered, receiveInfo);
+                    }
                 }
+            }
+        }
+
+        static string SubscriptionHeader(System.Net.Http.HttpResponseMessage response, string name)
+        {
+            IEnumerable<string> values;
+            return response.Headers.TryGetValues(name, out values) ? values.FirstOrDefault() : null;
+        }
+
+        static bool SubscriptionFlag(System.Net.Http.HttpResponseMessage response, string name)
+        {
+            return string.Equals(SubscriptionHeader(response, name), "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static async Task<string> ReadSubscription(System.Net.Http.HttpResponseMessage response, Action<string> receiveInfo)
+        {
+            if (SubscriptionFlag(response, "x-hwid-limit") || SubscriptionFlag(response, "x-hwid-max-devices-reached"))
+                throw new InvalidOperationException("Лимит устройств в подписке исчерпан. Удалите неиспользуемое устройство у провайдера.");
+            if (SubscriptionFlag(response, "x-hwid-issue") || SubscriptionFlag(response, "x-hwid-not-supported"))
+                throw new InvalidOperationException("Провайдер отклонил идентификатор устройства. Проверьте устройства в личном кабинете VPN.");
+            response.EnsureSuccessStatusCode();
+            if (receiveInfo != null) receiveInfo(SubscriptionHeader(response, "subscription-userinfo"));
+            return await response.Content.ReadAsStringAsync();
+        }
+
+        static readonly object SubscriptionDeviceLock = new object();
+        static string SubscriptionDeviceId(Uri endpoint)
+        {
+            lock (SubscriptionDeviceLock)
+            using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\ZapretLauncher\SubscriptionDevices"))
+            {
+                string origin = endpoint.GetLeftPart(UriPartial.Authority);
+                string id = key.GetValue(origin) as string;
+                if (id != null) return id;
+                id = Guid.NewGuid().ToString("N");
+                key.SetValue(origin, id);
+                return id;
             }
         }
 
@@ -943,17 +1010,10 @@ namespace ZapretLauncher
         const string RuleSetBase = "https://raw.githubusercontent.com/SagerNet/";
         static readonly string[] RuSuffixes = { ".ru", ".su", ".xn--p1ai" };   // .рф
 
-        public static string BuildConfig(VpnServer server, string mode, IList<string> domains, IList<string> apps) { return Build(server, mode, domains, apps); }
-
-        // Блокировка («не пускать мимо VPN»): VPN не работает, а пользователь хочет, чтобы работал. Всё, что шло бы через VPN,
-        // отклоняется, а не уходит напрямую: сайты и программы из списка, а в режимах «Весь трафик» и «Россия напрямую» — и остальное
-        public static string BuildLockConfig(string mode, IList<string> domains, IList<string> apps) { return Build(null, mode, domains, apps); }
-
-        // server == null — блокировка вместо VPN
-        static string Build(VpnServer server, string mode, IList<string> domains, IList<string> apps)
+        public static string BuildConfig(VpnServer server, string mode, IList<string> domains, IList<string> apps)
         {
-            bool all = mode == "all", ru = mode == "ru", locked = server == null;
-            Func<Dictionary<string, object>, Dictionary<string, object>> viaVpn = r => { if (locked) r["action"] = "reject"; else r["outbound"] = "proxy"; return r; };
+            bool all = mode == "all", ru = mode == "ru";
+            Func<Dictionary<string, object>, Dictionary<string, object>> viaVpn = r => { r["outbound"] = "proxy"; return r; };
             List<object> routeRules = new List<object>
             {
                 new Dictionary<string, object> { { "action", "sniff" } },
@@ -963,7 +1023,7 @@ namespace ZapretLauncher
                 new Dictionary<string, object> { { "ip_is_private", true }, { "outbound", "direct" } },
             };
             // служба AmneziaWG — системная, её имя процесса sing-box может и не узнать: сервер туннеля — напрямую ещё и по адресу
-            string[] awgServer = !locked && Awg.IsAwg(server.Link) ? Awg.EndpointIps(Awg.ConfOf(server.Link)) : new string[0];
+            string[] awgServer = Awg.IsAwg(server.Link) ? Awg.EndpointIps(Awg.ConfOf(server.Link)) : new string[0];
             if (awgServer.Length > 0) routeRules.Insert(3, new Dictionary<string, object> { { "ip_cidr", awgServer.Select(ip => ip + "/32").ToArray() }, { "outbound", "direct" } });
             List<object> dnsRules = new List<object>();
             if (!all)
@@ -972,9 +1032,12 @@ namespace ZapretLauncher
                 if (domains.Count > 0)
                 {
                     routeRules.Add(viaVpn(new Dictionary<string, object> { { "domain_suffix", domains.ToArray() } }));
-                    if (!locked) dnsRules.Add(new Dictionary<string, object> { { "domain_suffix", domains.ToArray() }, { "server", "remote" } });   // адреса этих сайтов — через VPN, чтобы сайт видел страну сервера
+                    dnsRules.Add(new Dictionary<string, object> { { "domain_suffix", domains.ToArray() }, { "server", "remote" } });
                 }
-                if (apps.Count > 0) routeRules.Add(viaVpn(new Dictionary<string, object> { { "process_name", apps.ToArray() } }));
+                string[] names = apps.Where(app => !Routes.IsAppPath(app)).ToArray();
+                string[] paths = apps.Where(Routes.IsAppPath).ToArray();
+                if (names.Length > 0) routeRules.Add(viaVpn(new Dictionary<string, object> { { "process_name", names } }));
+                if (paths.Length > 0) routeRules.Add(viaVpn(new Dictionary<string, object> { { "process_path", paths } }));
             }
             List<object> ruleSets = new List<object>();
             if (ru)
@@ -988,12 +1051,10 @@ namespace ZapretLauncher
                 dnsRules.Add(new Dictionary<string, object> { { "rule_set", new[] { "geosite-ru" } }, { "server", "local" } });
             }
 
-            // при блокировке «всё остальное» в режимах «Весь трафик» и «Россия напрямую» тоже отклоняется (локальная сеть — по правилу выше)
-            if (locked && (all || ru)) routeRules.Add(new Dictionary<string, object> { { "inbound", new[] { "tun-in" } }, { "action", "reject" } });
             Dictionary<string, object> route = new Dictionary<string, object>
             {
                 { "rules", routeRules.ToArray() },
-                { "final", (all || ru) && !locked ? "proxy" : "direct" },
+                { "final", all || ru ? "proxy" : "direct" },
                 { "auto_detect_interface", true },
                 { "find_process", true },   // имя программы у каждого соединения — для журнала соединений
                 { "default_domain_resolver", "local" },
@@ -1008,12 +1069,14 @@ namespace ZapretLauncher
             // туннель AmneziaWG выбирает сеть для своих пакетов по маршруту «для всего» (0.0.0.0/0). Если его займёт sing-box,
             // пакеты туннеля пойдут по кругу через sing-box и VPN не заработает. Поэтому трафик забираем двумя половинами —
             // всё так же идёт через sing-box, а маршрут «для всего» остаётся у настоящей сети
-            if (!locked && Awg.IsAwg(server.Link)) tun["route_address"] = new[] { "0.0.0.0/1", "128.0.0.0/1" };
+            if (Awg.IsAwg(server.Link)) tun["route_address"] = new[] { "0.0.0.0/1", "128.0.0.0/1" };
             List<object> dnsServers = new List<object>();
-            if (!locked) dnsServers.Add(new Dictionary<string, object> { { "type", "https" }, { "tag", "remote" }, { "server", "1.1.1.1" }, { "detour", "proxy" } });
+            bool wg = WireGuard.IsLink(server.Link);
+            string wgDns = wg ? WireGuard.Dns(server.Link) : null;
+            dnsServers.Add(new Dictionary<string, object> { { "type", wgDns == null ? "https" : "udp" }, { "tag", "remote" }, { "server", wgDns ?? "1.1.1.1" }, { "detour", "proxy" } });
             dnsServers.Add(new Dictionary<string, object> { { "type", "local" }, { "tag", "local" } });
             List<object> outbounds = new List<object>();
-            if (!locked) outbounds.Add(Awg.IsAwg(server.Link) ? Awg.ChainOutbound(Awg.ConfOf(server.Link)) : BuildOutbound(server.Link));
+            if (!wg) outbounds.Add(Awg.IsAwg(server.Link) ? Awg.ChainOutbound(Awg.ConfOf(server.Link)) : BuildOutbound(server.Link));
             outbounds.Add(new Dictionary<string, object> { { "type", "direct" }, { "tag", "direct" } });
 
             Dictionary<string, object> cfg = new Dictionary<string, object>
@@ -1023,13 +1086,14 @@ namespace ZapretLauncher
                     {
                         { "servers", dnsServers.ToArray() },
                         { "rules", dnsRules.ToArray() },
-                        { "final", (all || ru) && !locked ? "remote" : "local" },
+                        { "final", all || ru ? "remote" : "local" },
                         { "strategy", "ipv4_only" },
                     } },
                 { "inbounds", new object[] { tun } },
                 { "outbounds", outbounds.ToArray() },
                 { "route", route },
             };
+            if (wg) cfg["endpoints"] = new[] { WireGuard.FromLink(server.Link) };
             Dictionary<string, object> experimental = new Dictionary<string, object>();
             if (apiPort > 0) experimental["clash_api"] = new Dictionary<string, object> { { "external_controller", "127.0.0.1:" + apiPort }, { "secret", apiSecret } };
             if (ru) experimental["cache_file"] = new Dictionary<string, object> { { "enabled", true }, { "path", Path.Combine(Dir, "cache.db") } };   // базы не скачиваются заново при каждом запуске
@@ -1068,26 +1132,13 @@ namespace ZapretLauncher
             }
             catch (Exception e) { error = e; }
             if (error == null) return;
-            if (awg) await Awg.Stop();   // sing-box не запустился — туннель-выход не нужен
+            // После отказа не оставляем выход AmneziaWG или вспомогательный Xray.
+            try { await Stop(); }
+            catch (Exception cleanup) { Log.Write("VPN: не удалось очистить состояние после ошибки: " + cleanup.Message); }
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
         }
 
-        // Блокировка вместо VPN: то же ядро sing-box, но всё, что должно идти через VPN, отклоняется (BuildLockConfig)
-        public static async Task StartLock(string mode, IList<string> domains, IList<string> apps)
-        {
-            if (Version == null) await Install(await Latest());
-            await Stop();
-            apiPort = 0;
-            File.WriteAllText(LockMarker, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-            Exception error = null;
-            try { await StartCore(BuildLockConfig(mode, domains, apps)); }
-            catch (Exception e) { error = e; }
-            if (error == null) return;
-            try { File.Delete(LockMarker); } catch { }
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
-        }
-
-        // Метка «ядро сейчас — блокировка, а не VPN»: файл, чтобы и после перезапуска лаунчера было понятно, что работает
+        // Older versions could leave a reject-only core running across an update.
         static readonly string LockMarker = Path.Combine(Dir, "locked.txt");
         public static bool Locked { get { return File.Exists(LockMarker) && Processes().Length > 0; } }
 
@@ -1100,13 +1151,26 @@ namespace ZapretLauncher
             try { if (File.Exists(LogFile)) File.Copy(LogFile, Path.Combine(Dir, "sing-box.prev.log"), true); File.Delete(LogFile); } catch { }
             ProcessStartInfo psi = new ProcessStartInfo(Exe, "run -c \"" + ConfigFile + "\" -D \"" + Dir + "\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Dir };
             Process proc = Process.Start(psi);
+            await WaitForAdapter(proc, InterfaceName);
+        }
+
+        static bool TunnelReady(string interfaceName = InterfaceName)
+        {
+            return System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                .Any(n => n.Name == interfaceName && n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up);
+        }
+
+        static async Task WaitForAdapter(Process proc, string interfaceName)
+        {
             for (int i = 0; i < 50; i++)
             {
                 await Task.Delay(200);
                 if (proc.HasExited) throw new Exception("Ядро VPN остановилось сразу после запуска: " + LastLogLine());
-                if (System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().Any(n => n.Name == InterfaceName && n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)) return;
+                if (TunnelReady(interfaceName)) return;
             }
             if (proc.HasExited) throw new Exception("Ядро VPN остановилось: " + LastLogLine());
+            try { proc.Kill(); proc.WaitForExit(5000); } catch { }
+            throw new Exception("Адаптер VPN не появился — подключение отменено");
         }
 
         public static async Task Stop()
@@ -1119,20 +1183,6 @@ namespace ZapretLauncher
             xrayPort = 0;
             try { File.Delete(LockMarker); } catch { }
             await Awg.Stop();
-        }
-
-        // Лаунчер перезапустился, а ядро продолжает работать — берём адрес статистики из его конфигурации
-        public static void ReadApiEndpoint()
-        {
-            if (Processes().Length == 0) { apiPort = 0; return; }   // работает туннель AmneziaWG — config.json остался от прошлого sing-box
-            try
-            {
-                Dictionary<string, object> c = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(ConfigFile)) as Dictionary<string, object>;
-                Dictionary<string, object> api = (Dictionary<string, object>)((Dictionary<string, object>)c["experimental"])["clash_api"];
-                apiPort = int.Parse(((string)api["external_controller"]).Split(':')[1]);
-                apiSecret = (string)api["secret"];
-            }
-            catch { apiPort = 0; }
         }
 
         public static string LastLogLine()

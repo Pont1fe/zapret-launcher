@@ -33,10 +33,7 @@ namespace ZapretLauncher
             }
             data["files"] = files;
             Directory.CreateDirectory(Path.GetDirectoryName(path));
-            string tmp = path + ".tmp";
-            File.WriteAllText(tmp, new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Serialize(data), new UTF8Encoding(false));
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(tmp, path);
+            Util.WriteAtomicText(path, new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Serialize(data));
         }
 
         // Тихая автокопия — не чаще раза в 10 минут
@@ -75,19 +72,47 @@ namespace ZapretLauncher
             string config = (string)d["config"];
             if (config.Length > 0)
             {
-                new JavaScriptSerializer().Deserialize<Config>(config);   // проверка, что настройки читаются, до замены файла
-                File.WriteAllText(Paths.Config, config, new UTF8Encoding(false));
+                Config imported = new JavaScriptSerializer().Deserialize<Config>(config);
+                if (imported == null || !Zapret.SafeStrategyName(imported.Strategy) ||
+                    (imported.NetworkProfiles != null && imported.NetworkProfiles.Values.Any(p => p == null || !Zapret.SafeStrategyName(p.Strategy))) ||
+                    (!string.IsNullOrEmpty(imported.LauncherRepo) && imported.LauncherRepo != Consts.LauncherRepo))
+                    throw new Exception("Резервная копия содержит небезопасные настройки запуска");
             }
             Dictionary<string, object> files = d.ContainsKey("files") ? d["files"] as Dictionary<string, object> : null;
+            var values = new Dictionary<string, string>();
             if (files != null && Directory.Exists(Paths.Zapret))
                 foreach (KeyValuePair<string, object> kv in files)
                 {
                     // только известные файлы — никаких путей из самого файла копии
                     if (!Consts.UserFiles.Contains(kv.Key) || !(kv.Value is string)) continue;
-                    string full = Paths.InZapret(kv.Key);
-                    Directory.CreateDirectory(Path.GetDirectoryName(full));
-                    File.WriteAllText(full, (string)kv.Value, new UTF8Encoding(false));
+                    values.Add(Paths.InZapret(kv.Key), (string)kv.Value);
                 }
+            var previous = values.Keys.ToDictionary(file => file, file => File.Exists(file) ? File.ReadAllBytes(file) : null);
+            var applied = new List<string>();
+            try
+            {
+                foreach (var entry in values)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(entry.Key));
+                    Util.WriteAtomicText(entry.Key, entry.Value);
+                    applied.Add(entry.Key);
+                }
+                if (config.Length > 0) Util.WriteAtomicText(Paths.Config, config);
+            }
+            catch (Exception error)
+            {
+                var failures = new List<Exception>();
+                foreach (string file in applied)
+                    try
+                    {
+                        if (previous[file] == null) File.Delete(file);
+                        else File.WriteAllBytes(file, previous[file]);
+                    }
+                    catch (Exception rollback) { failures.Add(rollback); }
+                if (failures.Count == 0) throw;
+                failures.Insert(0, error);
+                throw new AggregateException("Не удалось полностью откатить восстановление настроек.", failures);
+            }
             Log.Write("Настройки восстановлены из резервной копии от " + (d.ContainsKey("created") ? d["created"] : "?"));
         }
     }
@@ -96,6 +121,13 @@ namespace ZapretLauncher
     // Помогает, когда провайдер блокирует сайты подменой DNS-ответов
     static class SecureDns
     {
+        public static void RunChecked(string arguments, Func<string, Tuple<int, string>> runner = null)
+        {
+            Tuple<int, string> result;
+            if (runner != null) result = runner(arguments);
+            else { string output; int code = Util.Run("netsh.exe", arguments, out output); result = Tuple.Create(code, output); }
+            if (result.Item1 != 0) throw new IOException("DNS: netsh (" + result.Item1 + "): " + result.Item2);
+        }
         public class Provider { public string Name, Template; public string[] V4, V6; }
 
         public static readonly Dictionary<string, Provider> Providers = new Dictionary<string, Provider>
@@ -146,18 +178,35 @@ namespace ZapretLauncher
                     // запись о шифровании для сервера: Windows сама будет ходить к нему по HTTPS.
                     // udpfallback=yes — если HTTPS к серверу недоступен, DNS не пропадёт совсем
                     Util.Run("netsh.exe", "dns delete encryption server=" + ip);
-                    Util.Run("netsh.exe", "dns add encryption server=" + ip + " dohtemplate=" + p.Template + " autoupgrade=yes udpfallback=yes");
+                    RunChecked("dns add encryption server=" + ip + " dohtemplate=" + p.Template + " autoupgrade=yes udpfallback=yes");
                 }
             List<string> names = new List<string>();
+            try
+            {
             foreach (NetworkInterface ni in Adapters())
             {
                 if (ManualDns(ni)) { skipped.Add(ni.Name); continue; }
                 string n = Q(ni.Name);
-                Util.Run("netsh.exe", "interface ipv4 set dnsservers name=" + n + " source=static address=" + p.V4[0] + " register=none validate=no");
-                Util.Run("netsh.exe", "interface ipv4 add dnsservers name=" + n + " address=" + p.V4[1] + " index=2 validate=no");
-                Util.Run("netsh.exe", "interface ipv6 set dnsservers name=" + n + " source=static address=" + p.V6[0] + " register=none validate=no");
-                Util.Run("netsh.exe", "interface ipv6 add dnsservers name=" + n + " address=" + p.V6[1] + " index=2 validate=no");
                 names.Add(ni.Name);
+                RunChecked("interface ipv4 set dnsservers name=" + n + " source=static address=" + p.V4[0] + " register=none validate=no");
+                RunChecked("interface ipv4 add dnsservers name=" + n + " address=" + p.V4[1] + " index=2 validate=no");
+                if (ni.Supports(NetworkInterfaceComponent.IPv6))
+                {
+                    RunChecked("interface ipv6 set dnsservers name=" + n + " source=static address=" + p.V6[0] + " register=none validate=no");
+                    RunChecked("interface ipv6 add dnsservers name=" + n + " address=" + p.V6[1] + " index=2 validate=no");
+                }
+            }
+            }
+            catch (Exception change)
+            {
+                try { Disable(names); }
+                catch (Exception restore)
+                {
+                    var error = new AggregateException(change, restore);
+                    error.Data["DnsAdapters"] = names;
+                    throw error;
+                }
+                throw;
             }
             Util.Run("ipconfig.exe", "/flushdns");
             return names;
@@ -166,12 +215,19 @@ namespace ZapretLauncher
         // Возвращает автоматический DNS (от роутера или провайдера) на адаптерах, где его меняли
         public static void Disable(IEnumerable<string> adapters)
         {
+            List<Exception> errors = new List<Exception>();
             foreach (string name in adapters)
             {
-                Util.Run("netsh.exe", "interface ipv4 set dnsservers name=" + Q(name) + " source=dhcp");
-                Util.Run("netsh.exe", "interface ipv6 set dnsservers name=" + Q(name) + " source=dhcp");
+                try
+                {
+                    RunChecked("interface ipv4 set dnsservers name=" + Q(name) + " source=dhcp");
+                    NetworkInterface ni = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n => n.Name == name);
+                    if (ni != null && ni.Supports(NetworkInterfaceComponent.IPv6)) RunChecked("interface ipv6 set dnsservers name=" + Q(name) + " source=dhcp");
+                }
+                catch (Exception e) { errors.Add(e); }
             }
             Util.Run("ipconfig.exe", "/flushdns");
+            if (errors.Count > 0) throw new AggregateException(errors);
         }
 
         // Работает ли DNS после переключения: имена известных сайтов должны находиться

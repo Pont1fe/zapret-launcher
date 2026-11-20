@@ -21,7 +21,7 @@ namespace ZapretLauncher
 {
     static class AppVersion
     {
-        public const string Value = "4.1.0";
+        public const string Value = "4.1.1";
     }
 
     static class App
@@ -38,7 +38,6 @@ namespace ZapretLauncher
             bool autostart = args.Contains("--autostart");
             bool uninstall = args.Contains("--uninstall");
             bool restarted = args.Contains("--restarted");
-            SelfUpdate.CleanupOld();
             Config cfg = Config.Load();
             I18n.Init(cfg.Language);
 
@@ -66,6 +65,17 @@ namespace ZapretLauncher
                 return 0;
             }
             owned = true;
+            if (Environment.GetEnvironmentVariable("ZAPRETLAUNCHER_DEMO") != "1")
+            {
+                try { InstallDirectorySecurity.SecureInstallation(Paths.Root); }
+                catch (Exception e)
+                {
+                    Dialog.Show(null, e.Message, "Zapret Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
+                    ReleaseMutex();
+                    return 1;
+                }
+                SelfUpdate.CleanupOld();
+            }
             // ошибка вне окна (фоновый поток) закрывает процесс — успеваем записать, что случилось
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
@@ -200,7 +210,7 @@ namespace ZapretLauncher
         }
 
         // Всё, что лаунчер создаёт в своей папке (Paths, Vpn.Dir, загрузки ядер, SelfUpdate, TaskbarMenu)
-        public static readonly string[] OwnDirs = { "zapret", "zapret.old", "temp", "vpn", "tgproxy", "vpn-download", "xray-download", "awg-download" };
+        public static readonly string[] OwnDirs = { "zapret", "zapret.old", "zapret.old.previous", "zapret.swap", "temp", "vpn", "tgproxy", "vpn-download", "xray-download", "awg-download" };
         public static readonly string[] OwnFiles = {
             "ZapretLauncher.exe", "ZapretLauncher.exe.old", "ZapretLauncher.exe.new", "ZapretLauncher.prev.exe", "ZapretLauncherCmd.exe",
             "launcher.json", "launcher.json.tmp", "launcher.json.broken", "launcher.log", "launcher.log.1", "history.txt", "hosts.backup",
@@ -208,6 +218,7 @@ namespace ZapretLauncher
 
         public static async Task Remove(bool deleteFiles)
         {
+            await Task.Run(() => VpnFirewall.Clear());
             await Zapret.Stop(true);
             await Telegram.StopProxy();
             await Vpn.Stop();
@@ -216,7 +227,7 @@ namespace ZapretLauncher
             try { Telegram.SetHosts(false); } catch (Exception e) { Log.Write(e.Message); }
             // защищённый DNS включал лаунчер — возвращаем автоматический DNS
             Config cfg = Config.Load();
-            if (cfg.SecureDns.Length > 0) { try { SecureDns.Disable(cfg.DnsAdapters); } catch (Exception e) { Log.Write("DNS: " + e.Message); } }
+            if (cfg.SecureDns.Length > 0) SecureDns.Disable(cfg.DnsAdapters);
             Shell.RemoveShortcuts();
             Shell.RemoveUninstallEntry();
             // папка команд меню панели задач в ProgramData: только свой файл и саму папку, если она пустая (без обхода вглубь — её мог создать кто угодно)

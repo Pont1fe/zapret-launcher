@@ -14,12 +14,21 @@ namespace ZapretLauncher
 {
     static class Report
     {
-        static readonly Regex KeyLinks = new Regex(@"\b(vless|vmess|trojan|ss|hysteria2|hy2|tuic|amneziawg|vpn|happ)://\S+", RegexOptions.IgnoreCase);
+        static readonly Regex KeyLinks = new Regex(@"\b(vless|vmess|trojan|ss|hysteria2|hy2|tuic|anytls|wireguard|amneziawg|vpn|happ)://\S+", RegexOptions.IgnoreCase);
         static readonly Regex Secrets = new Regex(@"\b(PrivateKey|PresharedKey|PublicKey|password|uuid|secret)(\s*[=:]\s*)\S+", RegexOptions.IgnoreCase);
         static readonly Regex LongBase64 = new Regex(@"[A-Za-z0-9+/_-]{40,}={0,2}");
 
         // Убирает всё, что даёт доступ к VPN или выдаёт пользователя; hosts — адреса серверов VPN (отчёт может уйти в открытую заявку на GitHub)
         public static string Sanitize(string text, string subscription) { return Sanitize(text, subscription, null); }
+        public static string SanitizeVpn(string text, Config cfg)
+        {
+            string result = text ?? "";
+            foreach (string url in cfg.VpnSubscriptions.Select(s => s.Url).Concat(new[] { cfg.VpnSubscription })
+                .Where(url => !string.IsNullOrEmpty(url)).Select(url => url.Split('#')[0])
+                .Where(url => url.Length > 0).Distinct().OrderByDescending(url => url.Length))
+                result = Regex.Replace(result, Regex.Escape(url) + @"(?:#[^\s]*)?", "<подписка>", RegexOptions.IgnoreCase);
+            return Sanitize(result, null, ServerHosts(cfg));
+        }
         public static string Sanitize(string text, string subscription, IEnumerable<string> hosts)
         {
             if (string.IsNullOrEmpty(text)) return text ?? "";
@@ -49,6 +58,7 @@ namespace ZapretLauncher
             try
             {
                 if (string.IsNullOrEmpty(link)) return null;
+                if (WireGuard.IsLink(link)) return WireGuard.Host(link);
                 if (Awg.IsAwg(link)) return Awg.EndpointHost(Awg.ConfOf(link));
                 if (link.StartsWith("vmess://", StringComparison.OrdinalIgnoreCase) || !link.Split('#')[0].Contains("@"))
                     return (string)Vpn.BuildOutbound(link)["server"];   // vmess и старый ss — адрес внутри base64
@@ -87,11 +97,12 @@ namespace ZapretLauncher
             line("Включён", cfg.VpnOn);
             line("Режим", cfg.VpnMode);
             line("Не пускать мимо VPN", cfg.VpnKillSwitch);
+            line("Программ в списке защиты VPN", cfg.VpnProtectedApps.Count);
             line("Ядро работает", Vpn.Running + (Vpn.Locked ? " (блокировка: VPN не работает)" : ""));
             VpnServer current = cfg.VpnServers.Count == 0 ? null : cfg.VpnServers[Math.Min(cfg.VpnSelected, cfg.VpnServers.Count - 1)];
             line("Сервер", current == null ? "—" : current.Name + " (" + Scheme(current.Link) + ")");
             line("Серверов", cfg.VpnServers.Count + " (" + string.Join(", ", cfg.VpnServers.GroupBy(s => Scheme(s.Link)).Select(g => g.Key + " " + g.Count())) + ")");
-            line("Подписка", cfg.VpnSubscription.Length > 0 ? "есть, обновлена " + cfg.VpnSubUpdated : "нет");
+            line("Подписки", cfg.VpnSubscriptions.Count.ToString());
             line("Сайты через VPN", cfg.VpnDomains.Count == 0 ? "—" : string.Join(", ", cfg.VpnDomains));
             line("Программы через VPN", cfg.VpnApps.Count == 0 ? "—" : string.Join(", ", cfg.VpnApps));
             line("sing-box", Vpn.Version ?? "не скачан");
@@ -122,7 +133,7 @@ namespace ZapretLauncher
                 line("Службы AmneziaWG", svc.Length > 0 ? svc : "нет");
             }
             catch { }
-            return Sanitize(sb.ToString(), cfg.VpnSubscription, ServerHosts(cfg));
+            return SanitizeVpn(sb.ToString(), cfg);
         }
 
         // Короткая сводка для открытой заявки на GitHub: только версии и режимы — без сайтов, серверов и сети
@@ -133,7 +144,7 @@ namespace ZapretLauncher
             l.Add("Windows: " + Environment.OSVersion.Version + (Environment.Is64BitOperatingSystem ? " x64" : " x86"));
             l.Add("zapret: " + (Zapret.LocalVersion ?? "-") + ", strategy: " + (string.IsNullOrEmpty(cfg.Strategy) ? "-" : cfg.Strategy) + ", watchdog: " + (cfg.Watchdog ? "on" : "off"));
             l.Add("VPN: " + (cfg.VpnOn ? "on" : "off") + ", mode: " + cfg.VpnMode + (current != null ? ", " + Scheme(current.Link) : "") +
-                  (cfg.VpnKillSwitch ? ", kill switch" : "") + ", servers: " + cfg.VpnServers.Count + (cfg.VpnSubscription.Length > 0 ? " (subscription)" : ""));
+                  (cfg.VpnKillSwitch ? ", kill switch" : "") + ", servers: " + cfg.VpnServers.Count + (cfg.VpnSubscriptions.Count > 0 || !string.IsNullOrEmpty(cfg.VpnSubscription) ? " (subscription)" : ""));
             l.Add("cores: sing-box " + (Vpn.Version ?? "-") + ", Xray " + (Vpn.XrayVersion ?? "-") + ", AmneziaWG " + (Awg.Version ?? "-"));
             string other = Conflicts.ActiveVpn();
             if (other != null) l.Add("other VPN: " + other);
@@ -156,7 +167,7 @@ namespace ZapretLauncher
 
         public static string CrashText(Exception e, Config cfg, DateTime when)
         {
-            return when.ToString("dd.MM.yyyy HH:mm:ss") + " · " + Consts.Version + "\n" + Sanitize(e.ToString(), cfg.VpnSubscription, ServerHosts(cfg));
+            return when.ToString("dd.MM.yyyy HH:mm:ss") + " · " + Consts.Version + "\n" + SanitizeVpn(e.ToString(), cfg);
         }
 
         public static void SaveCrash(Exception e, Config cfg)
@@ -190,8 +201,6 @@ namespace ZapretLauncher
         // Архив: сводка, журнал лаунчера, журналы ядра VPN, таблица маршрутов, журнал AmneziaWG — всё без ключей
         public static void Create(Config cfg, string zipPath)
         {
-            string sub = cfg.VpnSubscription;
-            List<string> hosts = ServerHosts(cfg);
             Dictionary<string, string> files = new Dictionary<string, string>();
             files["report.txt"] = Summary(cfg);
             files["launcher.log"] = Tail(Paths.Log, 5000);
@@ -208,7 +217,7 @@ namespace ZapretLauncher
                 {
                     if (f.Value == null) continue;
                     using (StreamWriter w = new StreamWriter(zip.CreateEntry(f.Key).Open(), new UTF8Encoding(true)))
-                        w.Write(Sanitize(f.Value, sub, hosts));
+                        w.Write(SanitizeVpn(f.Value, cfg));
                 }
         }
     }

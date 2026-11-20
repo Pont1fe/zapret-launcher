@@ -112,6 +112,6 @@ Invoke-Csc @(
     "/out:$(Join-Path $dist 'ZapretLauncherSetup.exe')", "/win32icon:$ico", "/win32manifest:$(Join-Path $inst 'app.manifest')",
     '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Management.dll', '/r:Microsoft.CSharp.dll', '/r:System.Core.dll',
     "/resource:$launcherExe,ZapretLauncher.exe",
-    (Join-Path $inst 'Setup.cs'), $setupVersion
+    (Join-Path $inst 'Setup.cs'), (Join-Path $app 'InstallDirectorySecurity.cs'), $setupVersion
 )
 Get-ChildItem $dist -Filter *.exe | Select-Object Name, Length, @{ n = 'Version'; e = { $_.VersionInfo.FileVersion } }

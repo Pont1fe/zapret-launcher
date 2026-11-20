@@ -114,6 +114,7 @@ namespace ZapretLauncher
             };
             window.IsVisibleChanged += delegate
             {
+                if (exiting) return;
                 if (window.IsVisible)
                 {
                     BuildSitePanel(); UpdateUi(); RenderHistory();
@@ -149,10 +150,10 @@ namespace ZapretLauncher
         async Task Startup()
         {
             if (DemoMode) { RefreshVpnUi(); return; }
+            ApplyVpnFirewall(cfg.VpnOn && cfg.VpnKillSwitch);
             Log.Write("Лаунчер " + Consts.Version + " запущен" + (autostart ? " (автозапуск)" : ""));
             if (Paths.Root.Any(c => c > 127))
                 Log.Write("Внимание: в пути к лаунчеру есть кириллица или спецсимволы — zapret может работать некорректно. Переместите папку, например, в C:\\ZapretLauncher");
-            await Task.Run(() => Shell.SecureFolder());   // до задачи автозапуска: её XML пишется в эту папку
             // schtasks и WMI небыстрые — опрашиваем их в фоне, окно уже на экране
             bool autoOn = false;
             try { autoOn = await Task.Run(() => Autostart.EnsureCurrent()); } catch { }   // путь мог измениться (переезд папки)
@@ -198,21 +199,10 @@ namespace ZapretLauncher
             else if (cfg.Telegram && Zapret.Running && !Telegram.ProxyRunning) await RunBusy(() => Telegram.StartProxy(cfg), "Telegram…");
             if (Zapret.Running) siteCheckDue = DateTime.Now.AddSeconds(3);
 
-            // VPN был включён до перезапуска лаунчера или Windows — включаем снова
-            vpnRunning = Vpn.Running;
-            vpnLocked = !vpnRunning && Vpn.Locked;   // лаунчер перезапустился во время блокировки
-            if (vpnRunning) { Vpn.ReadApiEndpoint(); vpnConnectedAt = Vpn.StartedAt(); vpnActive = VpnKey(); }   // лаунчер перезапустился, а VPN работал
-            if (cfg.VpnOn && !vpnRunning && CurrentServer != null)
-            {
-                Exception error = null;
-                try { await StartVpn(true); }
-                catch (Exception e) { error = e; }
-                if (error != null)
-                {
-                    Log.Write("VPN не подключился: " + error.Message);
-                    if (cfg.VpnKillSwitch) await LockVpn(error.Message);   // и после запуска Windows сайты из списка не уйдут напрямую
-                }
-            }
+            // Настройки могли измениться между экземплярами лаунчера. Старый туннель их не подтверждает.
+            vpnLocked = VpnFirewall.Enabled;
+            if (cfg.VpnOn && CurrentServer != null) await RunBusy(StartVpnOrLock, "VPN…");
+            else if (!cfg.VpnOn) await Vpn.Stop();
             RefreshVpnUi();
 
             updateTimer = Timer(TimeSpan.FromHours(6), async delegate
@@ -359,7 +349,7 @@ namespace ZapretLauncher
             if (changed || tick % (idle ? 30 : 10) == 2) { netChanged = false; await CheckNetworkAndApply(); }
             if (tick % (idle ? 60 : 15) == 3) await UpdateConflicts();
             if (tick % 60 == 4) CheckHosts();
-            if (tick % (idle ? 15 : 5) == 0)
+            if (vpnCheckAfterResume || tick % (idle ? 15 : 5) == 0)
             {
                 bool was = vpnRunning;
                 await VpnGuard();
@@ -369,9 +359,10 @@ namespace ZapretLauncher
             if (vpnRunning && !idle && tick % 2 == 0) await UpdateVpnTraffic();
             if (vpnConnShown && !idle && tick % 2 == 1 && E<FrameworkElement>("PageVpn").Visibility == Visibility.Visible) await RefreshConnections();
             // подписка обновляется сама раз в сутки — новые серверы, остаток трафика и срок
-            DateTime subAt;
-            if (tick % 600 == 9 && cfg.VpnSubscription.Length > 0 && (!DateTime.TryParse(cfg.VpnSubUpdated, out subAt) || (DateTime.Now - subAt).TotalHours >= 24)) await RefreshSubscription();
-            else if (tick % 3600 == 40) await CheckSubscription();   // напоминание, что подписка или её трафик заканчиваются
+            if (tick % 600 == 9 || tick % 3600 == 40)
+            {
+                Task subscriptions = RunSubscriptionMaintenance(tick % 600 == 9);
+            }
             await CrashGuard();
             if (DateTime.Now >= healthDue)
             {
@@ -388,6 +379,7 @@ namespace ZapretLauncher
             if (exiting) return;
             Log.Write("Компьютер вышел из сна — проверяю обход");
             netChanged = true;
+            vpnCheckAfterResume = true;
             watchdog.Reset();
             lastRestart = DateTime.MinValue;
             if (wantRunning) siteCheckDue = DateTime.Now.AddSeconds(8);
@@ -411,7 +403,7 @@ namespace ZapretLauncher
 
         async Task RunBusy(Func<Task> action, string busyText = null)
         {
-            if (busy) return;
+            if (busy || quitting) return;
             busy = true;
             window.Cursor = Cursors.AppStarting;
             if (busyText != null) { Text("PowerStatus").Text = T(busyText); Text("PowerTimer").Text = " "; BusyRing(true); }
@@ -434,9 +426,9 @@ namespace ZapretLauncher
 
         void BusyRing(bool on)
         {
-            // штрих бежит по контуру: смещение на длину штриха+пробела (85) — ровно один оборот
+            // штрих бежит по контуру: смещение на длину штриха и пробела (120) — ровно один оборот
             Shape ring = E<Shape>("BusyRing");
-            if (on) ring.BeginAnimation(Shape.StrokeDashOffsetProperty, new DoubleAnimation(0, -85, new Duration(TimeSpan.FromSeconds(1.1))) { RepeatBehavior = RepeatBehavior.Forever });
+            if (on) ring.BeginAnimation(Shape.StrokeDashOffsetProperty, new DoubleAnimation(0, -120, new Duration(TimeSpan.FromSeconds(1.1))) { RepeatBehavior = RepeatBehavior.Forever });
             DoubleAnimation fade = new DoubleAnimation(on ? 1 : 0, new Duration(TimeSpan.FromMilliseconds(200)));
             if (!on) fade.Completed += delegate { if (!busy) ring.BeginAnimation(Shape.StrokeDashOffsetProperty, null); };
             ring.BeginAnimation(UIElement.OpacityProperty, fade);
@@ -449,6 +441,9 @@ namespace ZapretLauncher
             if (exiting || quitting) return;
             quitting = true;
             if (picking) cancelPick = true;
+            if (connectionCancellation != null) connectionCancellation.Cancel();
+            while (busy) await Task.Delay(100);
+            if (exiting) return;
             wantRunning = false;   // чтобы сторож не перезапустил winws, пока лаунчер закрывается
             pausedByVpn = false;
             if (statusTimer != null) statusTimer.Stop();
@@ -458,6 +453,7 @@ namespace ZapretLauncher
             {
                 await Zapret.Stop(false);
                 await Telegram.StopProxy();
+                await Task.Run(() => VpnFirewall.Clear());
                 await Vpn.Stop();   // VPN тоже выключается вместе с лаунчером; при следующем запуске включится снова, если был включён
             }
             catch (Exception e) { Log.Write("Не удалось остановить обход при выходе: " + e.Message); }
@@ -467,9 +463,13 @@ namespace ZapretLauncher
 
         bool quitting;
 
-        public void Exit()
+        public void Exit(bool saveSettings = true)
         {
-            if (!exiting) { SaveWindowSize(); StateHistory.Save(); AutoBackup(); }
+            if (!exiting)
+            {
+                if (saveSettings) { SaveWindowSize(); AutoBackup(); }
+                StateHistory.Save();
+            }
             exiting = true;
             foreach (DispatcherTimer t in new[] { statusTimer, updateTimer }) if (t != null) t.Stop();
             tray.Visible = false;

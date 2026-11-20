@@ -256,7 +256,7 @@ namespace ZapretLauncher
         static double EaseOut(double p) { return 1 - Math.Pow(1 - p, 3); }
 
         double shownShare;   // докуда кольцо уже дорисовано; при скрытии окна — ноль, чтобы при открытии оно выросло заново
-        readonly Dictionary<string, int> shownMs = new Dictionary<string, int>();
+
 
         void RenderHistory()
         {
@@ -316,72 +316,14 @@ namespace ZapretLauncher
         static string HistoryColor(char c) { return c == 'o' ? "Accent" : c == 'p' ? "Wait" : c == 'e' ? "Fail" : "Idle"; }
         static string HistoryName(char c) { return c == 'o' ? "работал" : c == 'p' ? "пауза (VPN)" : c == 'e' ? "сбой" : "выключен"; }
 
-        // Карточка обхода: плавно заливается цветом акцента, кнопка-щит светлеет
         void SetActive(bool on)
         {
+            E<ToggleButton>("HomeBypassToggle").IsChecked = on;
             if (visualActive == on) return;
-            bool first = !visualActive.HasValue;
             visualActive = on;
-            TimeSpan d = TimeSpan.FromMilliseconds(first ? 0 : 260);
-            Fade(E<UIElement>("ActiveLayer"), on ? 1 : 0, d);
-            Fade(E<UIElement>("PowerIconOn"), on ? 1 : 0, d);
-            Fade(E<UIElement>("GlowBg"), on ? 0.9 : 0, d);
-            // включён — карточка цвета акцента, текст на ней светлый (в тёмной теме акцент яркий — текст тёмный, это AccentText)
-            Text("PowerStatus").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Text");
-            Text("PowerTimer").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "TextSub");
-            Text("PowerHint").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Muted");
-            Text("PowerCaption").SetResourceReference(TextBlock.ForegroundProperty, on ? "AccentText" : "Muted");
-            if (on && !first) Ripple();
-            Pulse(on);
             animateCards = true;
             UpdateGreeting();
-            // пока обход работает, подсветка карточки медленно «дышит»
-            UIElement glow = E<UIElement>("GlowBg");
-            if (on)
-            {
-                DoubleAnimation breathe = new DoubleAnimation(0.9, 0.5, new Duration(TimeSpan.FromSeconds(2.6)))
-                {
-                    AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, BeginTime = d,
-                    EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
-                };
-                glow.BeginAnimation(UIElement.OpacityProperty, breathe, HandoffBehavior.Compose);
-            }
         }
-
-        // Пока обход работает, от кнопки «питания» раз в 2,6 с расходится и гаснет мягкое кольцо; выключен — кольца нет
-        void Pulse(bool on)
-        {
-            Border ring = E<Border>("PowerPulse");
-            ScaleTransform s = new ScaleTransform(1, 1);
-            ring.RenderTransform = s;
-            if (!on) { ring.BeginAnimation(UIElement.OpacityProperty, null); ring.Opacity = 0; return; }
-            TimeSpan grow = TimeSpan.FromSeconds(1.8), cycle = TimeSpan.FromSeconds(2.6);
-            Func<double, double, DoubleAnimationUsingKeyFrames> wave = (from, to) =>
-            {
-                DoubleAnimationUsingKeyFrames a = new DoubleAnimationUsingKeyFrames { Duration = cycle, RepeatBehavior = RepeatBehavior.Forever };
-                a.KeyFrames.Add(new LinearDoubleKeyFrame(from, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-                a.KeyFrames.Add(new EasingDoubleKeyFrame(to, KeyTime.FromTimeSpan(grow), new CubicEase { EasingMode = EasingMode.EaseOut }));
-                a.KeyFrames.Add(new LinearDoubleKeyFrame(to, KeyTime.FromTimeSpan(cycle)));   // пауза до следующей волны
-                return a;
-            };
-            s.BeginAnimation(ScaleTransform.ScaleXProperty, wave(1, 1.5));
-            s.BeginAnimation(ScaleTransform.ScaleYProperty, wave(1, 1.5));
-            ring.BeginAnimation(UIElement.OpacityProperty, wave(0.6, 0));
-        }
-
-        // Волна от кнопки при включении
-        void Ripple()
-        {
-            Ellipse r = E<Ellipse>("Ripple");
-            ScaleTransform s = new ScaleTransform(1, 1);
-            r.RenderTransform = s;
-            Duration d = new Duration(TimeSpan.FromMilliseconds(700));
-            IEasingFunction ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-            s.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.6, 9, d) { EasingFunction = ease });
-            s.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.6, 9, d) { EasingFunction = ease });
-            r.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.35, 0, d));
-        }
-
         // Карточка-переключатель окрашивается по состоянию: жёлтая — пауза из-за VPN, красная — ошибка; значок щита меняется на паузу или предупреждение
         void UpdateCardState(string state)
         {
@@ -400,11 +342,9 @@ namespace ZapretLauncher
             TimeSpan d = TimeSpan.FromMilliseconds(260);
             Fade(layer, tinted ? 1 : 0, d);
             Fade(fly, tinted ? 1 : 0, d);
-            Text("PowerIcon").Text = state == "pause" ? "" : state == "error" ? "" : "";   // включён и выключен — значок «питания», как у кнопки включения
-            Text("PowerIcon").SetResourceReference(TextBlock.ForegroundProperty,
-                state == "on" ? "Accent" : state == "pause" ? "Wait" : state == "error" ? "Fail" : "Muted");   // «on» — на белой плитке
+            E<Ellipse>("PowerDot").SetResourceReference(Shape.FillProperty,
+                state == "on" ? "Ok" : state == "pause" ? "Wait" : state == "error" ? "Fail" : "Idle");
         }
-
         static void Fade(UIElement e, double to, TimeSpan d)
         {
             if (e == null) return;

@@ -3,6 +3,14 @@
 
 ![Zapret Launcher](https://raw.githubusercontent.com/Pont1fe/zapret-launcher/main/docs/screenshots/demo-en.gif)
 
+### 4.1.1 — Connection repair / Исправление соединения
+
+- Unified connection repair with verification, cancellation and rollback / Единое исправление соединения с повторной проверкой, отменой и откатом.
+- The home page shows separate bypass and VPN controls, recent connection events and site check results / На главной отдельные переключатели обхода и VPN, последнее событие и результаты проверки сайтов.
+- The VPN page separates subscriptions from servers and adds search and favorites / На вкладке VPN подписки и серверы показаны отдельно. Есть поиск и избранное.
+- Windows VPN protection pauses traffic for selected apps during an outage or reconnection. Select app presets or executable files / Защита VPN в Windows приостанавливает трафик выбранных программ при обрыве и переподключении. Добавьте программы из пресетов или выберите файлы .exe.
+- Fixed unsafe strategy paths in backups, atomic settings and backup writes, failed zapret updates, DNS errors, network-profile rollback, VPN connection races and VMess certificate settings / Исправлены внешние пути к стратегиям в резервных копиях, сохранение настроек и копий, откат неудачного обновления zapret, ошибки DNS, восстановление профилей сетей, гонки подключения VPN и параметры сертификатов VMess.
+
 ### 4.1.0 — A new look / Новый вид
 
 **What's new / Что нового**

@@ -1,4 +1,4 @@
-﻿// Встроенный VPN: подключение, серверы, пинг, трафик, подписки, ключи из буфера обмена и QR-кода
+// Встроенный VPN: подключение, серверы, пинг, трафик, подписки, ключи из буфера обмена и QR-кода
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -37,8 +37,10 @@ namespace ZapretLauncher
         // С каким сервером и в каком режиме VPN подключён на самом деле. Выбранный в списке сервер может отличаться
         // (выбрали, пока VPN переподключался) — тогда сторож VPN переподключает, а карточка пишет «переподключается»
         string vpnActive;
+        int vpnRouteRevision;
+        int vpnAppliedRevision;
         string VpnKey() { return CurrentServer == null ? null : CurrentServer.Link + "|" + cfg.VpnMode; }
-        bool VpnSwitching { get { return vpnRunning && vpnActive != null && vpnActive != VpnKey(); } }
+        bool VpnSwitching { get { return vpnRunning && (vpnAppliedRevision != vpnRouteRevision || vpnActive != VpnKey()); } }
 
         // ---------- Пинг, автовыбор сервера, трафик ----------
         readonly Dictionary<string, int> vpnPing = new Dictionary<string, int>();   // ссылка → мс (-1 нет ответа, -2 UDP)
@@ -112,9 +114,11 @@ namespace ZapretLauncher
         // Автовыбор: текущий сервер дважды подряд не ответил — переходим на самый быстрый из отвечающих
         async Task VpnHealth()
         {
-            if (!cfg.VpnAutoBest || !vpnRunning || busy || CurrentServer == null || DateTime.Now < vpnHealthDue) return;
+            if (!cfg.VpnAutoBest || !vpnRunning || busy || vpnHealthChecking || CurrentServer == null || DateTime.Now < vpnHealthDue) return;
             vpnHealthDue = DateTime.Now.AddMinutes(1);
-            int ms = await Vpn.CurrentDelay();   // сайт через VPN открывается?
+            int generation = vpnHealthGeneration;
+            int ms = await Vpn.VerifyTraffic();   // проверочный запрос идёт через VPN
+            if (generation != vpnHealthGeneration || VpnSwitching || quitting) return;
             if (ms != -1) { vpnDeadChecks = 0; return; }
             if (++vpnDeadChecks < 2 || cfg.VpnServers.Count < 2) return;
             vpnDeadChecks = 0;
@@ -151,7 +155,7 @@ namespace ZapretLauncher
             traffic.Visibility = vpnSpeedText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateVpnTimer();
             DrawVpnGraph();
-            DrawHomeVpn();
+
         }
 
         // Время подключения: «Подключено 1:23:45»
@@ -208,7 +212,7 @@ namespace ZapretLauncher
                     if (Vpn.IsLink(first) && !cfg.VpnServers.Any(s => s.Link == first)) link = text;
                     else if (Awg.LooksLikeConf(text))   // скопировали содержимое файла AmneziaWG — если таких настроек ещё нет
                     {
-                        string key = Awg.FromConf(text, null).Link.Split('#')[0];
+                        string key = WireGuard.Import(text, null).Link.Split('#')[0];
                         if (!cfg.VpnServers.Any(s => s.Link.Split('#')[0] == key)) link = text;
                     }
                 }
@@ -216,7 +220,7 @@ namespace ZapretLauncher
             catch { }   // буфер обмена занят другой программой
             clipLink = link;
             E<FrameworkElement>("VpnClipBar").Visibility = link != null ? Visibility.Visible : Visibility.Collapsed;
-            if (link != null && Awg.LooksLikeConf(link)) Text("VpnClipText").Text = T("В буфере обмена настройки AmneziaWG. Добавить?");
+            if (link != null && Awg.LooksLikeConf(link)) Text("VpnClipText").Text = T("В буфере обмена файл настроек VPN. Добавить?");
             else if (link != null)
             {
                 string first = link.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)[0];
@@ -282,7 +286,7 @@ namespace ZapretLauncher
         {
             Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title = T("Файл настроек AmneziaWG"), Filter = T("Файлы настроек") + " (*.conf)|*.conf|" + T("Все файлы") + " (*.*)|*.*",
+                Title = T("Импортировать WireGuard или AmneziaWG"), Filter = T("Файлы настроек") + " (*.conf)|*.conf|" + T("Все файлы") + " (*.*)|*.*",
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
             };
             if (dlg.ShowDialog(window) != true) return;
@@ -296,20 +300,36 @@ namespace ZapretLauncher
         {
             TextBlock info = Text("VpnInfo");
             VpnServer server;
-            try { server = Awg.FromConf(conf, fileName); }
+            try { server = WireGuard.Import(conf, fileName); }
             catch (Exception e) { info.Text = T(e.Message); return; }
             // тот же файл скачали заново (старый Amnezia отключает) — заменяем, а не добавляем второй
-            int same = cfg.VpnServers.FindIndex(s => Awg.IsAwg(s.Link) && s.Name == server.Name);
+            int same = cfg.VpnServers.FindIndex(s => string.IsNullOrEmpty(s.SubscriptionId)
+                && (Awg.IsAwg(s.Link) || WireGuard.IsLink(s.Link)) && s.Name == server.Name);
             if (same >= 0) cfg.VpnServers[same] = server;
             else if (!cfg.VpnServers.Any(s => s.Link == server.Link)) cfg.VpnServers.Add(server);
-            info.Text = T(same >= 0 ? "Сервер AmneziaWG обновлён" : "Добавлен сервер AmneziaWG") + ": " + Vpn.DisplayName(server.Name) + ". " +
+            info.Text = T(same >= 0 ? "Сервер обновлён" : "Сервер добавлен") + ": " + Vpn.DisplayName(server.Name) + ". " +
                         T("Ключи хранятся только на этом компьютере, в настройках лаунчера");
-            Log.Write("VPN: " + (same >= 0 ? "обновлён" : "добавлен") + " сервер AmneziaWG — " + server.Name);
+            Log.Write("VPN: " + (same >= 0 ? "обновлён" : "добавлен") + " сервер из файла");
             await ApplyVpnChanges();
         }
 
         async Task StartVpn(bool quiet)
         {
+            ResetVpnHealth();
+            try { await StartVpnCore(quiet); }
+            catch (Exception e)
+            {
+                vpnRunning = Vpn.Running;
+                vpnHealthIssue = ZapretLauncher.VpnHealth.Advice(e.ToString(), true);
+                Log.Write("VPN: " + Report.SanitizeVpn(e.Message, cfg));
+                RefreshVpnHealthUi();
+                throw new Exception(T(vpnHealthIssue), e);
+            }
+        }
+
+        async Task StartVpnCore(bool quiet)
+        {
+            bool reconnecting = cfg.VpnOn && vpnConnectedAt.HasValue;
             // автовыбор: перед подключением — самый быстрый сервер
             if (cfg.VpnAutoBest && cfg.VpnServers.Count > 1 && !quiet)
             {
@@ -323,8 +343,53 @@ namespace ZapretLauncher
             if (other != null) throw new Exception(T("Сейчас включён другой VPN") + " (" + other + "). " + T("Выключите его — два VPN одновременно мешают друг другу."));
             vpnLastStart = DateTime.Now;
             string key = VpnKey();
-            await Vpn.Start(server, cfg.VpnMode, cfg.VpnDomains, cfg.VpnApps);
+            int revision = vpnRouteRevision;
+            string mode = cfg.VpnMode;
+            string[] domains = cfg.VpnDomains.ToArray(), apps = cfg.VpnApps.ToArray();
+            string[] scope = cfg.VpnKillSwitch ? VpnFirewall.AppScope(cfg.VpnProtectedApps) : new string[0];
+            bool protect = scope.Length > 0;
+            apps = apps.Union(scope, StringComparer.OrdinalIgnoreCase).ToArray();
+            if (!protect && VpnFirewall.Enabled) VpnFirewall.Clear();
+            if (protect)
+            {
+                VpnFirewall.ApplyScoped(true, 0, scope);
+                cfg.VpnOn = true;
+                cfg.Save();
+                if (!(mode == "all" && Awg.IsAwg(server.Link)) && Vpn.Version == null) await Vpn.Install(await Vpn.Latest());
+                if (Awg.IsAwg(server.Link) && Awg.Version == null) await Awg.Install(await Awg.Latest());
+                if (Vpn.NeedsXray(server.Link) && Vpn.XrayVersion == null) await Vpn.InstallXray(await Vpn.XrayLatest());
+            }
+            if (revision != vpnRouteRevision) { vpnRestartPending = true; return; }
+            if (protect) VpnFirewall.ApplyScoped(true, 0, scope);
+            await Vpn.Start(server, mode, domains, apps);
+            if (revision != vpnRouteRevision)
+            {
+                cfg.VpnOn = true;
+                cfg.Save();
+                vpnRestartPending = true;
+                vpnRunning = false;
+                await Vpn.Stop();
+                return;
+            }
+            if (protect)
+            {
+                Exception failure = null;
+                try
+                {
+                    ulong tunnel = VpnFirewall.TunnelLuid();
+                    if (tunnel == 0) throw new InvalidOperationException("Адаптер VPN не появился — подключение отменено");
+                    VpnFirewall.ApplyScoped(true, tunnel, scope);
+                }
+                catch (Exception e) { failure = e; }
+                if (failure != null)
+                {
+                    try { await Vpn.Stop(); }
+                    catch (Exception e) { Log.Write("VPN: " + e.Message); }
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+                }
+            }
             vpnActive = key;
+            vpnAppliedRevision = revision;
             vpnRunning = true;
             vpnLocked = false;
             vpnLockShown = false;
@@ -334,45 +399,87 @@ namespace ZapretLauncher
             cfg.VpnHelpDone = true;   // подключились — подсказка «Как начать» больше не нужна
             cfg.VpnOn = true;
             cfg.Save();
-            Log.Write("VPN подключён: " + server.Name + " (" + VpnInfo.ModeName(cfg.VpnMode) + ")");   // и при переподключении — видно, через какой сервер идёт трафик
-            if (Awg.IsAwg(server.Link)) { Task check = AwgSelfCheck(); }   // в фоне: VPN уже подключён, ждать проверку незачем
+            SetConnectionEvent(reconnecting ? "VPN переподключился" : "VPN подключён", Vpn.DisplayName(server.Name) + " · " + T(VpnInfo.ModeName(cfg.VpnMode)));
+            Task check = CheckVpnTraffic();
         }
 
-        // После подключения к AmneziaWG: открывается ли сайт через VPN, а если нет — где обрыв (до туннеля, на сервере или дальше); итог — в журнал
-        async Task AwgSelfCheck()
+        int vpnHealthGeneration;
+        bool vpnHealthChecking;
+        int vpnVerifiedMs = -1;
+        string vpnHealthIssue;
+
+        void ResetVpnHealth()
         {
-            try
+            vpnHealthGeneration++;
+            vpnHealthChecking = false;
+            vpnVerifiedMs = -1;
+            vpnHealthIssue = null;
+            RefreshVpnHealthUi();
+        }
+
+        async Task CheckVpnTraffic()
+        {
+            if (!vpnRunning || vpnHealthChecking || quitting) return;
+            ResetVpnHealth();
+            int generation = vpnHealthGeneration;
+            vpnHealthChecking = true;
+            RefreshVpnHealthUi();
+            // Сравниваем записи до и после проверки: старая ошибка могла относиться к другому запросу.
+            string before = await Task.Run(() => Vpn.LastLogLine());
+            int ms = -1;
+            try { ms = await Vpn.VerifyTraffic(); }
+            catch (Exception) { }
+            string after = ms < 0 ? await Task.Run(() => Vpn.LastLogLine()) : null;
+            if (generation != vpnHealthGeneration) return;
+            vpnHealthChecking = false;
+            if (quitting) return;
+            vpnVerifiedMs = Vpn.Running ? ms : -1;
+            vpnHealthIssue = vpnVerifiedMs < 0 ? ZapretLauncher.VpnHealth.Advice(before == after || AwgDirect ? null : after, false) : null;
+            Log.Write(vpnHealthIssue ?? ("Проверочный запрос прошёл через VPN: " + vpnVerifiedMs + " " + T("мс")));
+            RefreshVpnHealthUi();
+        }
+
+        async Task RetryVpnHealth()
+        {
+            if (busy || quitting) return;
+            if (vpnRunning && !VpnSwitching) await CheckVpnTraffic();
+            else
             {
-                await Task.Delay(1500);
-                string tunnel = Awg.ActiveTunnel;
-                if (tunnel == null) return;
-                // в режимах «Только выбранное» и «Россия напрямую» — запрос через выход sing-box в туннель, как у сайтов из списка
-                int ms = tunnel == Awg.ChainTunnel ? await Vpn.CurrentDelay() : await Awg.Delay();
-                Awg.TunnelStats st = await Task.Run(() => Awg.Stats(tunnel));
-                string bytes = st == null ? "" : " (" + T("на сервер") + " " + st.Tx + " " + T("Б") + ", " + T("от сервера") + " " + st.Rx + " " + T("Б") + ")";
-                if (ms >= 0) { Log.Write("AmneziaWG: проверка — сайт через VPN открылся за " + ms + " мс" + bytes); return; }
-                string why = st == null ? "AmneziaWG не ответил на запрос статистики"
-                    : st.Tx == 0 ? "трафик не попал в туннель AmneziaWG"
-                    : st.Rx == 0 ? "сервер AmneziaWG не отвечает — файл настроек мог устареть: скачайте его в приложении Amnezia заново"
-                    : "связь с сервером AmneziaWG есть, но сайт через VPN не открылся";
-                Log.Write("AmneziaWG: проверка не прошла — " + why + bytes);
-                string tail = await Task.Run(() => Awg.LogTail(12));
-                if (tail != null) Log.Write("AmneziaWG, журнал ядра: " + tail);
-                Notify("AmneziaWG: " + T(why));
+                await RunBusy(StartVpnOrLock, "VPN…");
+                RefreshVpnUi();
             }
-            catch (Exception e) { Log.Write("AmneziaWG: проверка не удалась — " + e.Message); }
+        }
+
+        void RefreshVpnHealthUi()
+        {
+            bool ready = vpnRunning && !VpnSwitching;
+            bool issue = vpnHealthIssue != null;
+            Text("VpnStatus").Text = T(ready ? (vpnVerifiedMs >= 0 ? "Подключён" : "Туннель запущен")
+                : VpnProtectionBlocking ? "Трафик приостановлен" : cfg.VpnOn ? "VPN переподключается…" : "VPN выключен");
+            Text("VpnHealthText").Text = ready && vpnHealthChecking ? T("Проверяю трафик через VPN…")
+                : ready && vpnVerifiedMs >= 0 ? T("Проверочный запрос прошёл через VPN") + " · " + vpnVerifiedMs + " " + T("мс")
+                : issue ? T(vpnHealthIssue) : T("Трафик через VPN ещё не проверен");
+            E<FrameworkElement>("VpnHealthPanel").Visibility = ready || issue ? Visibility.Visible : Visibility.Collapsed;
+            Button retry = E<Button>("BtnVpnHealth");
+            retry.Content = T(ready ? "Повторить проверку" : "Повторить подключение");
+            retry.IsEnabled = !vpnHealthChecking && !busy;
+            E<Button>("BtnVpnHealthServers").Visibility = issue && cfg.VpnServers.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+            E<Ellipse>("VpnDot").SetResourceReference(Shape.FillProperty,
+                ready && vpnVerifiedMs >= 0 ? "Ok" : vpnLocked || issue ? "Fail" : ready || cfg.VpnOn ? "Wait" : "Idle");
         }
 
         async Task StopVpn()
         {
+            ResetVpnHealth();
             cfg.VpnOn = false;
             cfg.Save();
+            await Task.Run(() => VpnFirewall.Clear());
             await Vpn.Stop();
             vpnRunning = false;
             vpnActive = null;
             vpnLocked = false;   // выключили сами — блокировка тоже снимается
             vpnLockShown = false;
-            Log.Write("VPN отключён");
+            SetConnectionEvent("VPN отключён");
         }
 
         async Task ToggleVpn()
@@ -382,7 +489,7 @@ namespace ZapretLauncher
             try
             {
                 if (wasOn) await RunBusy(StopVpn, "VPN…");
-                else await RunBusy(() => StartVpn(false), "VPN…");
+                else await RunBusy(() => StartVpnOrLock(false), "VPN…");
             }
             finally { VpnBusy(false); }
             if (!wasOn && vpnRunning) VpnFlash();
@@ -409,6 +516,7 @@ namespace ZapretLauncher
         // Изменились серверы, режим или списки — работающий VPN перезапускаем с новыми настройками
         async Task ApplyVpnChanges()
         {
+            vpnRouteRevision++;
             cfg.Save();
             RefreshVpnUi();
             // по cfg.VpnOn, а не vpnRunning: пока VPN переподключается, vpnRunning на мгновение false — и смена сервера терялась
@@ -420,74 +528,113 @@ namespace ZapretLauncher
         // Ядро VPN упало, а VPN должен работать — перезапускаем (не чаще раза в 30 секунд, после двух неудач — сдаёмся)
         async Task VpnGuard()
         {
+            if (busy || quitting) return;
             vpnRunning = Vpn.Running;
-            vpnLocked = !vpnRunning && Vpn.Locked;
+            vpnLocked = !vpnRunning && (Vpn.Locked || (cfg.VpnOn && VpnFirewall.Enabled));
             if (cfg.VpnOn && VpnSwitching && !busy && !vpnRestartPending)
             {
                 // подключён не тот сервер или режим, что выбран (смену не успели применить) — переподключаемся
-                Log.Write("VPN: подключён не выбранный сервер — переподключаюсь к " + CurrentServer.Name);
-                await RunBusy(() => StartVpn(true), "VPN…");
+                await RunBusy(StartVpnOrLock, "VPN…");
                 RefreshVpnUi();
                 return;
             }
-            // при блокировке пробуем подключиться реже — каждая попытка ненадолго её снимает
-            if (!cfg.VpnOn || vpnRunning || busy || CurrentServer == null || (DateTime.Now - vpnLastStart).TotalSeconds < (vpnLocked ? 120 : 30)) return;
-            bool wasLocked = vpnLocked;
-            if (!wasLocked) Log.Write("VPN: ядро не работает — перезапускаю (" + Vpn.LastLogLine() + ")");
-            Exception error = null;
-            try { await StartVpn(true); }
-            catch (Exception e) { error = e; }
-            if (error == null) { if (wasLocked) Notify("VPN снова работает — блокировка снята"); }
-            else if (cfg.VpnKillSwitch) await LockVpn(error.Message);
-            else if (++vpnFails >= 2)
+            // При блокировке переподключаемся реже. Политика Windows остаётся включённой.
+            if (!cfg.VpnOn || CurrentServer == null) { vpnCheckAfterResume = false; return; }
+            if (vpnCheckAfterResume && vpnRunning)
             {
-                cfg.VpnOn = false;
-                cfg.Save();
-                Notify("VPN не удалось перезапустить: " + error.Message);
+                vpnCheckAfterResume = false;
+                int revision = vpnRouteRevision;
+                int generation = vpnHealthGeneration;
+                int result = await Vpn.VerifyTraffic();
+                if (quitting || busy || !cfg.VpnOn || revision != vpnRouteRevision || generation != vpnHealthGeneration || result >= 0) return;
+                await RunBusy(StartVpnOrLock, "VPN…");
+                return;
             }
-            RefreshVpnUi();
+            if (vpnRunning || (!vpnCheckAfterResume && (DateTime.Now - vpnLastStart).TotalSeconds < (vpnLocked ? 120 : 30))) return;
+            vpnCheckAfterResume = false;
+            bool wasLocked = vpnLocked;
+            await RunBusy(async () =>
+            {
+                if (!wasLocked) Log.Write("VPN: ядро не работает — перезапускаю (" + Vpn.LastLogLine() + ")");
+                Exception error = null;
+                try { await StartVpn(true); }
+                catch (Exception e) { error = e; }
+                if (error == null) { if (wasLocked && vpnRunning) Notify("VPN снова работает — блокировка снята"); }
+                else if (VpnFirewall.Enabled) LockVpn(error.Message);
+                else if (++vpnFails >= 2)
+                {
+                    cfg.VpnOn = false;
+                    cfg.Save();
+                    Notify("VPN не удалось перезапустить: " + error.Message);
+                }
+                RefreshVpnUi();
+            }, "VPN…");
         }
 
         // Переподключение после смены сервера, режима или списков: не вышло, а включено «не пускать мимо VPN» — блокировка
-        async Task StartVpnOrLock()
+        Task StartVpnOrLock() { return StartVpnOrLock(true); }
+
+        async Task StartVpnOrLock(bool quiet)
         {
             Exception error = null;
-            try { await StartVpn(true); }
+            try { await StartVpn(quiet); }
             catch (Exception e) { error = e; }
             if (error == null) return;
-            if (!cfg.VpnKillSwitch) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
-            await LockVpn(error.Message);
+            if (!cfg.VpnKillSwitch || !VpnFirewall.Enabled) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            LockVpn(error.Message);
         }
 
         // ---------- «Не пускать мимо VPN» ----------
-        bool vpnLocked;      // вместо VPN работает блокировка (Vpn.StartLock)
+        bool vpnLocked;      // Windows продолжает блокировать прямые подключения
         bool vpnLockShown;   // о блокировке уже сообщили — при каждой новой попытке подключиться не повторяем
+        bool vpnCheckAfterResume;
 
-        // VPN не поднимается — вместо него ядро-блокировка: сайты и программы из списка не уходят напрямую
-        async Task LockVpn(string reason)
+        void ApplyVpnFirewall(bool enabled)
         {
-            try { await Vpn.StartLock(cfg.VpnMode, cfg.VpnDomains, cfg.VpnApps); }
+            string[] scope = VpnFirewall.AppScope(cfg.VpnProtectedApps);
+            bool active = enabled && scope.Length > 0;
+            VpnFirewall.ApplyScoped(active, 0, scope);
+        }
+
+        void LockVpn(string reason)
+        {
+            try
+            {
+                ApplyVpnFirewall(true);
+            }
             catch (Exception e)
             {
-                // без блокировки остаётся только выключить VPN, как раньше, и честно сказать об этом
+                // WFP остаётся включённым даже при отказе запасного ядра блокировки.
                 Log.Write("VPN: не удалось включить блокировку — " + e.Message);
-                cfg.VpnOn = false;
+                cfg.VpnOn = VpnFirewall.Enabled;
                 cfg.Save();
+                vpnRunning = false;
+                vpnLocked = VpnFirewall.Enabled;
                 Notify("VPN не удалось перезапустить: " + reason);
                 return;
             }
             vpnRunning = false;
-            vpnLocked = true;
-            if (vpnLockShown) return;
+            vpnLocked = VpnFirewall.Enabled;
+            if (!vpnLocked || vpnLockShown) return;
             vpnLockShown = true;
             Log.Write("VPN не работает (" + reason + ") — " + LockText());
+            SetConnectionEvent(LockText());
             Notify(T("VPN не работает") + " — " + T(LockText()));
+        }
+
+        bool VpnProtectionBlocking { get { return VpnFirewall.Enabled && !vpnRunning; } }
+
+        string VpnProtectionStatus()
+        {
+            if (VpnProtectionBlocking) return T(LockText());
+            if (VpnFirewall.Enabled)
+                return T("Защита активна для выбранных программ");
+            return T(!cfg.VpnKillSwitch ? "Защита выключена" : cfg.VpnProtectedApps.Count == 0 ? "Выберите программы для защиты." : cfg.VpnOn ? "Защита ещё не активна" : "Защита включится при запуске VPN");
         }
 
         string LockText()
         {
-            return cfg.VpnMode == "split" ? "сайты и программы из списка заблокированы, пока VPN не заработает"
-                                          : "всё, что шло через VPN, заблокировано, пока он не заработает";
+            return "Интернет для выбранных программ на паузе, пока VPN не заработает";
         }
 
         async Task AddVpnServers()
@@ -497,42 +644,90 @@ namespace ZapretLauncher
             TextBlock info = Text("VpnInfo");
             bool subscription = text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
             info.Text = T(subscription ? "Загружаю подписку…" : "Проверяю ключ…");
-            List<VpnServer> found;
-            try { found = await Vpn.Parse(text); }
-            catch (Exception e) { info.Text = T(e.Message); return; }
             if (subscription)
             {
-                cfg.VpnSubscription = text;
-                cfg.VpnSubInfo = Vpn.LastUserInfo ?? "";
-                cfg.VpnSubUpdated = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                cfg.VpnServers = found.Concat(cfg.VpnServers.Where(s => Awg.IsAwg(s.Link))).ToList();   // подписка заменяет список (серверы AmneziaWG остаются)
-                cfg.VpnSelected = 0;
+                var feed = cfg.VpnSubscriptions.FirstOrDefault(item => item.Url == text)
+                    ?? new VpnSubscription { Id = Guid.NewGuid().ToString("N"), Url = text };
+                if (!await RefreshSubscription(feed, true)) return;
             }
-            else foreach (VpnServer s in found) if (!cfg.VpnServers.Any(x => x.Link == s.Link)) cfg.VpnServers.Add(s);
-            info.Text = T("Добавлено серверов") + ": " + found.Count + ". " + T("Ключи хранятся только на этом компьютере, в настройках лаунчера");
-            E<TextBox>("VpnInput").Text = "";
-            Log.Write("VPN: добавлено серверов — " + found.Count + (subscription ? " (из подписки)" : ""));
-            await ApplyVpnChanges();
+            else
+            {
+                List<VpnServer> found;
+                try { found = await Vpn.Parse(text); }
+                catch (Exception e) { info.Text = T(e.Message); return; }
+                VpnServer selected = CurrentServer;
+                foreach (VpnServer server in found)
+                    if (!cfg.VpnServers.Any(s => s.Link == server.Link && string.IsNullOrEmpty(s.SubscriptionId))) cfg.VpnServers.Add(server);
+                info.Text = T("Добавлено серверов") + ": " + found.Count;
+                await SaveSubscriptionChanges(selected);
+            }
+            if (E<TextBox>("VpnInput").Text.Trim() == text) E<TextBox>("VpnInput").Text = "";
         }
 
-        async Task RefreshSubscription()
+        readonly HashSet<string> subscriptionDownloads = new HashSet<string>(StringComparer.Ordinal);
+        bool maintainingSubscriptions;
+
+        async Task RunSubscriptionMaintenance(bool refresh)
         {
-            if (cfg.VpnSubscription.Length == 0) return;
+            if (maintainingSubscriptions || quitting || exiting) return;
+            maintainingSubscriptions = true;
             try
             {
-                List<VpnServer> found = await Vpn.Parse(cfg.VpnSubscription);
-                string current = CurrentServer == null ? null : CurrentServer.Link;
-                cfg.VpnServers = found.Concat(cfg.VpnServers.Where(s => Awg.IsAwg(s.Link))).ToList();   // серверы AmneziaWG — не из подписки, их не трогаем
-                cfg.VpnSubInfo = Vpn.LastUserInfo ?? "";
-                cfg.VpnSubUpdated = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                int keep = found.FindIndex(s => s.Link == current);
-                cfg.VpnSelected = keep >= 0 ? keep : 0;
-                Text("VpnInfo").Text = T("Подписка обновлена, серверов") + ": " + found.Count;
-                await ApplyVpnChanges();
-                await CheckSubscription();
+                if (refresh) await RefreshSubscriptions();
+                else await CheckSubscription();
             }
-            catch (Exception e) { Text("VpnInfo").Text = T(e.Message); }
+            catch (Exception e) { Log.Write("VPN: " + Report.SanitizeVpn(e.Message, cfg)); }
+            finally { maintainingSubscriptions = false; }
         }
+
+        async Task<bool> RefreshSubscription(VpnSubscription feed, bool add = false)
+        {
+            if (!subscriptionDownloads.Add(feed.Url)) return false;
+            try
+            {
+                string info = null;
+                List<VpnServer> found = await Vpn.Parse(feed.Url, value => info = value);
+                if (quitting || exiting) return false;
+                if (!cfg.VpnSubscriptions.Contains(feed))
+                {
+                    if (!add) return false;
+                    cfg.VpnSubscriptions.Add(feed);
+                }
+                VpnServer selected = CurrentServer;
+                feed.ReplaceServers(cfg, found);
+                feed.Info = info;
+                feed.Updated = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                Text("VpnInfo").Text = feed.Host + " · " + T("Подписка обновлена, серверов") + ": " + found.Count;
+                await SaveSubscriptionChanges(selected);
+                if (cfg.VpnSubscriptions.Contains(feed)) WarnSubscription(feed);
+                return true;
+            }
+            catch (Exception e)
+            {
+                Text("VpnInfo").Text = feed.Host + " · " + Report.Sanitize(e.Message, feed.Url, Report.ServerHosts(cfg));
+                return false;
+            }
+            finally { subscriptionDownloads.Remove(feed.Url); }
+        }
+
+        async Task SaveSubscriptionChanges(VpnServer previous)
+        {
+            VpnServer selected = CurrentServer;
+            if ((previous == null ? null : previous.Link) == (selected == null ? null : selected.Link))
+            {
+                cfg.Save();
+                RefreshVpnUi();
+            }
+            else await ApplyVpnChanges();
+        }
+
+        async Task RefreshSubscriptions()
+        {
+            foreach (VpnSubscription feed in cfg.VpnSubscriptions.ToList())
+                if (!quitting && !exiting && cfg.VpnSubscriptions.Contains(feed) && feed.IsStale(DateTime.Now, 24))
+                    await RefreshSubscription(feed);
+        }
+
 
         // Флаг страны картинкой; если страну не понять — значок глобуса
         static FrameworkElement FlagElement(string code, double w, double h)
@@ -552,6 +747,8 @@ namespace ZapretLauncher
             return b;
         }
 
+        string vpnSource;
+        bool vpnFavoritesOnly;
         string vpnTab;   // открытая вкладка страны в списке серверов ("" — серверы без страны)
 
         // Вкладка страны: флаг, название, число серверов; открытая подсвечена, у страны текущего сервера — точка
@@ -590,8 +787,10 @@ namespace ZapretLauncher
             FrameworkElement flag = FlagElement(code, 24, 16);
             flag.Margin = new Thickness(0, 0, 11, 0);
             row.Children.Add(flag);
+            VpnSubscription source = cfg.VpnSubscriptions.FirstOrDefault(feed => feed.Id == s.SubscriptionId);
             TextBlock name = new TextBlock { Text = Vpn.DisplayName(s.Name), FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-                                             ToolTip = s.Link.Substring(0, s.Link.IndexOf("://") + 3) + "…", Margin = new Thickness(0, 0, SpeedOf(s) > 0 ? 150 : 70, 0) };
+                                             ToolTip = source == null ? s.Link.Substring(0, s.Link.IndexOf("://") + 3) + "…" : SubscriptionTitle(source),
+                                             Margin = new Thickness(0, 0, SpeedOf(s) > 0 ? 150 : vpnPing.ContainsKey(s.Link) ? 70 : 4, 0) };
             if (selected) name.FontWeight = FontWeights.SemiBold;
             Grid.SetColumn(name, 1);
             row.Children.Add(name);
@@ -631,78 +830,146 @@ namespace ZapretLauncher
             del.Click += async (o, e) =>
             {
                 e.Handled = true;
-                cfg.VpnServers.RemoveAt(index);
-                if (cfg.VpnSelected >= cfg.VpnServers.Count) cfg.VpnSelected = Math.Max(0, cfg.VpnServers.Count - 1);
-                if (cfg.VpnServers.Count == 0) { cfg.VpnSubscription = ""; cfg.VpnSubInfo = ""; if (vpnRunning) await RunBusy(StopVpn, "VPN…"); }
-                await ApplyVpnChanges();
+                await RemoveVpnServers(s, null);
             };
-            Grid.SetColumn(del, 2);
-            row.Children.Add(del);
+            var actions = new StackPanel { Orientation = Orientation.Horizontal };
+            Button star = new Button { Content = s.Favorite ? "★" : "☆", Width = 28, Height = 28, FontSize = 17, FontFamily = SystemFonts.MessageFontFamily,
+                                       ToolTip = T(s.Favorite ? "Убрать из избранного" : "Добавить в избранное") };
+            star.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
+            if (s.Favorite) star.SetResourceReference(Control.ForegroundProperty, "Accent");
+            System.Windows.Automation.AutomationProperties.SetName(star, (string)star.ToolTip);
+            star.Click += (o, e) =>
+            {
+                e.Handled = true;
+                s.Favorite = !s.Favorite;
+                cfg.Save();
+                RefreshVpnUi();
+            };
+            actions.Children.Add(star);
+            actions.Children.Add(del);
+            Grid.SetColumn(actions, 2);
+            row.Children.Add(actions);
             Border card = new Border { Child = row, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 7, 8, 7), Margin = new Thickness(0, 0, 0, 6), Cursor = Cursors.Hand, BorderThickness = new Thickness(1.5) };
             card.SetResourceReference(Border.BackgroundProperty, selected ? "AccentSoft" : "Card");
             card.SetResourceReference(Border.BorderBrushProperty, selected ? "Accent" : "Card");
             card.MouseLeftButtonUp += async delegate
             {
-                if (cfg.VpnSelected == index) return;
+                if (actions.IsMouseOver || cfg.VpnSelected == index) return;
                 cfg.VpnSelected = index;
                 await ApplyVpnChanges();
             };
             return card;
         }
 
-        // Карточка подписки: сколько трафика использовано из скольких и до какого числа оплачено
+        async Task RemoveVpnServers(VpnServer server, VpnSubscription feed)
+        {
+            VpnServer selected = CurrentServer;
+            if (feed == null) cfg.VpnServers.Remove(server);
+            else
+            {
+                cfg.VpnSubscriptions.Remove(feed);
+                cfg.VpnServers.RemoveAll(s => s.SubscriptionId == feed.Id);
+            }
+            cfg.VpnSelected = VpnSubscription.Selection(cfg.VpnServers, selected);
+            if (cfg.VpnServers.Count == 0 && cfg.VpnOn) await RunBusy(StopVpn, "VPN…");
+            await SaveSubscriptionChanges(selected);
+        }
+
+        Button VpnSourceButton(string name, bool selected, Action choose)
+        {
+            var button = new Button { Content = new TextBlock { Text = name, TextWrapping = TextWrapping.Wrap },
+                HorizontalContentAlignment = HorizontalAlignment.Left, MinHeight = 32, Margin = new Thickness(0, 0, 0, 4) };
+            button.SetResourceReference(FrameworkElement.StyleProperty, selected ? "AccentButton" : "GhostButton");
+            System.Windows.Automation.AutomationProperties.SetName(button, name);
+            button.Click += delegate { choose(); RefreshVpnUi(); };
+            return button;
+        }
+
         void RenderSubscription()
         {
-            Vpn.SubscriptionInfo info = cfg.VpnSubscription.Length > 0 ? Vpn.ParseUserInfo(cfg.VpnSubInfo) : null;
-            E<FrameworkElement>("VpnSubCard").Visibility = info != null ? Visibility.Visible : Visibility.Collapsed;
-            if (info == null) return;
-            Text("VpnSubText").Text = info.Total > 0
-                ? T("Использовано") + " " + Formats.Bytes(info.Used) + " " + T("из") + " " + Formats.Bytes(info.Total)
-                : T("Использовано") + " " + Formats.Bytes(info.Used) + " · " + T("без лимита");
-            TextBlock exp = Text("VpnSubExpire");
-            if (info.Expire.HasValue)
+            var list = E<StackPanel>("VpnSubscriptionList");
+            list.Children.Clear();
+            bool manual = cfg.VpnServers.Any(s => string.IsNullOrEmpty(s.SubscriptionId));
+            if (vpnSource == "" ? !manual : vpnSource != null && !cfg.VpnSubscriptions.Any(s => s.Id == vpnSource))
+                vpnSource = null;
+            list.Children.Add(VpnSourceButton(T("Все серверы"), vpnSource == null, () => { vpnSource = null; vpnTab = null; }));
+            if (manual && cfg.VpnSubscriptions.Count > 0)
+                list.Children.Add(VpnSourceButton(T("Ручные ключи"), vpnSource == "", () => { vpnSource = ""; vpnTab = null; }));
+            foreach (VpnSubscription feed in cfg.VpnSubscriptions)
             {
-                double days = (info.Expire.Value - DateTime.Now).TotalDays;
-                exp.Text = days < 0 ? T("подписка закончилась") : T("до") + " " + info.Expire.Value.ToString("dd.MM.yyyy") + (days < 7 ? " · " + T("осталось дней") + ": " + (int)Math.Ceiling(days) : "");
-                exp.SetResourceReference(TextBlock.ForegroundProperty, days < 0 ? "Fail" : days < 3 ? "Wait" : "Muted");
-            }
-            else exp.Text = T("бессрочно");
-            Border bar = E<Border>("VpnSubBar");
-            E<FrameworkElement>("VpnSubBarBg").Visibility = info.Total > 0 ? Visibility.Visible : Visibility.Collapsed;
-            if (info.Total > 0)
-            {
-                double ratio = Math.Min(1, (double)info.Used / info.Total);
-                subRatio = ratio;
-                bar.Width = Math.Max(0, E<FrameworkElement>("VpnSubBarBg").ActualWidth * ratio);
-                bar.SetResourceReference(Border.BackgroundProperty, ratio > 0.9 ? "Fail" : ratio > 0.75 ? "Wait" : "Accent");
+                string title = (cfg.VpnSubscriptions.Count(f => f.Host == feed.Host) > 1 ? SubscriptionTitle(feed) : feed.Host)
+                    + " · " + cfg.VpnServers.Count(s => s.SubscriptionId == feed.Id);
+                list.Children.Add(VpnSourceButton(title, vpnSource == feed.Id, () => { vpnSource = feed.Id; vpnTab = null; }));
+                if (vpnSource != feed.Id) continue;
+                var panel = new StackPanel();
+                Vpn.SubscriptionInfo info = Vpn.ParseUserInfo(feed.Info);
+                if (info != null)
+                {
+                    string traffic = T("Использовано") + " " + Formats.Bytes(info.Used) + (info.Total > 0
+                        ? " " + T("из") + " " + Formats.Bytes(info.Total) : " · " + T("без лимита"));
+                    string expires = info.Expire.HasValue ? T("до") + " " + info.Expire.Value.ToString("dd.MM.yyyy") : T("бессрочно");
+                    var details = new TextBlock { Text = traffic + " · " + expires, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
+                    details.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                    panel.Children.Add(details);
+                    if (info.Total > 0)
+                    {
+                        double ratio = Math.Max(0, Math.Min(1, (double)info.Used / info.Total));
+                        var bar = new Border { CornerRadius = new CornerRadius(3), HorizontalAlignment = HorizontalAlignment.Left };
+                        bar.SetResourceReference(Border.BackgroundProperty, ratio > 0.9 ? "Fail" : ratio > 0.75 ? "Wait" : "Accent");
+                        var track = new Border { Child = bar, Height = 6, CornerRadius = new CornerRadius(3), Margin = new Thickness(0, 6, 0, 0) };
+                        track.SetResourceReference(Border.BackgroundProperty, "IconBg");
+                        track.SizeChanged += (sender, e) => bar.Width = e.NewSize.Width * ratio;
+                        panel.Children.Add(track);
+                    }
+                }
+
+                var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+                var refresh = new Button { Content = T("Обновить"), Margin = new Thickness(0, 0, 4, 0) };
+                refresh.SetResourceReference(FrameworkElement.StyleProperty, "GhostButton");
+                refresh.Click += async delegate { if (cfg.VpnSubscriptions.Contains(feed)) await RefreshSubscription(feed); };
+                var delete = new Button { Content = T("Удалить") };
+                delete.SetResourceReference(FrameworkElement.StyleProperty, "GhostButton");
+                delete.Click += async delegate
+                {
+                    if (subscriptionDownloads.Contains(feed.Url)) return;
+                    if (MessageBox.Show(T("Удалить подписку и её серверы?") + "\n" + SubscriptionTitle(feed),
+                        "VPN", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes && !subscriptionDownloads.Contains(feed.Url))
+                        await RemoveVpnServers(null, feed);
+                };
+                buttons.Children.Add(refresh);
+                buttons.Children.Add(delete);
+                panel.Children.Add(buttons);
+                var card = new Border { Child = panel, CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 9, 12, 9), Margin = new Thickness(0, 0, 0, 8) };
+                card.SetResourceReference(Border.BackgroundProperty, "Card");
+                list.Children.Add(card);
             }
         }
 
-        double subRatio;   // доля использованного трафика подписки — для полоски
+        string SubscriptionTitle(VpnSubscription feed)
+        {
+            return T("Подписка") + " " + (cfg.VpnSubscriptions.IndexOf(feed) + 1) + " · " + feed.Host;
+        }
 
-        // Раз в час и после обновления подписки: новый этап — одно уведомление. Перед ним — свежие сведения о подписке
-        // (только заголовок со сроком и трафиком; серверы и VPN не трогаем), если они старше часа: вдруг её уже продлили
+        void WarnSubscription(VpnSubscription feed)
+        {
+            var warnings = VpnInfo.SubscriptionWarnings(Vpn.ParseUserInfo(feed.Info), DateTime.Now);
+            var warned = new HashSet<string>((feed.Warned ?? "").Split('|'));
+            foreach (var warning in warnings)
+                if (!warned.Contains(warning.Key)) Notify(SubscriptionTitle(feed) + "\n" + warning.Value, new[] { "Открыть VPN", "vpn-page" });
+            string joined = string.Join("|", warnings.Keys);
+            if (joined != (feed.Warned ?? "")) { feed.Warned = joined; cfg.Save(); }
+        }
+
         async Task CheckSubscription()
         {
-            if (cfg.VpnSubscription.Length == 0) return;
-            HashSet<string> warned = new HashSet<string>((cfg.VpnSubWarned ?? "").Split('|').Where(k => k.Length > 0));
-            Dictionary<string, string> now = VpnInfo.SubscriptionWarnings(Vpn.ParseUserInfo(cfg.VpnSubInfo), DateTime.Now);
-            DateTime updated;
-            bool stale = !DateTime.TryParse(cfg.VpnSubUpdated, out updated) || (DateTime.Now - updated).TotalHours >= 1;
-            if (stale && now.Keys.Any(k => !warned.Contains(k)))
+            foreach (VpnSubscription feed in cfg.VpnSubscriptions.ToList())
             {
-                try
-                {
-                    await Vpn.Parse(cfg.VpnSubscription);
-                    if (Vpn.LastUserInfo != null) { cfg.VpnSubInfo = Vpn.LastUserInfo; RenderSubscription(); }
-                }
-                catch { }
-                now = VpnInfo.SubscriptionWarnings(Vpn.ParseUserInfo(cfg.VpnSubInfo), DateTime.Now);
+                if (!cfg.VpnSubscriptions.Contains(feed)) continue;
+                var warnings = VpnInfo.SubscriptionWarnings(Vpn.ParseUserInfo(feed.Info), DateTime.Now);
+                if (feed.IsStale(DateTime.Now, 1) && warnings.Keys.Except((feed.Warned ?? "").Split('|')).Any())
+                    await RefreshSubscription(feed);
+                if (cfg.VpnSubscriptions.Contains(feed)) WarnSubscription(feed);
             }
-            foreach (KeyValuePair<string, string> kv in now)
-                if (!warned.Contains(kv.Key)) Notify(kv.Value, new[] { "Открыть VPN", "vpn-page" });
-            string joined = string.Join("|", now.Keys);
-            if (joined != (cfg.VpnSubWarned ?? "")) { cfg.VpnSubWarned = joined; cfg.Save(); }
         }
     }
 }

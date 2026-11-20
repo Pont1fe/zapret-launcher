@@ -49,16 +49,16 @@ namespace ZapretLauncher
             });
         }
 
-        public static async Task<bool> DnsLooksRight()
+        public static async Task<bool> DnsLooksRight(System.Threading.CancellationToken cancellation = default(System.Threading.CancellationToken))
         {
             foreach (string host in new[] { "discord.com", "www.youtube.com" })
             {
                 try
                 {
                     Task<IPAddress[]> t = Dns.GetHostAddressesAsync(host);
-                    if (await Task.WhenAny(t, Task.Delay(4000)) != t || t.IsFaulted || BadDnsAnswer(t.Result)) return false;
+                    if (await Task.WhenAny(t, Task.Delay(4000, cancellation)) != t || t.IsFaulted || BadDnsAnswer(t.Result)) { cancellation.ThrowIfCancellationRequested(); return false; }
                 }
-                catch { return false; }
+                catch { cancellation.ThrowIfCancellationRequested(); return false; }
             }
             return true;
         }

@@ -275,19 +275,17 @@ namespace ZapretLauncher
             catch { return null; }
         }
 
-        // Открывается ли сайт через туннель (весь трафик идёт через него): время в мс, -1 — нет
-        public static async Task<int> Delay()
+        // Весь трафик через системный туннель: привязываем проверку к его IPv4-интерфейсу.
+        public static Task<int> BoundDelay()
         {
             try
             {
-                using (System.Net.Http.HttpClient c = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(6) })
-                {
-                    Stopwatch sw = Stopwatch.StartNew();
-                    using (System.Net.Http.HttpResponseMessage r = await c.GetAsync(Vpn.TestUrl))
-                        return r.IsSuccessStatusCode ? (int)sw.ElapsedMilliseconds : -1;
-                }
+                NetworkInterface adapter = Adapter(Vpn.InterfaceName);
+                var ipv4 = adapter == null ? null : adapter.GetIPProperties().GetIPv4Properties();
+                if (ipv4 != null) return VpnHealth.ProbeAdapter(ipv4.Index);
             }
-            catch { return -1; }
+            catch (NetworkInformationException) { }
+            return Task.FromResult(-1);
         }
 
         // ---------- Диагностика ----------

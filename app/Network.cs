@@ -20,6 +20,7 @@ namespace ZapretLauncher
         public string Name;
         public bool Ok;
         public int Ms;          // время HTTPS-запроса (DNS + TCP + TLS + ответ) через обход
+        public DateTime CheckedAt;
         public int TcpMs = -1;  // время TCP-соединения — «пинг» до сервера; -1 — не удалось
     }
 
@@ -44,11 +45,11 @@ namespace ZapretLauncher
 
         // Любой HTTP-ответ — значит до сервера достучались; блокировка DPI даёт сброс соединения или таймаут
         // mine — свои сайты пользователя: проверяются заодно, имя карточки — сам адрес
-        public static Task<List<SiteResult>> Test(bool telegram, bool control, int timeoutSec = 6, IList<string> mine = null)
+        public static Task<List<SiteResult>> Test(bool telegram, bool control, int timeoutSec = 6, IList<string> mine = null, CancellationToken cancellation = default(CancellationToken))
         {
             List<KeyValuePair<string, string>> t = Targets(telegram, control);
             if (mine != null) t.AddRange(mine.Select(host => new KeyValuePair<string, string>(host, "https://" + host + "/")));
-            return Run(t, timeoutSec);
+            return Run(t, timeoutSec, cancellation);
         }
 
         // Повторная проверка только не открывшихся сайтов, с запасом по времени: из-за разового сбоя (медленный ответ,
@@ -58,7 +59,7 @@ namespace ZapretLauncher
             return Run(Targets(telegram, false).Where(t => names.Contains(t.Key)).ToList(), timeoutSec);
         }
 
-        static async Task<List<SiteResult>> Run(List<KeyValuePair<string, string>> targets, int timeoutSec)
+        static async Task<List<SiteResult>> Run(List<KeyValuePair<string, string>> targets, int timeoutSec, CancellationToken cancellation = default(CancellationToken))
         {
             HttpClientHandler handler = new HttpClientHandler();
             handler.AllowAutoRedirect = false;
@@ -67,7 +68,7 @@ namespace ZapretLauncher
                 client.Timeout = TimeSpan.FromSeconds(timeoutSec);
                 client.DefaultRequestHeaders.ConnectionClose = true;   // без соединений, оставшихся от прошлой стратегии
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-                Task<SiteResult>[] tasks = targets.Select(t => One(client, t.Key, t.Value)).ToArray();
+                Task<SiteResult>[] tasks = targets.Select(t => One(client, t.Key, t.Value, cancellation)).ToArray();
                 SiteResult[] all = await Task.WhenAll(tasks);
                 List<SiteResult> results = all.Where(r => r.Name != Control).ToList();
                 SiteResult[] controls = all.Where(r => r.Name == Control).ToArray();
@@ -80,7 +81,7 @@ namespace ZapretLauncher
             }
         }
 
-        static async Task<SiteResult> One(HttpClient client, string name, string url)
+        static async Task<SiteResult> One(HttpClient client, string name, string url, CancellationToken cancellation = default(CancellationToken))
         {
             SiteResult r = new SiteResult();
             r.Name = name;
@@ -88,12 +89,13 @@ namespace ZapretLauncher
             Stopwatch sw = Stopwatch.StartNew();
             try
             {
-                using (HttpResponseMessage resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead)) { }
+                using (HttpResponseMessage resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellation)) { }
                 r.Ok = true;
                 r.Ms = (int)sw.ElapsedMilliseconds;
             }
-            catch { r.Ok = false; }
+            catch { cancellation.ThrowIfCancellationRequested(); r.Ok = false; }
             r.TcpMs = await tcp;
+            r.CheckedAt = DateTime.UtcNow;
             return r;
         }
 

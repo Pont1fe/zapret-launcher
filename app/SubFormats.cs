@@ -96,7 +96,12 @@ namespace ZapretLauncher
                 q["serviceName"] = Str(tr, "service_name");
             }
             if (type == "vless") { q["flow"] = Str(o, "flow"); return Link("vless", Str(o, "uuid"), host, port, name, q); }
-            if (type == "trojan") return Link("trojan", Str(o, "password"), host, port, name, q);
+            if (type == "anytls")
+            {
+                if (Bool(tls, "insecure")) q["insecure"] = "1";
+                return Link(type, Str(o, "password"), host, port, name, q);
+            }
+            if (type == "trojan") return Link(type, Str(o, "password"), host, port, name, q);
             if (type == "vmess") return Vmess(name, host, port, Str(o, "uuid"), Str(o, "alter_id"), Str(o, "security"), q);
             return null;   // selector, urltest, direct, block, dns — служебные
         }
@@ -148,6 +153,12 @@ namespace ZapretLauncher
             string type = Str(p, "type").ToLowerInvariant(), name = Str(p, "name"), host = Str(p, "server");
             object port = Get(p, "port");
             Dictionary<string, string> q = Q();
+            if (type == "anytls")
+            {
+                q["sni"] = Str(p, "sni");
+                if (Bool(p, "skip-cert-verify")) q["insecure"] = "1";
+                return Link(type, Str(p, "password"), host, port, name, q);
+            }
             if (type == "vless" || type == "vmess" || type == "trojan")
             {
                 Dictionary<string, object> ws = Map(p, "ws-opts"), reality = Map(p, "reality-opts");
@@ -208,6 +219,7 @@ namespace ZapretLauncher
                 { "aid", aid.Length > 0 ? aid : "0" }, { "scy", cipher.Length > 0 ? cipher : "auto" }, { "net", net.Length > 0 ? net : "tcp" }, { "type", "none" },
                 { "host", V(q, "host") }, { "path", net == "grpc" ? V(q, "serviceName") : V(q, "path") }, { "tls", V(q, "security") == "tls" ? "tls" : "" },
                 { "sni", V(q, "sni") }, { "fp", V(q, "fp") }, { "alpn", V(q, "alpn") },
+                { "allowInsecure", V(q, "allowInsecure") },
             };
             return "vmess://" + Convert.ToBase64String(Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(j)));
         }
