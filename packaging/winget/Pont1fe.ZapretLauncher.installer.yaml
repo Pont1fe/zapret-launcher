@@ -20,6 +20,6 @@ AppsAndFeaturesEntries:
 Installers:
   - Architecture: neutral
     InstallerUrl: https://github.com/Pont1fe/zapret-launcher/releases/download/v4.1.1/ZapretLauncherSetup.exe
-    InstallerSha256: F08CC1F269A87631FC949D94FC14BAD20234ECF0B8DF8CC3A7DE89A2AE1703AE
+    InstallerSha256: 947A01F83F1B26FB5AB6DED48E40756684E94D57C01463ED31073ADB09BEEB9D
 ManifestType: installer
 ManifestVersion: 1.6.0

@@ -8,7 +8,7 @@
                   "The launcher updates itself; scoop update is optional."
               ],
     "url":  "https://github.com/Pont1fe/zapret-launcher/releases/download/v4.1.1/ZapretLauncherSetup.exe#/setup.exe",
-    "hash":  "f08cc1f269a87631fc949d94fc14bad20234ecf0b8df8cc3a7de89a2ae1703ae",
+    "hash":  "947a01f83f1b26fb5ab6ded48e40756684e94d57c01463ed31073adb09beeb9d",
     "installer":  {
                       "script":  [
                                      "Start-Process \"$dir\\setup.exe\" -ArgumentList \u0027/S\u0027 -Verb RunAs -Wait"

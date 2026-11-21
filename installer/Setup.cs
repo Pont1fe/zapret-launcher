@@ -30,7 +30,7 @@ static class Program
             if (a.Equals("/S", StringComparison.OrdinalIgnoreCase)) silent = true;
             else if (a.StartsWith("/D=", StringComparison.OrdinalIgnoreCase)) dir = a.Substring(3).Trim('"');
         }
-        if (dir == null) dir = Installer.ExistingLocation() ?? @"C:\ZapretLauncher";
+        if (dir == null) dir = Installer.ExistingLocation() ?? Installer.DefaultDirectory;
 
         if (silent)
         {
@@ -49,6 +49,7 @@ static class Installer
     public const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ZapretLauncher";
     public const string ShortcutName = "Zapret Launcher.lnk";
     public const string ExeName = "ZapretLauncher.exe";
+    public const string DefaultDirectory = @"C:\ZapretLauncher";
     static readonly string[] Legacy = { "ZapretLauncher.ps1", "ZapretLauncher.ps1.bak", "Start.bat", "launcher.ico" };   // PowerShell-версия
 
     public static byte[] Resource(string name)
@@ -93,7 +94,7 @@ static class Installer
             string loc = k == null ? null : k.GetValue("InstallLocation") as string;
             if (loc != null && HasLauncher(loc)) return loc;
         }
-        return HasLauncher(@"C:\ZapretLauncher") ? @"C:\ZapretLauncher" : null;
+        return HasLauncher(DefaultDirectory) ? DefaultDirectory : null;
     }
 
     public static string InstalledVersion(string dir)
@@ -155,7 +156,7 @@ static class Installer
 
     public static bool Install(string dir, bool desktop, bool startMenu, bool launch)
     {
-        // окно установки уже предложило подпапку; здесь — для тихой установки (/S /D=...), до любых изменений
+        // Проверка нужна и при тихой установке (/S /D=...), до любых изменений.
         if (IsBadPath(dir) || IsForeignFolder(dir))
             throw new Exception("Not installing to " + dir + ": choose an empty folder, not a drive root / Не ставлю в " + dir + ": нужна пустая папка, а не корень диска");
         dir = Path.GetFullPath(dir);
@@ -239,7 +240,7 @@ class SetupForm : Form
     TextBox pathBox;
     CheckBox chkDesktop, chkStart, chkLaunch;
     Label status, existing;
-    Button btnInstall, btnCancel, btnBrowse;
+    Button btnInstall, btnCancel;
     bool done;
 
     public SetupForm(string dir)
@@ -300,23 +301,12 @@ class SetupForm : Form
         MakeLabel(L("Папка установки", "Install folder"), 28, 110, 300, 22);
         pathBox = new TextBox();
         pathBox.Text = dir;
+        pathBox.ReadOnly = true;
         pathBox.BorderStyle = BorderStyle.FixedSingle;
         pathBox.BackColor = Card;
         pathBox.ForeColor = Text1;
-        pathBox.SetBounds(28, 136, 400, 28);
-        pathBox.TextChanged += delegate { UpdateExisting(); };
+        pathBox.SetBounds(28, 136, 504, 28);
         Controls.Add(pathBox);
-
-        btnBrowse = MakeButton(L("Обзор…", "Browse…"), 436, 134, 96, 30, false);
-        btnBrowse.Click += delegate
-        {
-            using (FolderBrowserDialog d = new FolderBrowserDialog())
-            {
-                d.Description = L("Выберите папку. Внутри неё будет создана папка ZapretLauncher.", "Choose a folder. A ZapretLauncher folder will be created inside it.");
-                if (d.ShowDialog(this) == DialogResult.OK)
-                    pathBox.Text = Path.Combine(d.SelectedPath, "ZapretLauncher");
-            }
-        };
 
         existing = MakeLabel("", 28, 170, 504, 22);
         existing.ForeColor = Ok;
@@ -404,17 +394,9 @@ class SetupForm : Form
         // в непустую чужую папку не ставим: лаунчер живёт в своей папке, и её закрывают от изменений без прав администратора
         if (Installer.IsForeignFolder(dir))
         {
-            string sub = Path.Combine(dir, "ZapretLauncher");
-            if (Installer.IsForeignFolder(sub))
-            {
-                MessageBox.Show(this, L("Папка не пустая — выберите пустую папку для лаунчера.", "The folder is not empty — choose an empty folder for the launcher."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if (MessageBox.Show(this, L("В папке " + dir + " уже есть другие файлы. Установить в " + sub + "?", "The folder " + dir + " already has other files. Install to " + sub + "?"),
-                    Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                return;
-            dir = sub;
-            pathBox.Text = dir;
+            MessageBox.Show(this, L("В папке " + dir + " уже есть другие файлы. Переместите их перед установкой.",
+                "The folder " + dir + " already contains other files. Move them before installing."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
         }
         if (dir.Any(ch => ch > 127) &&
             MessageBox.Show(this, L("В пути есть русские буквы или спецсимволы — zapret с ними может работать нестабильно.\n\nВсё равно установить сюда?",
@@ -422,7 +404,7 @@ class SetupForm : Form
                 Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             return;
 
-        btnInstall.Enabled = btnCancel.Enabled = btnBrowse.Enabled = false;
+        btnInstall.Enabled = btnCancel.Enabled = false;
         status.ForeColor = Text1;
         status.Text = L("Устанавливаю…", "Installing…");
         Refresh();
@@ -440,7 +422,7 @@ class SetupForm : Form
         {
             status.ForeColor = Fail;
             status.Text = L("Ошибка: ", "Error: ") + e.Message;
-            btnInstall.Enabled = btnCancel.Enabled = btnBrowse.Enabled = true;
+            btnInstall.Enabled = btnCancel.Enabled = true;
         }
     }
 }
