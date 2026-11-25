@@ -18,10 +18,31 @@ namespace ZapretLauncher
         static readonly Guid LocalInterface = new Guid("4cd62a49-59c3-4969-b7f3-bda5d32890a4");
         const uint NotFound = 0x80320003, AlreadyExists = 0x80320009;
         static readonly object PolicyLock = new object();
-        static string applied;
+        sealed class AppliedPolicy
+        {
+            public readonly string Signature;
+            public readonly string[] Apps;
+            public readonly ulong Tunnel;
+
+            public AppliedPolicy(string signature, string[] apps, ulong tunnel)
+            {
+                Signature = signature;
+                Apps = apps;
+                Tunnel = tunnel;
+            }
+        }
+
+        static volatile AppliedPolicy applied;
         internal const int MaxApps = 31;
         const int FilterSlots = 4 * MaxApps; // Two address families, up to two filters per app.
-        public static bool Enabled { get { return applied != null && applied.StartsWith("True:", StringComparison.Ordinal); } }
+        public static bool Enabled { get { var policy = applied; return policy != null && policy.Apps.Length > 0; } }
+        internal static bool AllowsTunnel { get { var policy = applied; return policy != null && policy.Tunnel != 0; } }
+
+        internal static bool CoversApps(string[] paths)
+        {
+            var policy = applied;
+            return policy != null && paths.Length > 0 && paths.All(path => policy.Apps.Contains(path, StringComparer.OrdinalIgnoreCase));
+        }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         struct Display { [MarshalAs(UnmanagedType.LPWStr)] public string name, description; }
@@ -90,6 +111,38 @@ namespace ZapretLauncher
                 .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
         }
 
+        internal static bool SameVersionedInstall(string previous, string active)
+        {
+            if (!Routes.IsAppPath(previous) || !Routes.IsAppPath(active) ||
+                !Path.GetFileName(previous).Equals(Path.GetFileName(active), StringComparison.OrdinalIgnoreCase)) return false;
+            string oldDir = Path.GetDirectoryName(previous), newDir = Path.GetDirectoryName(active);
+            return !string.IsNullOrEmpty(oldDir) && !string.IsNullOrEmpty(newDir) &&
+                VersionedAppFolder(oldDir) && VersionedAppFolder(newDir) &&
+                string.Equals(Path.GetDirectoryName(oldDir), Path.GetDirectoryName(newDir), StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static string[] VersionedAppPaths(string original)
+        {
+            if (!Routes.IsAppPath(original)) return new string[0];
+            string dir = Path.GetDirectoryName(original);
+            if (!VersionedAppFolder(dir)) return new string[0];
+            string root = Path.GetDirectoryName(dir);
+            if (!Directory.Exists(root)) return new string[0];
+            try
+            {
+                return AppScope(Directory.EnumerateDirectories(root, "app-*")
+                    .Where(VersionedAppFolder).Select(folder => Path.Combine(folder, Path.GetFileName(original))));
+            }
+            catch (IOException) { return new string[0]; }
+            catch (UnauthorizedAccessException) { return new string[0]; }
+        }
+
+        static bool VersionedAppFolder(string dir)
+        {
+            string name = Path.GetFileName(dir);
+            return System.Text.RegularExpressions.Regex.IsMatch(name, @"^app-\d+(?:\.\d+)+(?:[-+][\w.-]+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
         public static void ApplyScoped(bool enabled, ulong tunnel, string[] scope)
         {
             lock (PolicyLock) ApplyCore(enabled, tunnel, scope);
@@ -100,7 +153,7 @@ namespace ZapretLauncher
             if (enabled && (scope == null || scope.Length == 0 || scope.Length > MaxApps || scope.Any(path => !Routes.IsAppPath(path))))
                 throw new ArgumentException("Защите нужны полные пути к 1–31 программе (.exe).", "scope");
             string signature = enabled ? "True:" + tunnel + ":" + string.Join("|", scope) : "False";
-            if (signature == applied) return;
+            if (applied != null && signature == applied.Signature) return;
             IntPtr engine;
             Check(FwpmEngineOpen0(null, 10, IntPtr.Zero, IntPtr.Zero, out engine));
             try
@@ -122,7 +175,7 @@ namespace ZapretLauncher
                     }
                     else { Guid key = SubLayer; uint rc = FwpmSubLayerDeleteByKey0(engine, ref key); if (rc != 0x80320007) Check(rc); }
                     Check(FwpmTransactionCommit0(engine));
-                    applied = signature;
+                    applied = new AppliedPolicy(signature, enabled ? (string[])scope.Clone() : new string[0], enabled ? tunnel : 0);
                 }
                 catch { FwpmTransactionAbort0(engine); throw; }
             }

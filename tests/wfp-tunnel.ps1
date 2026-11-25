@@ -3,19 +3,32 @@ param(
     [Parameter(Mandatory)][string]$VpnCore,
     [Parameter(Mandatory)][string]$PeerAddress,
     [Parameter(Mandatory)][ValidateRange(1,65535)][int]$PeerPort,
-    [switch]$DedicatedVm
+    [switch]$DedicatedVm,
+    [switch]$HostedRunner,
+    [switch]$InteractiveTransitions
 )
 $ErrorActionPreference = 'Stop'
 if (!$DedicatedVm) { throw 'Run only on an isolated Windows test VM without launcher firewall rules.' }
+if ($InteractiveTransitions -and (![Environment]::UserInteractive -or [Console]::IsInputRedirected)) {
+    throw 'Sleep and network transitions require an interactive VM console.'
+}
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (!(New-Object Security.Principal.WindowsPrincipal $identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Run this test as administrator.'
 }
 $peer = [Net.IPAddress]::Parse($PeerAddress)
-if ($peer.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or [Net.IPAddress]::IsLoopback($peer) -or
-    @(Get-NetIPAddress -AddressFamily IPv4).IPAddress -contains $peer.IPAddressToString) {
-    throw 'Peer must be a TCP listener on another machine controlled by the test operator.'
+if ($HostedRunner -and ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $InteractiveTransitions -or $PeerPort -ne 443 -or $peer.IPAddressToString -notin @('1.1.1.1','2606:4700:4700::1111'))) {
+    throw 'Hosted mode is restricted to GitHub-hosted runners and the designated TCP endpoints.'
 }
+$ipv4 = $peer.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork
+$addressFamily = if ($ipv4) { 'IPv4' } else { 'IPv6' }
+if ([Net.IPAddress]::IsLoopback($peer) -or $peer.IsIPv6LinkLocal -or $peer.IsIPv4MappedToIPv6 -or
+    @(Get-NetIPAddress -AddressFamily $addressFamily).IPAddress -contains $peer.IPAddressToString) {
+    throw 'Peer must be a routable TCP listener on another machine controlled by the test operator.'
+}
+$tunnelAddresses = '["172.31.255.1/30","fd42:7a71:4::1/126"]'
+$peerPrefix = if ($ipv4) { 32 } else { 128 }
 if ((Get-Process ZapretLauncher -ErrorAction SilentlyContinue) -or (Get-NetAdapter -Name ZapretVPN -ErrorAction SilentlyContinue)) {
     throw 'A launcher process or tunnel already exists.'
 }
@@ -47,14 +60,19 @@ function Test-Paths([string]$phase, [bool]$protectedOnline) {
 }
 
 function Start-Tunnel {
-    $script:tunnel = Start-Process -FilePath $core -ArgumentList @('run','-c',('"' + $config + '"')) -WorkingDirectory $work -WindowStyle Hidden -PassThru
-    for ($i = 0; $i -lt 40; $i++) {
+    $tunnelLog = Join-Path $work 'tun.stderr.log'
+    $script:tunnel = Start-Process -FilePath $core -ArgumentList @('run','-c',('"' + $config + '"')) -WorkingDirectory $work -WindowStyle Hidden -RedirectStandardError $tunnelLog -PassThru
+    for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Milliseconds 250
-        if ($script:tunnel.HasExited) { throw 'Test tunnel exited early.' }
+        if ($script:tunnel.HasExited) { break }
         $id = $luid.Invoke($null, $null)
-        if ($id -ne 0) { return $id }
+        if ($id -ne 0 -and (Get-NetRoute -DestinationPrefix "$($peer.IPAddressToString)/$peerPrefix" -InterfaceAlias ZapretVPN -ErrorAction SilentlyContinue)) {
+            Write-Host "Tunnel interface LUID $id for $addressFamily"
+            return $id
+        }
     }
-    throw 'Test tunnel adapter did not start.'
+    Get-Content -LiteralPath $tunnelLog -Tail 20 | Out-Host
+    throw 'Test tunnel adapter or peer route did not start.'
 }
 
 try {
@@ -63,7 +81,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Probe build failed.' }
     Copy-Item -LiteralPath $protected -Destination $ordinary
     @"
-{"inbounds":[{"type":"tun","interface_name":"ZapretVPN","address":["172.31.255.1/30"],"auto_route":true,"route_address":["$($peer.IPAddressToString)/32"],"stack":"system"}],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"auto_detect_interface":true,"final":"direct"}}
+{"inbounds":[{"type":"tun","interface_name":"ZapretVPN","address":$tunnelAddresses,"auto_route":true,"route_address":["$($peer.IPAddressToString)/$peerPrefix"],"stack":"system"}],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"auto_detect_interface":true,"final":"direct"}}
 "@ | Set-Content -LiteralPath $config -Encoding ASCII
     Test-Paths 'Before policy' $true
     $id = Start-Tunnel
@@ -77,6 +95,12 @@ try {
     Test-Paths 'Tunnel dropped with original policy still active' $false
     $scope.Invoke($null, [object[]]@($true, [uint64]0, [string[]]@($protected)))
     Test-Paths 'Closed protection during restart' $false
+    if ($InteractiveTransitions) {
+        [void](Read-Host 'Put the guest Windows OS to sleep, wake it, wait for the peer to be reachable, then press Enter')
+        Test-Paths 'Tunnel still down after sleep and resume' $false
+        [void](Read-Host 'Switch the guest to a different network or Wi-Fi with access to the same test peer, then press Enter')
+        Test-Paths 'Tunnel still down after network change' $false
+    }
     $id = Start-Tunnel
     $scope.Invoke($null, [object[]]@($true, $id, [string[]]@($protected)))
     Test-Paths 'Tunnel restored' $true

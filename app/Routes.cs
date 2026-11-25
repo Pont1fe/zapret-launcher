@@ -80,7 +80,8 @@ namespace ZapretLauncher
         {
             return !string.IsNullOrEmpty(value) && value.Length > 3 && char.IsLetter(value[0]) &&
                 value[1] == ':' && (value[2] == '\\' || value[2] == '/') &&
-                value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+                value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+                value.IndexOf(':', 2) < 0 && value.IndexOfAny(System.IO.Path.GetInvalidPathChars()) < 0;
         }
 
         internal static bool AddAppPaths(List<string> apps, IEnumerable<string> files)

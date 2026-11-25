@@ -8,9 +8,10 @@ internal static class VpnFirewallProbe
     {
         try
         {
-            using (var client = new TcpClient(AddressFamily.InterNetwork))
+            IPAddress address = IPAddress.Parse(args[0]);
+            using (var client = new TcpClient(address.AddressFamily))
             {
-                var connection = client.ConnectAsync(IPAddress.Parse(args[0]), int.Parse(args[1]));
+                var connection = client.ConnectAsync(address, int.Parse(args[1]));
                 return connection.Wait(TimeSpan.FromSeconds(4)) && client.Connected ? 0 : 1;
             }
         }

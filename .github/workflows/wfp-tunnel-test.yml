@@ -1,0 +1,61 @@
+name: Windows WFP tunnel test
+on:
+  push:
+    branches:
+      - ci/wfp-tunnel-probe
+
+permissions:
+  contents: read
+
+jobs:
+  wfp:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build launcher
+        run: ./build.ps1
+      - name: Prepare test tunnel
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'sing-box.zip'
+          Invoke-WebRequest 'https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-windows-amd64.zip' -OutFile $archive
+          if ((Get-FileHash $archive).Hash -ne '99185d75d314a07dbba4a130c8ad986cbeb629a07927975636b341ca61f991df') {
+            throw 'Unexpected sing-box checksum.'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP
+      - name: Verify process protection through a tunnel crash and restart
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $core = Join-Path $env:RUNNER_TEMP 'sing-box-1.14.4-windows-amd64/sing-box.exe'
+          $tested = 0
+          $failed = 0
+          foreach ($peer in @('1.1.1.1', '2606:4700:4700::1111')) {
+            $address = [Net.IPAddress]::Parse($peer)
+            $family = if ($address.AddressFamily -eq 'InterNetwork') { 'IPv4' } else { 'IPv6' }
+            $client = [Net.Sockets.TcpClient]::new($address.AddressFamily)
+            try {
+              $client.ConnectAsync($address, 443).Wait(5000) | Out-Null
+              if (!$client.Connected) { throw 'Connection timeout.' }
+            } catch {
+              Write-Warning "$family skipped because the runner cannot reach the baseline TCP endpoint. $_"
+              "- $family skipped (baseline TCP unavailable)" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+              continue
+            } finally { $client.Dispose() }
+
+            $tested++
+            try {
+              ./tests/wfp-tunnel.ps1 -VpnCore $core -PeerAddress $peer -PeerPort 443 -DedicatedVm -HostedRunner
+              "- $family passed" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+            } catch {
+              Write-Warning "$family failed."
+              Write-Host $_.ScriptStackTrace
+              Write-Host $_.Exception.ToString()
+              "- $family failed" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+              $failed++
+            }
+          }
+          if ($tested -eq 0 -or $failed -ne 0) { throw "Tested $tested address families, $failed failed." }
+          exit 0
