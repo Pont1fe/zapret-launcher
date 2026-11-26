@@ -135,9 +135,12 @@ try {
     }
 
     $replacement = Start-Tunnel 'ZapretTestReplacement' @('172.31.255.9/30', 'fd42:7a71:6::1/126') $hostRoutes $tunnelPort
-    Rename-NetAdapter -Name ZapretTestReplacement -NewName ZapretVPN
-    Wait-For 'replacement VPN LUID' { $luid.Invoke($null, $null) -ne 0 }
-    $secondId = $luid.Invoke($null, $null)
+    # Windows can retain the crashed device name even after the adapter disappears.
+    $replacementAdapter = Get-NetAdapter -Name ZapretTestReplacement
+    Add-Type -Namespace WfpTest -Name Native -MemberDefinition '[DllImport("iphlpapi.dll")] public static extern uint ConvertInterfaceIndexToLuid(uint index, out ulong luid);'
+    [uint64]$secondId = 0
+    $errorCode = [WfpTest.Native]::ConvertInterfaceIndexToLuid($replacementAdapter.ifIndex, [ref]$secondId)
+    if ($errorCode -ne 0 -or $secondId -eq 0) { throw "Replacement LUID lookup failed: $errorCode." }
     if ($secondId -eq $firstId) { throw 'The replacement reused the original LUID.' }
     Write-Host "VPN adapter LUID changed from $firstId to $secondId."
     foreach ($address in $targets) {

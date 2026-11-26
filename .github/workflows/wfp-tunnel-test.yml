@@ -9,7 +9,12 @@ permissions:
 
 jobs:
   wfp:
+    name: ${{ matrix.scenario }}
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [network, launcher]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -26,7 +31,15 @@ jobs:
           }
           Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP
       - name: Verify TCP and UDP on IPv4 and IPv6 through a crash and adapter replacement
+        if: matrix.scenario == 'network'
         shell: pwsh
         run: |
           $core = Join-Path $env:RUNNER_TEMP 'sing-box-1.14.4-windows-amd64/sing-box.exe'
           ./tests/wfp-hosted.ps1 -VpnCore $core
+      - name: Verify launcher controls and automatic VPN recovery
+        if: matrix.scenario == 'launcher'
+        shell: powershell
+        run: |
+          $core = Join-Path $env:RUNNER_TEMP 'sing-box-1.14.4-windows-amd64/sing-box.exe'
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/vpn-live-ui.ps1 -VpnCore $core
+          exit $LASTEXITCODE
