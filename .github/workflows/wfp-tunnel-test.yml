@@ -36,6 +36,15 @@ jobs:
         run: |
           $core = Join-Path $env:RUNNER_TEMP 'sing-box-1.14.4-windows-amd64/sing-box.exe'
           ./tests/wfp-hosted.ps1 -VpnCore $core
+      - name: Validate the pre-reboot WFP fixture and cleanup
+        if: matrix.scenario == 'network'
+        shell: pwsh
+        run: |
+          try {
+            ./tests/wfp-reboot.ps1 -Phase Arm -DedicatedVm -PeerAddress 1.0.0.1 -PeerPort 443
+          } finally {
+            ./tests/wfp-reboot.ps1 -Phase Clear -DedicatedVm
+          }
       - name: Verify launcher controls and automatic VPN recovery
         if: matrix.scenario == 'launcher'
         timeout-minutes: 4

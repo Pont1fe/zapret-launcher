@@ -1,3 +1,4 @@
+# Arm on a disposable guest, reboot it, then Verify before starting ZapretLauncher. Clear removes the test policy.
 param(
     [Parameter(Mandatory)][ValidateSet('Arm', 'Verify', 'Clear')][string]$Phase,
     [Parameter(Mandatory)][switch]$DedicatedVm,
@@ -42,6 +43,15 @@ switch ($Phase) {
             if (!$LASTEXITCODE) { throw 'The selected executable was not blocked before reboot.' }
             & $ordinary $peer.IPAddressToString $PeerPort
             if ($LASTEXITCODE) { throw 'The unprotected executable lost the baseline before reboot.' }
+            # Leave an active per-interface permit in place to prove precisely which rule survives reboot.
+            $network = Find-NetRoute -RemoteIPAddress $peer.IPAddressToString | Where-Object DestinationPrefix | Select-Object -First 1
+            if (!$network) { throw 'Could not determine the interface for the test peer.' }
+            $convert = $firewall.GetMethod('ConvertInterfaceIndexToLuid', [Reflection.BindingFlags]'Static, NonPublic')
+            $arguments = [object[]]@([uint32]$network.InterfaceIndex, [uint64]0)
+            if ($convert.Invoke($null, $arguments) -ne 0 -or !$arguments[1]) { throw 'Could not resolve the test interface LUID.' }
+            $firewall.GetMethod('ApplyScoped').Invoke($null, [object[]]@($true, [uint64]$arguments[1], [string[]]@($protected)))
+            & $protected $peer.IPAddressToString $PeerPort
+            if ($LASTEXITCODE) { throw 'The selected executable could not connect with the temporary permit.' }
             @{ BootTicks = "$boot"; Address = $peer.IPAddressToString; Port = $PeerPort } | ConvertTo-Json |
                 Set-Content -LiteralPath $manifest -Encoding ASCII
         }

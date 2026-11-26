@@ -138,7 +138,6 @@ namespace ZapretLauncher
                 vpnRunning = false;
                 vpnLocked = VpnFirewall.Enabled;
                 vpnHealthIssue = ZapretLauncher.VpnHealth.Unresponsive;
-                Log.Write(vpnHealthIssue);
                 SetConnectionEvent(vpnHealthIssue);
                 RefreshVpnUi();
 
@@ -440,6 +439,7 @@ namespace ZapretLauncher
             if (recoveryMs >= 0)
             {
                 vpnVerifiedMs = recoveryMs;
+                vpnHealthIssue = null;
                 RefreshVpnHealthUi();
             }
             else
