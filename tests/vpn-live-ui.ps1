@@ -14,9 +14,10 @@ if (Get-NetAdapter -Name ZapretVPN -ErrorAction SilentlyContinue) { throw 'A VPN
 $env:ZAPRETLAUNCHER_DEMO = '1' # Skip unrelated startup services while exercising the actual VPN controls and core.
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 $work = Join-Path $env:RUNNER_TEMP ('vpn-ui-' + [guid]::NewGuid().ToString('N'))
-$vpnDir = Join-Path $work 'vpn'
+$install = Join-Path $work 'launcher'
+$vpnDir = Join-Path $install 'vpn'
 New-Item -ItemType Directory -Path $vpnDir -Force | Out-Null
-Copy-Item -LiteralPath $Exe -Destination (Join-Path $work 'ZapretLauncher.exe')
+Copy-Item -LiteralPath $Exe -Destination (Join-Path $install 'ZapretLauncher.exe')
 Copy-Item -LiteralPath $VpnCore -Destination (Join-Path $vpnDir 'sing-box.exe')
 Set-Content -LiteralPath (Join-Path $vpnDir 'version.txt') -Value '1.14.4' -Encoding ASCII
 $protected = Join-Path $work 'Protected.exe'
@@ -25,7 +26,7 @@ $ordinary = Join-Path $work 'Ordinary.exe'
 if ($LASTEXITCODE -ne 0) { throw 'Probe build failed.' }
 Copy-Item -LiteralPath $protected -Destination $ordinary
 
-$asm = [Reflection.Assembly]::LoadFile((Join-Path $work 'ZapretLauncher.exe'))
+$asm = [Reflection.Assembly]::LoadFile((Join-Path $install 'ZapretLauncher.exe'))
 function T([string]$name) { $asm.GetType("ZapretLauncher.$name", $true) }
 $sf = [Reflection.BindingFlags]'Static, Public, NonPublic'
 $if = [Reflection.BindingFlags]'Instance, Public, NonPublic'
@@ -94,7 +95,7 @@ function Run-VpnTick {
 }
 function Start-LauncherProcess {
     Remove-Item Env:ZAPRETLAUNCHER_DEMO
-    try { Start-Process -FilePath (Join-Path $work 'ZapretLauncher.exe') -WorkingDirectory $work -PassThru }
+    try { Start-Process -FilePath (Join-Path $install 'ZapretLauncher.exe') -WorkingDirectory $install -PassThru }
     finally { $env:ZAPRETLAUNCHER_DEMO = '1' }
 }
 function Wait-LauncherVpn([int]$oldCore) {
@@ -124,6 +125,7 @@ try {
         log = @{ level = 'info'; output = $serverLog }
         inbounds = @(@{ type = 'shadowsocks'; listen = '127.0.0.1'; listen_port = $listenPort; method = 'aes-128-gcm'; password = $password })
         outbounds = @(@{ type = 'direct'; tag = 'direct' })
+        route = @{ rules = @(@{ domain = @('www.gstatic.com'); action = 'reject' }) }
     } | ConvertTo-Json -Depth 6
     [IO.File]::WriteAllText($serverConfig, $config)
     $server = Start-Proxy
@@ -236,13 +238,13 @@ try {
         throw 'Expected VPN recovery once the proxy responded.'
     }
     Check-ProxyRoute $true $true
-    Write-Host 'The launcher verified the replacement tunnel before restoring protected TCP.'
+    Write-Host 'The launcher verified the replacement tunnel via the fallback probe before restoring protected TCP.'
 
     $cfg.StartOnOpen = $false
     $cfg.Telegram = $false
     $cfg.LastSeenVersion = (T 'AppVersion').GetField('Value', $sf).GetValue($null)
     $cfg.Save()
-    $zapret = Join-Path $work 'zapret'
+    $zapret = Join-Path $install 'zapret'
     New-Item -ItemType Directory -Force -Path $zapret | Out-Null
     Set-Content -LiteralPath (Join-Path $zapret 'service.bat') -Value 'set "LOCAL_VERSION=1.0.0"' -Encoding ASCII
 
@@ -266,7 +268,7 @@ try {
     Check-ProxyRoute $true $true
     Write-Host 'Restarting the actual launcher restored VPN traffic from the saved configuration.'
 } catch {
-    foreach ($log in (Join-Path $work 'launcher.log'), (Join-Path $vpnDir 'sing-box.log'), $serverLog) {
+    foreach ($log in (Join-Path $install 'launcher.log'), (Join-Path $vpnDir 'sing-box.log'), $serverLog) {
         if ($log -and (Test-Path -LiteralPath $log)) { Get-Content -LiteralPath $log -Tail 20 | Out-Host }
     }
     throw
