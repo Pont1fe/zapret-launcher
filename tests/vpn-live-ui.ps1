@@ -267,6 +267,27 @@ try {
     Wait-LauncherVpn $liveCore.Id
     Check-ProxyRoute $true $true
     Write-Host 'Restarting the actual launcher restored VPN traffic from the saved configuration.'
+
+    Stop-Process -Id $actualLauncher.Id
+    if (!$actualLauncher.WaitForExit(5000)) { throw 'The launcher process did not exit for test reset.' }
+    Wait-Task (Call 'StopVpn')
+    $window.FindName('SwVpnKill').IsChecked = $false
+    Click 'SwVpnKill'
+    Wait-For 'disabled kill switch' { !$cfg.VpnKillSwitch -and !(Field 'busy').GetValue($launcher) }
+    Click 'BtnVpnToggle'
+    Wait-For 'connected unprotected VPN' { (Field 'vpnRunning').GetValue($launcher) -and !(Field 'busy').GetValue($launcher) }
+    Stop-Process -Id $server.Id
+    if (!$server.WaitForExit(5000)) { throw 'The proxy did not stop.' }
+    Wait-For 'initial health probe to finish without protection' { !(Field 'vpnHealthChecking').GetValue($launcher) }
+    for ($attempt = 0; $attempt -lt 2; $attempt++) {
+        (Field 'vpnHealthDue').SetValue($launcher, [DateTime]::MinValue)
+        Run-VpnTick
+    }
+    if (!(Field 'vpnHealthRecovery').GetValue($launcher) -or @(Core-Processes).Count -ne 0) {
+        throw 'The failed background recovery did not finish without the kill switch.'
+    }
+    Check-ProxyRoute $false $true
+    Write-Host 'Background recovery also handled the offline server with protection disabled and without an error dialog.'
 } catch {
     foreach ($log in (Join-Path $install 'launcher.log'), (Join-Path $vpnDir 'sing-box.log'), $serverLog) {
         if ($log -and (Test-Path -LiteralPath $log)) { Get-Content -LiteralPath $log -Tail 20 | Out-Host }

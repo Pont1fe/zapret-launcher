@@ -149,7 +149,7 @@ namespace ZapretLauncher
                     if (best >= 0) cfg.VpnSelected = best;
                 }
 
-                await StartVpnOrLock();
+                await StartVpnOrLock(true, background: true);
             }, "VPN…");
             RefreshVpnUi();
         }
@@ -622,13 +622,17 @@ namespace ZapretLauncher
         // Переподключение после смены сервера, режима или списков: не вышло, а включено «не пускать мимо VPN» — блокировка
         Task StartVpnOrLock() { return StartVpnOrLock(true); }
 
-        async Task StartVpnOrLock(bool quiet)
+        async Task StartVpnOrLock(bool quiet, bool background = false)
         {
             Exception error = null;
             try { await StartVpn(quiet); }
             catch (Exception e) { error = e; }
             if (error == null) return;
-            if (!cfg.VpnKillSwitch || !VpnFirewall.Enabled) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            if (!cfg.VpnKillSwitch || !VpnFirewall.Enabled)
+            {
+                if (background) return; // StartVpn has already recorded the failure; VpnGuard will retry.
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            }
             LockVpn(error.Message);
         }
 
