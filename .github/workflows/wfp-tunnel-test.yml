@@ -38,7 +38,7 @@ jobs:
           ./tests/wfp-hosted.ps1 -VpnCore $core
       - name: Verify launcher controls and automatic VPN recovery
         if: matrix.scenario == 'launcher'
-        timeout-minutes: 2
+        timeout-minutes: 4
         shell: powershell
         run: |
           $core = Join-Path $env:RUNNER_TEMP 'sing-box-1.14.4-windows-amd64/sing-box.exe'

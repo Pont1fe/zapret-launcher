@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -11,10 +11,13 @@ namespace ZapretLauncher
 {
     static class VpnHealth
     {
+        public const string Unresponsive = "VPN не передаёт трафик. Лаунчер повторит подключение.";
+
         public static string Advice(string detail, bool startup)
         {
             string error = (detail ?? "").ToLowerInvariant();
             if (error.Contains("сначала добавьте сервер")) return "Сначала добавьте сервер: вставьте ключ или адрес подписки на странице VPN";
+            if (error.Contains(Unresponsive.ToLowerInvariant())) return Unresponsive;
             if (error.Contains("другой vpn") || error.Contains("another vpn"))
                 return "Выключите другой VPN и повторите подключение.";
             if (error.Contains("адаптер vpn не появился") || error.Contains("create tun") || error.Contains("wintun"))
@@ -37,24 +40,30 @@ namespace ZapretLauncher
         // IPv4-сокет за адаптером: успешный ответ по обычной сети здесь невозможен.
         public static async Task<int> ProbeAdapter(int interfaceIndex)
         {
+            int result = await ProbeAddress(interfaceIndex, "1.1.1.1", "cloudflare-dns.com", "/dns-query?name=example.com&type=A");
+            return result >= 0 ? result : await ProbeAddress(interfaceIndex, "8.8.8.8", "dns.google", "/resolve?name=example.com&type=A");
+        }
+
+        static async Task<int> ProbeAddress(int interfaceIndex, string address, string host, string path)
+        {
             using (var client = new TcpClient(AddressFamily.InterNetwork))
             {
-                Task<int> probe = ProbeSocket(client, interfaceIndex);
+                Task<int> probe = ProbeSocket(client, interfaceIndex, address, host, path);
                 return await Task.WhenAny(probe, Task.Delay(6500)) == probe ? await probe : -1;
             }
         }
 
-        static async Task<int> ProbeSocket(TcpClient client, int interfaceIndex)
+        static async Task<int> ProbeSocket(TcpClient client, int interfaceIndex, string address, string host, string path)
         {
             try
             {
                 Stopwatch sw = Stopwatch.StartNew();
                 client.Client.SetSocketOption(SocketOptionLevel.IP, (SocketOptionName)31, IPAddress.HostToNetworkOrder(interfaceIndex));
-                await client.ConnectAsync(IPAddress.Parse("1.1.1.1"), 443).ConfigureAwait(false);
+                await client.ConnectAsync(IPAddress.Parse(address), 443).ConfigureAwait(false);
                 using (var tls = new SslStream(client.GetStream()))
                 {
-                    await tls.AuthenticateAsClientAsync("cloudflare-dns.com").ConfigureAwait(false);
-                    byte[] request = Encoding.ASCII.GetBytes("GET /dns-query?name=example.com&type=A HTTP/1.1\r\nHost: cloudflare-dns.com\r\nAccept: application/dns-json\r\nConnection: close\r\n\r\n");
+                    await tls.AuthenticateAsClientAsync(host).ConfigureAwait(false);
+                    byte[] request = Encoding.ASCII.GetBytes("GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nAccept: application/dns-json\r\nConnection: close\r\n\r\n");
                     await tls.WriteAsync(request, 0, request.Length).ConfigureAwait(false);
                     using (var reader = new StreamReader(tls, Encoding.ASCII))
                     {

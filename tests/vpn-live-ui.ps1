@@ -79,7 +79,39 @@ function Check-ProxyRoute([bool]$throughVpn, [bool]$online) {
     }
 }
 
+function Start-Proxy {
+    $process = Start-Process -FilePath $VpnCore -ArgumentList @('run','-c',('"' + $serverConfig + '"')) -WorkingDirectory $work -WindowStyle Hidden -PassThru
+    Wait-For 'loopback Shadowsocks test server' {
+        if ($process.HasExited) { throw 'The test server exited.' }
+        Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $listenPort -State Listen -ErrorAction SilentlyContinue
+    }
+    return $process
+}
+function Run-VpnTick {
+    (Field 'netChanged').SetValue($launcher, $false)
+    (Field 'tick').SetValue($launcher, 4)
+    Wait-Task (Call 'OnTick')
+}
+function Start-LauncherProcess {
+    Remove-Item Env:ZAPRETLAUNCHER_DEMO
+    try { Start-Process -FilePath (Join-Path $work 'ZapretLauncher.exe') -WorkingDirectory $work -PassThru }
+    finally { $env:ZAPRETLAUNCHER_DEMO = '1' }
+}
+function Wait-LauncherVpn([int]$oldCore) {
+    Wait-For 'real launcher to start a new VPN core' {
+        if ($actualLauncher.HasExited) { throw "Launcher exited with code $($actualLauncher.ExitCode)." }
+        $candidate = @(Core-Processes)
+        $candidate.Count -eq 1 -and $candidate[0].Id -ne $oldCore -and
+            (Get-NetAdapter -Name ZapretVPN -ErrorAction SilentlyContinue)
+    }
+    Wait-For 'real launcher to allow protected TCP through the VPN' {
+        & $protected '1.0.0.1' 443
+        $LASTEXITCODE -eq 0
+    }
+}
+
 $server = $null
+$actualLauncher = $null
 $window = $null
 try {
     Write-Host 'Preparing loopback proxy'
@@ -94,11 +126,7 @@ try {
         outbounds = @(@{ type = 'direct'; tag = 'direct' })
     } | ConvertTo-Json -Depth 6
     [IO.File]::WriteAllText($serverConfig, $config)
-    $server = Start-Process -FilePath $VpnCore -ArgumentList @('run','-c',('"' + $serverConfig + '"')) -WorkingDirectory $work -WindowStyle Hidden -PassThru
-    Wait-For 'loopback Shadowsocks test server' {
-        if ($server.HasExited) { throw 'The test server exited.' }
-        Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $listenPort -State Listen -ErrorAction SilentlyContinue
-    }
+    $server = Start-Proxy
 
     Write-Host 'Creating WPF application'
     $app = New-Object Windows.Application
@@ -180,12 +208,70 @@ try {
     }
     Check-ProxyRoute $true $true
     Write-Host 'The launcher guard restarted the real core, updated the UI and restored protected TCP.'
+
+    Stop-Process -Id $server.Id
+    if (!$server.WaitForExit(5000)) { throw 'The proxy did not stop.' }
+    if ($restarted[0].HasExited) { throw 'The VPN core must still be running when the server stops responding.' }
+    Wait-For 'initial health probe to finish' { !(Field 'vpnHealthChecking').GetValue($launcher) }
+    (Field 'vpnHealthDue').SetValue($launcher, [DateTime]::MinValue)
+    Run-VpnTick
+    if ((Field 'vpnDeadChecks').GetValue($launcher) -ne 1 -or $restarted[0].HasExited) {
+        throw 'One failed round must leave the current core running.'
+    }
+
+    (Field 'vpnHealthDue').SetValue($launcher, [DateTime]::MinValue)
+    Run-VpnTick
+    if (!(Field 'vpnHealthRecovery').GetValue($launcher) -or @(Core-Processes).Count -ne 0 -or
+        $window.FindName('VpnStatus').Text -cne $paused -or
+        $window.FindName('VpnHealthText').Text -notlike '*VPN не передаёт трафик*') {
+        throw 'An unresponsive VPN must stay paused after a failed reconnect.'
+    }
+    Check-ProxyRoute $false $false
+    Write-Host 'Stalled VPN was detected with the core alive. Protected TCP stayed blocked while the proxy was offline.'
+
+    $server = Start-Proxy
+    (Field 'vpnLastStart').SetValue($launcher, [DateTime]::Now.AddMinutes(-3))
+    Run-VpnTick
+    if ((Field 'vpnHealthRecovery').GetValue($launcher) -or !(Field 'vpnRunning').GetValue($launcher)) {
+        throw 'Expected VPN recovery once the proxy responded.'
+    }
+    Check-ProxyRoute $true $true
+    Write-Host 'The launcher verified the replacement tunnel before restoring protected TCP.'
+
+    $cfg.StartOnOpen = $false
+    $cfg.Telegram = $false
+    $cfg.LastSeenVersion = (T 'AppVersion').GetField('Value', $sf).GetValue($null)
+    $cfg.Save()
+    $zapret = Join-Path $work 'zapret'
+    New-Item -ItemType Directory -Force -Path $zapret | Out-Null
+    Set-Content -LiteralPath (Join-Path $zapret 'service.bat') -Value 'set "LOCAL_VERSION=1.0.0"' -Encoding ASCII
+
+    $previousVpn = @(Core-Processes)[0].Id
+    $actualLauncher = Start-LauncherProcess
+    Wait-LauncherVpn $previousVpn
+    Check-ProxyRoute $true $true
+    $liveCore = @(Core-Processes)[0]
+    Stop-Process -Id $actualLauncher.Id
+    if (!$actualLauncher.WaitForExit(5000)) { throw 'The launcher process did not exit.' }
+    Check-ProxyRoute $true $true
+
+    Stop-Process -Id $liveCore.Id
+    if (!$liveCore.WaitForExit(5000)) { throw 'The VPN core did not exit.' }
+    Wait-For 'adapter to disappear with both processes stopped' { !(Get-NetAdapter -Name ZapretVPN -ErrorAction SilentlyContinue) }
+    Check-ProxyRoute $false $false
+    Write-Host 'Persistent WFP blocked the protected app with both the launcher and the VPN core terminated.'
+
+    $actualLauncher = Start-LauncherProcess
+    Wait-LauncherVpn $liveCore.Id
+    Check-ProxyRoute $true $true
+    Write-Host 'Restarting the actual launcher restored VPN traffic from the saved configuration.'
 } catch {
     foreach ($log in (Join-Path $work 'launcher.log'), (Join-Path $vpnDir 'sing-box.log'), $serverLog) {
         if ($log -and (Test-Path -LiteralPath $log)) { Get-Content -LiteralPath $log -Tail 20 | Out-Host }
     }
     throw
 } finally {
+    if ($actualLauncher -and !$actualLauncher.HasExited) { Stop-Process -Id $actualLauncher.Id; [void]$actualLauncher.WaitForExit(5000) }
     try {
     if ($dialogWatch) { $dialogWatch.Stop() }
     $script:unexpectedDialog = $false

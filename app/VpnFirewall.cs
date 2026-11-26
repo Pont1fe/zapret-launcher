@@ -153,7 +153,7 @@ namespace ZapretLauncher
             if (enabled && (scope == null || scope.Length == 0 || scope.Length > MaxApps || scope.Any(path => !Routes.IsAppPath(path))))
                 throw new ArgumentException("Защите нужны полные пути к 1–31 программе (.exe).", "scope");
             string signature = enabled ? "True:" + tunnel + ":" + string.Join("|", scope) : "False";
-            if (applied != null && signature == applied.Signature) return;
+            if (tunnel == 0 && applied != null && signature == applied.Signature) return;
             IntPtr engine;
             Check(FwpmEngineOpen0(null, 10, IntPtr.Zero, IntPtr.Zero, out engine));
             try
@@ -211,7 +211,8 @@ namespace ZapretLauncher
             try
             {
                 for (int i = 0; i < conditions.Length; i++) Marshal.StructureToPtr(conditions[i], IntPtr.Add(memory, i * size), false);
-                Filter filter = new Filter { key = Key(index++), display = new Display { name = "Zapret Launcher VPN protection" }, flags = 1,
+                // Only blocks survive a reboot or a BFE restart. A new tunnel must earn its own permit.
+                Filter filter = new Filter { key = Key(index++), display = new Display { name = "Zapret Launcher VPN protection" }, flags = permit ? 0u : 1u,
                     layer = layer, subLayer = SubLayer, weight = Number(1, priority), count = (uint)conditions.Length, conditions = memory,
                     action = new ActionType { type = permit ? 0x1002u : 0x1001u } };
                 ulong id;

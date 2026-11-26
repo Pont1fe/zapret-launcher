@@ -650,11 +650,11 @@ namespace ZapretLauncher
         }
 
         // Задержка запроса через сервер (мс), -1 — сайт через него не открылся
-        static async Task<int> Delay(int port, string secret, string outbound)
+        static async Task<int> Delay(int port, string secret, string outbound, string url = TestUrl)
         {
             try
             {
-                string json = await ApiGet(port, secret, "/proxies/" + outbound + "/delay?timeout=6000&url=" + Uri.EscapeDataString(TestUrl), 8000);
+                string json = await ApiGet(port, secret, "/proxies/" + outbound + "/delay?timeout=6000&url=" + Uri.EscapeDataString(url), 8000);
                 if (json == null) return -1;
                 Dictionary<string, object> d = new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
                 object v;
@@ -862,10 +862,14 @@ namespace ZapretLauncher
         }
 
         // Запрос через явно выбранный выход подключения. Правила TUN и системный HTTP-прокси не участвуют.
-        public static Task<int> VerifyTraffic()
+        public static async Task<int> VerifyTraffic()
         {
-            if (apiPort > 0) return Delay(apiPort, apiSecret, "proxy");
-            return Awg.Running ? Awg.BoundDelay() : Task.FromResult(-1);
+            int port = apiPort;
+            string secret = apiSecret;
+            if (port <= 0) return Awg.Running ? await Awg.BoundDelay() : -1;
+
+            int result = await Delay(port, secret, "proxy");
+            return result >= 0 ? result : await Delay(port, secret, "proxy", "https://1.1.1.1/cdn-cgi/trace");
         }
 
         // Текущие соединения через ядро: сайт, программа, через VPN или напрямую

@@ -111,24 +111,48 @@ namespace ZapretLauncher
             await ApplyVpnChanges();
         }
 
-        // Автовыбор: текущий сервер дважды подряд не ответил — переходим на самый быстрый из отвечающих
+        bool vpnHealthRecovery;
+
         async Task VpnHealth()
         {
-            if (!cfg.VpnAutoBest || !vpnRunning || busy || vpnHealthChecking || CurrentServer == null || DateTime.Now < vpnHealthDue) return;
-            vpnHealthDue = DateTime.Now.AddMinutes(1);
+            if (!cfg.VpnOn || !vpnRunning || busy || vpnHealthChecking || VpnSwitching || quitting ||
+                CurrentServer == null || DateTime.Now < vpnHealthDue) return;
+
+            vpnHealthDue = DateTime.Now.AddSeconds(30);
             int generation = vpnHealthGeneration;
-            int ms = await Vpn.VerifyTraffic();   // проверочный запрос идёт через VPN
-            if (generation != vpnHealthGeneration || VpnSwitching || quitting) return;
-            if (ms != -1) { vpnDeadChecks = 0; return; }
-            if (++vpnDeadChecks < 2 || cfg.VpnServers.Count < 2) return;
-            vpnDeadChecks = 0;
-            await PingVpnServers();
-            int best = BestServer(cfg.VpnSelected);
-            if (best < 0) return;
-            string from = CurrentServer.Name;
-            cfg.VpnSelected = best;
-            Notify("VPN: сервер «" + from + "» не отвечает — переключаюсь на «" + CurrentServer.Name + "»");
-            await ApplyVpnChanges();
+            int revision = vpnRouteRevision;
+            int ms = await Vpn.VerifyTraffic();
+            if (generation != vpnHealthGeneration || revision != vpnRouteRevision || VpnSwitching || busy || quitting) return;
+
+            vpnVerifiedMs = ms;
+            vpnHealthIssue = ms >= 0 ? null : ZapretLauncher.VpnHealth.Advice(null, false);
+            RefreshVpnHealthUi();
+            if (ms >= 0) { vpnDeadChecks = 0; return; }
+            if (++vpnDeadChecks < 2) return;
+
+            await RunBusy(async () =>
+            {
+                // Закрываем доступ перед заменой ядра и ждём успешную проверку нового туннеля.
+                ApplyVpnFirewall(cfg.VpnKillSwitch);
+                vpnHealthRecovery = true;
+                vpnRunning = false;
+                vpnLocked = VpnFirewall.Enabled;
+                vpnHealthIssue = ZapretLauncher.VpnHealth.Unresponsive;
+                Log.Write(vpnHealthIssue);
+                SetConnectionEvent(vpnHealthIssue);
+                RefreshVpnUi();
+
+                if (cfg.VpnAutoBest && cfg.VpnServers.Count > 1)
+                {
+                    await PingVpnServers();
+                    if (revision != vpnRouteRevision) return;
+                    int best = BestServer(cfg.VpnSelected);
+                    if (best >= 0) cfg.VpnSelected = best;
+                }
+
+                await StartVpnOrLock();
+            }, "VPN…");
+            RefreshVpnUi();
         }
 
         // Скорость и объём трафика через VPN — раз в пару секунд, пока это видно
@@ -315,6 +339,8 @@ namespace ZapretLauncher
 
         async Task StartVpn(bool quiet)
         {
+            vpnDeadChecks = 0;
+            vpnHealthDue = DateTime.Now.AddSeconds(30);
             ResetVpnHealth();
             try { await StartVpnCore(quiet); }
             catch (Exception e)
@@ -362,6 +388,16 @@ namespace ZapretLauncher
             if (revision != vpnRouteRevision) { vpnRestartPending = true; return; }
             if (protect) VpnFirewall.ApplyScoped(true, 0, scope);
             await Vpn.Start(server, mode, domains, apps);
+            int recoveryMs = -1;
+            if (vpnHealthRecovery)
+            {
+                recoveryMs = await Vpn.VerifyTraffic();
+                if (recoveryMs < 0)
+                {
+                    await Vpn.Stop();
+                    throw new InvalidOperationException(ZapretLauncher.VpnHealth.Unresponsive);
+                }
+            }
             if (revision != vpnRouteRevision)
             {
                 cfg.VpnOn = true;
@@ -400,7 +436,16 @@ namespace ZapretLauncher
             cfg.VpnOn = true;
             cfg.Save();
             SetConnectionEvent(reconnecting ? "VPN переподключился" : "VPN подключён", Vpn.DisplayName(server.Name) + " · " + T(VpnInfo.ModeName(cfg.VpnMode)));
-            Task check = CheckVpnTraffic();
+            vpnHealthRecovery = false;
+            if (recoveryMs >= 0)
+            {
+                vpnVerifiedMs = recoveryMs;
+                RefreshVpnHealthUi();
+            }
+            else
+            {
+                Task check = CheckVpnTraffic();
+            }
         }
 
         int vpnHealthGeneration;
@@ -413,7 +458,7 @@ namespace ZapretLauncher
             vpnHealthGeneration++;
             vpnHealthChecking = false;
             vpnVerifiedMs = -1;
-            vpnHealthIssue = null;
+            vpnHealthIssue = vpnHealthRecovery ? ZapretLauncher.VpnHealth.Unresponsive : null;
             RefreshVpnHealthUi();
         }
 
@@ -434,6 +479,7 @@ namespace ZapretLauncher
             vpnHealthChecking = false;
             if (quitting) return;
             vpnVerifiedMs = Vpn.Running ? ms : -1;
+            if (vpnVerifiedMs >= 0) vpnDeadChecks = 0;
             vpnHealthIssue = vpnVerifiedMs < 0 ? ZapretLauncher.VpnHealth.Advice(before == after || AwgDirect ? null : after, false) : null;
             Log.Write(vpnHealthIssue ?? ("Проверочный запрос прошёл через VPN: " + vpnVerifiedMs + " " + T("мс")));
             RefreshVpnHealthUi();
@@ -470,6 +516,8 @@ namespace ZapretLauncher
 
         async Task StopVpn()
         {
+            vpnHealthRecovery = false;
+            vpnDeadChecks = 0;
             ResetVpnHealth();
             cfg.VpnOn = false;
             cfg.Save();
