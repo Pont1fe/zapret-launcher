@@ -68,6 +68,7 @@ function Check-Tcp([bool]$expected) {
 $server = $null
 $window = $null
 try {
+    Write-Host 'Preparing loopback proxy'
     $password = [guid]::NewGuid().ToString('N')
     $serverConfig = Join-Path $work 'server.json'
     $serverLog = Join-Path $work 'server.log'
@@ -84,6 +85,7 @@ try {
         Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $listenPort -State Listen -ErrorAction SilentlyContinue
     }
 
+    Write-Host 'Creating WPF application'
     $app = New-Object Windows.Application
     $app.ShutdownMode = 'OnExplicitShutdown'
     $app.Resources.MergedDictionaries.Add([Windows.Markup.XamlReader]::Load($asm.GetManifestResourceStream('styles.xaml')))
@@ -101,7 +103,9 @@ try {
     (T 'I18n').GetMethod('Init', $sf).Invoke($null, @('ru'))
     (T 'Theme').GetMethod('Apply', $sf).Invoke($null, @('dark', $false, 'violet', $false))
     $lt = T 'Launcher'
+    Write-Host 'Opening launcher window'
     $launcher = [Activator]::CreateInstance($lt, $if, $null, @($false, $cfg), $null)
+    Write-Host 'Launcher window constructed'
     $window = (Field 'window').GetValue($launcher)
     [Threading.SynchronizationContext]::SetSynchronizationContext((New-Object Windows.Threading.DispatcherSynchronizationContext $window.Dispatcher))
     Wait-For 'launcher window' { $window.IsVisible -and $window.ActualWidth -gt 0 }
@@ -109,10 +113,12 @@ try {
     $window.FindName('VpnTabRoutes').IsChecked = $true
     Pump
 
+    Write-Host 'Turning on selected-app protection'
     $window.FindName('SwVpnKill').IsChecked = $true
     Click 'SwVpnKill'
     Wait-For 'enabled kill switch' { $cfg.VpnKillSwitch -and !(Field 'busy').GetValue($launcher) }
     Check-Tcp $true
+    Write-Host 'Connecting the launcher to the loopback proxy'
     Click 'BtnVpnToggle'
     Wait-For 'connected VPN' { (Field 'vpnRunning').GetValue($launcher) -and !(Field 'busy').GetValue($launcher) }
     Check-Tcp $true
@@ -154,7 +160,8 @@ try {
     throw
 } finally {
     try {
-        if ($launcher) { Wait-Task (Call 'StopVpn') }
+        Write-Host 'Stopping launcher test VPN'
+    if ($launcher) { Wait-Task (Call 'StopVpn') }
     } finally {
         foreach ($process in @(Core-Processes)) { if (!$process.HasExited) { Stop-Process -Id $process.Id } }
         if ($server -and !$server.HasExited) { Stop-Process -Id $server.Id }
