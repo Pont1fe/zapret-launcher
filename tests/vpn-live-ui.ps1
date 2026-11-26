@@ -1,8 +1,9 @@
 ﻿param(
-    [string]$Exe = (Join-Path $PSScriptRoot '..\dist\ZapretLauncher.exe'),
+    [string]$Exe,
     [Parameter(Mandatory)][string]$VpnCore
 )
 $ErrorActionPreference = 'Stop'
+if (!$Exe) { $Exe = Join-Path $PSScriptRoot '..\dist\ZapretLauncher.exe' }
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     !(New-Object Security.Principal.WindowsPrincipal ([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
     [Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
@@ -58,9 +59,9 @@ function Click([string]$name) {
 function Core-Processes { (T 'Vpn').GetMethod('Processes', $sf).Invoke($null, $null) }
 function Check-Tcp([bool]$expected) {
     # Minimal TCP handshake against the documented Cloudflare HTTPS address.
-    & $ordinary '1.1.1.1' 443
+    & $ordinary '1.0.0.1' 443
     if ($LASTEXITCODE -ne 0) { throw 'The ordinary application lost connectivity.' }
-    & $protected '1.1.1.1' 443
+    & $protected '1.0.0.1' 443
     if (($LASTEXITCODE -eq 0) -ne $expected) { throw "Protected TCP connectivity should be $expected." }
 }
 
@@ -102,6 +103,7 @@ try {
     $lt = T 'Launcher'
     $launcher = [Activator]::CreateInstance($lt, $if, $null, @($false, $cfg), $null)
     $window = (Field 'window').GetValue($launcher)
+    [Threading.SynchronizationContext]::SetSynchronizationContext((New-Object Windows.Threading.DispatcherSynchronizationContext $window.Dispatcher))
     Wait-For 'launcher window' { $window.IsVisible -and $window.ActualWidth -gt 0 }
     $window.FindName('NavVpn').IsChecked = $true
     $window.FindName('VpnTabRoutes').IsChecked = $true

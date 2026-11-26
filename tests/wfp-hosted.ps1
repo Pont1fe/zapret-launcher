@@ -69,6 +69,16 @@ function Start-Tunnel([string]$alias, [string[]]$addresses, [string[]]$routes, [
     return $p
 }
 
+function Wait-TunnelTraffic([string]$expectedLog) {
+    foreach ($address in $targets) {
+        Wait-For "$address routing to the test peer" {
+            $token = [guid]::NewGuid().ToString('N')
+            & $ordinary $address $peerPort 'tcp' $token
+            ($LASTEXITCODE -eq 0) -and ((Get-Content -LiteralPath $expectedLog -ErrorAction SilentlyContinue) -contains $token)
+        }
+    }
+}
+
 function Check-Traffic([string]$file, [string]$address, [string]$protocol, [string]$expectedLog) {
     $token = [guid]::NewGuid().ToString('N')
     & $file $address $peerPort $protocol $token
@@ -101,6 +111,7 @@ try {
     }
 
     $tunnel = Start-Tunnel 'ZapretVPN' $firstAddresses $hostRoutes $tunnelPort
+    Wait-TunnelTraffic $tunnelLog
     Wait-For 'first VPN LUID' { $luid.Invoke($null, $null) -ne 0 }
     $firstId = $luid.Invoke($null, $null)
     $policyApplied = $true
@@ -136,6 +147,7 @@ try {
 
     $replacement = Start-Tunnel 'ZapretTestReplacement' @('172.31.255.9/30', 'fd42:7a71:6::1/126') $hostRoutes $tunnelPort
     # Windows can retain the crashed device name even after the adapter disappears.
+    Wait-TunnelTraffic $tunnelLog
     $replacementAdapter = Get-NetAdapter -Name ZapretTestReplacement
     Add-Type -Namespace WfpTest -Name Native -MemberDefinition '[DllImport("iphlpapi.dll")] public static extern uint ConvertInterfaceIndexToLuid(uint index, out ulong luid);'
     [uint64]$secondId = 0
