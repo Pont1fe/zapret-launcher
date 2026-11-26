@@ -50,7 +50,7 @@ function Wait-For([string]$what, [scriptblock]$condition) {
 }
 function Wait-Task($task) {
     Wait-For 'launcher VPN task' { $task.IsCompleted }
-    $task.GetAwaiter().GetResult()
+    [void]$task.GetAwaiter().GetResult()
 }
 function Click([string]$name) {
     $button = $window.FindName($name)
@@ -70,6 +70,7 @@ $server = $null
 $window = $null
 try {
     Write-Host 'Preparing loopback proxy'
+    Get-NetAdapter | Format-Table Name, InterfaceDescription, ifIndex | Out-Host
     $password = [guid]::NewGuid().ToString('N')
     $serverConfig = Join-Path $work 'server.json'
     $serverLog = Join-Path $work 'server.log'

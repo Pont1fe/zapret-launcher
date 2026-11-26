@@ -213,6 +213,8 @@ namespace ZapretLauncher
             NetworkInterface ni = InternetAdapter(out index);
             if (ni == null || index < 0) return null;
             if (ni.Name == Vpn.InterfaceName) return null;   // свой VPN лаунчера — не повод ставить обход на паузу
+            // Hyper-V exposes the guest's ordinary Ethernet connection as a synthetic adapter.
+            if (ni.Description.StartsWith("Microsoft Hyper-V Network Adapter", StringComparison.OrdinalIgnoreCase)) return null;
             return IsRealAdapter(ni, index) ? null : ni.Name;
         }
 
