@@ -66,6 +66,19 @@ function Check-Tcp([bool]$expected) {
     if (($LASTEXITCODE -eq 0) -ne $expected) { throw "Protected TCP connectivity should be $expected." }
 }
 
+function Proxy-Connections {
+    @(Select-String -LiteralPath $serverLog -Pattern 'inbound/shadowsocks.*inbound connection to 1\.0\.0\.1:443$').Count
+}
+function Check-ProxyRoute([bool]$throughVpn, [bool]$online) {
+    $before = Proxy-Connections
+    Check-Tcp $online
+    $after = Proxy-Connections
+    $expected = if ($throughVpn) { 1 } else { 0 }
+    if (($after - $before) -ne $expected) {
+        throw "Expected $expected connection from the probes in the test VPN server log, saw $($after - $before)."
+    }
+}
+
 $server = $null
 $window = $null
 try {
@@ -131,11 +144,11 @@ try {
     $window.FindName('SwVpnKill').IsChecked = $true
     Click 'SwVpnKill'
     Wait-For 'enabled kill switch' { $cfg.VpnKillSwitch -and !(Field 'busy').GetValue($launcher) }
-    Check-Tcp $true
+    Check-ProxyRoute $false $true
     Write-Host 'Connecting the launcher to the loopback proxy'
     Click 'BtnVpnToggle'
     Wait-For 'connected VPN' { (Field 'vpnRunning').GetValue($launcher) -and !(Field 'busy').GetValue($launcher) }
-    Check-Tcp $true
+    Check-ProxyRoute $true $true
     Write-Host 'Launcher toggle enabled protection and the real core connected.'
 
     $old = @(Core-Processes)
@@ -152,7 +165,7 @@ try {
     $status = $window.FindName('VpnStatus').Text
     $paused = 'Трафик приостановлен'
     if ($status -cne $paused -or !$window.FindName('SwVpnKill').IsChecked) { throw "Wrong UI state after the crash: $status" }
-    Check-Tcp $false
+    Check-ProxyRoute $false $false
     Write-Host 'Launcher displayed paused traffic. The ordinary application still connected.'
 
     # Advance the retry timestamp; the production guard still decides and performs the restart.
@@ -165,7 +178,7 @@ try {
     if ($restarted.Count -ne 1 -or $restarted[0].Id -eq $old[0].Id -or $window.FindName('VpnStatus').Text -ceq $paused) {
         throw 'The launcher did not recover with a new VPN process and updated status.'
     }
-    Check-Tcp $true
+    Check-ProxyRoute $true $true
     Write-Host 'The launcher guard restarted the real core, updated the UI and restored protected TCP.'
 } catch {
     foreach ($log in (Join-Path $work 'launcher.log'), (Join-Path $vpnDir 'sing-box.log'), $serverLog) {
