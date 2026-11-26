@@ -43,6 +43,7 @@ function Wait-For([string]$what, [scriptblock]$condition) {
     $until = [DateTime]::UtcNow.AddSeconds(20)
     do {
         Pump
+        if ($script:unexpectedDialog) { throw "The launcher opened an unexpected dialog while waiting for $what." }
         if (& $condition) { return }
     } while ([DateTime]::UtcNow -lt $until)
     throw "Timed out waiting for $what. Status: $($window.FindName('VpnStatus').Text)"
@@ -108,6 +109,18 @@ try {
     Write-Host 'Launcher window constructed'
     $window = (Field 'window').GetValue($launcher)
     [Threading.SynchronizationContext]::SetSynchronizationContext((New-Object Windows.Threading.DispatcherSynchronizationContext $window.Dispatcher))
+    $script:unexpectedDialog = $false
+    $dialogWatch = New-Object Windows.Threading.DispatcherTimer
+    $dialogWatch.Interval = [TimeSpan]::FromMilliseconds(150)
+    $dialogWatch.Add_Tick({
+        foreach ($item in @($app.Windows)) {
+            if ($item.Owner -ne $window -or !$item.IsVisible) { continue }
+            $script:unexpectedDialog = $true
+            Write-Host "Unexpected launcher dialog: $($item.Title)"
+            $item.Close()
+        }
+    })
+    $dialogWatch.Start()
     Wait-For 'launcher window' { $window.IsVisible -and $window.ActualWidth -gt 0 }
     $window.FindName('NavVpn').IsChecked = $true
     $window.FindName('VpnTabRoutes').IsChecked = $true
@@ -160,7 +173,9 @@ try {
     throw
 } finally {
     try {
-        Write-Host 'Stopping launcher test VPN'
+    if ($dialogWatch) { $dialogWatch.Stop() }
+    $script:unexpectedDialog = $false
+    Write-Host 'Stopping launcher test VPN'
     if ($launcher) { Wait-Task (Call 'StopVpn') }
     } finally {
         foreach ($process in @(Core-Processes)) { if (!$process.HasExited) { Stop-Process -Id $process.Id } }
